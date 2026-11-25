@@ -32,8 +32,9 @@ jobs:
       - name: Tests
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q xorriso python3-pytest
-          cd backend && python3 -m pytest -q tests
+          sudo apt-get install -y -q xorriso
+          pip install pytest fastapi psutil
+          cd backend && python -m pytest -q tests
 
       - name: Cache Debian netinst
         uses: actions/cache@v4
