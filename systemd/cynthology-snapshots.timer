@@ -1,0 +1,10 @@
+[Unit]
+Description=Hourly check for due Cynthology snapshots
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

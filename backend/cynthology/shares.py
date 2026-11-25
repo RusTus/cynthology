@@ -47,9 +47,13 @@ def write_configs(shares: list[dict]) -> None:
                      "   browseable = yes", "   read only = yes",
                      f"   valid users = {' '.join(s['read_users'] + s['write_users'])}",
                      f"   write list = {' '.join(s['write_users'])}",
-                     "   vfs objects = btrfs" + (" recycle" if s["recycle_bin"] else "")]
+                     "   vfs objects = btrfs shadow_copy2" + (" recycle" if s["recycle_bin"] else ""),
+                     # snapshots (see snapshots.py) appear as Windows "Previous Versions"
+                     "   shadow:snapdir = .snapshots", "   shadow:sort = desc", "   shadow:format = @GMT-%Y.%m.%d-%H.%M.%S",
+                     "   hide dot files = yes"]
             if s["recycle_bin"]:
-                block += ["   recycle:repository = #recycle", "   recycle:keeptree = yes", "   recycle:versions = yes"]
+                block += ["   recycle:repository = #recycle", "   recycle:keeptree = yes", "   recycle:versions = yes",
+                          "   recycle:touch = yes", "   recycle:exclude_dir = .snapshots"]
             smb.append("\n".join(block))
         if s["nfs"]:
             nfs.append(f"{s['path']} {s['nfs_clients']}(rw,sync,no_subtree_check,root_squash)")
@@ -128,24 +132,3 @@ def delete_share(name: str, delete_data: bool = False, _=Depends(require_admin))
         run(["btrfs", "subvolume", "delete", share["path"]])
     write_configs([s for s in shares if s["name"] != name])
     return {"ok": True}
-
-
-@router.get("/{name}/snapshots")
-def snapshots(name: str, _=Depends(current_user)):
-    share = next((s for s in load() if s["name"] == name), None)
-    if not share:
-        raise HTTPException(404, "no such share")
-    snapdir = f"{share['path']}/.snapshots"
-    return sorted(os.listdir(snapdir)) if os.path.isdir(snapdir) else []
-
-
-@router.post("/{name}/snapshots")
-def take_snapshot(name: str, _=Depends(require_admin)):
-    import datetime
-    share = next((s for s in load() if s["name"] == name), None)
-    if not share:
-        raise HTTPException(404, "no such share")
-    stamp = datetime.datetime.now().strftime("GMT%Y.%m.%d-%H.%M.%S")
-    run(["mkdir", "-p", f"{share['path']}/.snapshots"])
-    run(["btrfs", "subvolume", "snapshot", "-r", share["path"], f"{share['path']}/.snapshots/{stamp}"])
-    return {"snapshot": stamp}

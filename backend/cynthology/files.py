@@ -69,6 +69,8 @@ def resolve(user: dict, path: str, write: bool = False) -> tuple[dict, str]:
     full = os.path.realpath(os.path.join(root, *parts[1:]))
     if full != root and not full.startswith(root + os.sep):
         raise HTTPException(403, "path leaves the shared folder")
+    if write and (full + os.sep).startswith(os.path.join(root, ".snapshots") + os.sep):
+        raise HTTPException(403, "snapshots are read-only - copy files out of them to restore")
     return share, full
 
 

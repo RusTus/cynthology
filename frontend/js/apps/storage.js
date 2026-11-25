@@ -137,6 +137,7 @@ async function storageDisks(p) {
   for (const d of disks) {
     const health = h("td", {}, h("button", { class: "btn", onclick: async () => {
       const s = await API.get(`/api/storage/disks/${d.name}/smart`);
+      if (!s.supported) return health.replaceChildren(h("span", { class: "pill" }, "SMART not available"), h("div", { class: "muted" }, "Virtual disks and some USB enclosures don't report health"));
       health.replaceChildren(h("span", { class: "pill " + (s.passed ? "ok" : "bad") }, s.passed ? "Healthy" : "Failing"),
         h("div", { class: "muted" }, `${s.temperature ?? "?"}°C · ${s.power_on_hours ?? "?"} h · realloc ${s.reallocated ?? "?"}`));
     } }, "Check"));

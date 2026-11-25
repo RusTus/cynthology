@@ -26,7 +26,7 @@ async function cpShares(p) {
         h("td", {}, s.smb ? h("span", { class: "pill" }, "SMB") : null, " ", s.nfs ? h("span", { class: "pill" }, "NFS") : null,
           s.recycle_bin ? h("span", { class: "pill" }, "Recycle bin") : null),
         h("td", {},
-          h("button", { class: "btn", onclick: () => act(() => API.post(`/api/shares/${s.name}/snapshots`), "Snapshot taken") }, "Snapshot"), " ",
+          h("button", { class: "btn", onclick: () => act(() => API.post(`/api/snapshots/${s.name}`), "Snapshot taken") }, "Snapshot"), " ",
           h("button", { class: "btn danger", onclick: async () => {
             if (!confirm(`Remove share ${s.name}? (data is kept)`)) return;
             await act(() => API.del(`/api/shares/${s.name}`), "Share removed"); reload();

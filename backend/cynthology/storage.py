@@ -39,6 +39,14 @@ MOCK_DISKS = [
 ]
 
 
+def _mounts(dev: dict) -> list[str]:
+    """All mount points on a device and everything stacked on it (partitions, LVM, md...)."""
+    out = [dev["mountpoint"]] if dev.get("mountpoint") else []
+    for c in dev.get("children") or []:
+        out += _mounts(c)
+    return out
+
+
 def list_disks() -> list[dict]:
     if DEV:
         used = {d for p in load_pools() for d in p["disks"]}
@@ -50,7 +58,7 @@ def list_disks() -> list[dict]:
         if not test_loop and (d.get("type") != "disk" or d["name"].startswith(("loop", "zram", "sr"))):
             continue
         children = d.get("children") or []
-        mounts = [c.get("mountpoint") for c in children] + [d.get("mountpoint")]
+        mounts = _mounts(d)
         disks.append({
             "name": d["name"], "path": d["path"], "size": int(d["size"]),
             "model": (d.get("model") or "").strip(), "serial": d.get("serial"),
@@ -69,10 +77,13 @@ def disks(_=Depends(current_user)):
 @router.get("/disks/{name}/smart")
 def smart(name: str, _=Depends(require_admin)):
     if DEV:
-        return {"passed": True, "temperature": 34, "power_on_hours": 12034, "reallocated": 0}
+        return {"supported": True, "passed": True, "temperature": 34, "power_on_hours": 12034, "reallocated": 0}
     data = json.loads(read_only(["smartctl", "-j", "-a", f"/dev/{name}"]) or "{}")
+    if "smart_status" not in data:
+        return {"supported": False, "passed": None}
     attrs = {a["id"]: a["raw"]["value"] for a in data.get("ata_smart_attributes", {}).get("table", [])}
     return {
+        "supported": True,
         "passed": data.get("smart_status", {}).get("passed"),
         "temperature": data.get("temperature", {}).get("current"),
         "power_on_hours": data.get("power_on_time", {}).get("hours"),
@@ -107,6 +118,15 @@ class PoolCreate(BaseModel):
     disks: list[str]
     label: str = ""
     fs: str = "btrfs"          # btrfs (snapshots, checksums, compression) | ext4
+
+
+def _save_mdadm_conf(initramfs: bool = False) -> None:
+    """Rewrite the ARRAY lines of mdadm.conf (keeping the rest) so arrays assemble at boot."""
+    cmd = ("grep -v '^ARRAY' /etc/mdadm/mdadm.conf > /etc/mdadm/mdadm.conf.new 2>/dev/null || true; "
+           "mdadm --detail --scan >> /etc/mdadm/mdadm.conf.new && mv /etc/mdadm/mdadm.conf.new /etc/mdadm/mdadm.conf")
+    if initramfs:
+        cmd += " && update-initramfs -u"
+    run(["sh", "-c", cmd])
 
 
 def _part(dev: str, n: int) -> str:
@@ -165,6 +185,7 @@ def create_pool(body: PoolCreate, _=Depends(require_admin)):
                 run(["sgdisk", "-n", f"{i}:{t.start_mib}M:{end}", "-t", f"{i}:FD00",
                      "-c", f"{i}:cyn{n}-t{i}", dev])
         run(["partprobe", dev], check=False)
+    run(["udevadm", "settle"], check=False)
 
     # 2. one md array per tier
     arrays = []
@@ -172,10 +193,10 @@ def create_pool(body: PoolCreate, _=Depends(require_admin)):
         md = f"/dev/md/cyn{n}t{i}"
         parts = [_part(f"/dev/{m}", i) for m in t.members]
         run(["mdadm", "--create", md, "--run", "--force", "--metadata=1.2", f"--level={t.level}",
-             f"--raid-devices={len(parts)}", "--bitmap=internal" if t.level != "0" else "--bitmap=none",
+             f"--raid-devices={len(parts)}", *(["--bitmap=internal"] if t.level in ("1", "5", "6", "10") else []),
              f"--name=cyn{n}t{i}", *parts])
         arrays.append({"md": md, "level": t.level, "members": t.members, "part": i})
-    run(["sh", "-c", "mdadm --detail --scan > /etc/mdadm/mdadm.conf && update-initramfs -u"])
+    _save_mdadm_conf(initramfs=True)
 
     # 3. LVM joins the tier arrays into one volume (lets SHR volumes grow later)
     mds = [a["md"] for a in arrays]
@@ -195,6 +216,7 @@ def create_pool(body: PoolCreate, _=Depends(require_admin)):
     run(["mkdir", "-p", mount])
     uuid = run(["blkid", "-s", "UUID", "-o", "value", lv]).strip()
     run(["sh", "-c", f"echo 'UUID={uuid} {mount} {body.fs} {opts},nofail 0 0' >> /etc/fstab"])
+    run(["systemctl", "daemon-reload"], check=False)
     run(["mount", mount])
 
     pool = {"id": n, "label": body.label or f"Volume {n}", "raid": body.raid, "fs": body.fs,
@@ -232,8 +254,9 @@ def add_disk(pool_id: int, body: AddDisk, _=Depends(require_admin)):
     dev, ref = f"/dev/{body.disk}", f"/dev/{ref_name}"
     run(["wipefs", "-a", dev])
     run(["sgdisk", "--zap-all", dev])
-    run(["sh", "-c", f"sgdisk --backup=/run/cyn-pt {ref} && sgdisk --load-backup=/run/cyn-pt {dev} && sgdisk -G {dev}"])
+    run(["sh", "-c", f"sgdisk --backup=/run/cyn-pt {ref} && sgdisk --load-backup=/run/cyn-pt {dev} && sgdisk -e -G {dev}"])
     run(["partprobe", dev], check=False)
+    run(["udevadm", "settle"], check=False)
 
     for a in pool["arrays"]:
         part = _part(dev, a["part"])
@@ -261,7 +284,7 @@ def add_disk(pool_id: int, body: AddDisk, _=Depends(require_admin)):
     else:
         run(["resize2fs", pool["lv"]])
     pool["disks"].append(body.disk)
-    run(["sh", "-c", "mdadm --detail --scan > /etc/mdadm/mdadm.conf"])
+    _save_mdadm_conf()
     save_pools(pools)
     return {"ok": True, "note": "Reshape runs in the background; the volume stays usable meanwhile."}
 

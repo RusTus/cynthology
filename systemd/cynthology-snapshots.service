@@ -1,0 +1,8 @@
+[Unit]
+Description=Cynthology scheduled snapshots
+
+[Service]
+Type=oneshot
+Environment=CYN_STATE=/var/lib/cynthology
+WorkingDirectory=/opt/cynthology/backend
+ExecStart=/usr/bin/python3 -m cynthology.snapshots
