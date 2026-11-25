@@ -46,7 +46,7 @@ def list_disks() -> list[dict]:
     out = read_only(["lsblk", "-J", "-b", "-o", "NAME,PATH,SIZE,MODEL,SERIAL,ROTA,TYPE,MOUNTPOINT,FSTYPE"])
     disks = []
     for d in json.loads(out or '{"blockdevices":[]}')["blockdevices"]:
-        test_loop = os.environ.get("CAIRN_TEST_LOOP") == "1" and d.get("type") == "loop"
+        test_loop = os.environ.get("CYN_TEST_LOOP") == "1" and d.get("type") == "loop"
         if not test_loop and (d.get("type") != "disk" or d["name"].startswith(("loop", "zram", "sr"))):
             continue
         children = d.get("children") or []
@@ -152,7 +152,7 @@ def create_pool(body: PoolCreate, _=Depends(require_admin)):
 
     pools = load_pools()
     n = max([x["id"] for x in pools], default=0) + 1
-    mount, vg = f"/volume{n}", f"vg_cairn{n}"
+    mount, vg = f"/volume{n}", f"vg_cyn{n}"
 
     # 1. partition every disk: one GPT partition per tier it belongs to (type FD00 = Linux RAID)
     for name in body.disks:
@@ -163,17 +163,17 @@ def create_pool(body: PoolCreate, _=Depends(require_admin)):
             if name in t.members:
                 end = "0" if t.size_mib == 0 else f"{t.start_mib + t.size_mib - 1}M"
                 run(["sgdisk", "-n", f"{i}:{t.start_mib}M:{end}", "-t", f"{i}:FD00",
-                     "-c", f"{i}:cairn{n}-t{i}", dev])
+                     "-c", f"{i}:cyn{n}-t{i}", dev])
         run(["partprobe", dev], check=False)
 
     # 2. one md array per tier
     arrays = []
     for i, t in enumerate(p.tiers, start=1):
-        md = f"/dev/md/cairn{n}t{i}"
+        md = f"/dev/md/cyn{n}t{i}"
         parts = [_part(f"/dev/{m}", i) for m in t.members]
         run(["mdadm", "--create", md, "--run", "--force", "--metadata=1.2", f"--level={t.level}",
              f"--raid-devices={len(parts)}", "--bitmap=internal" if t.level != "0" else "--bitmap=none",
-             f"--name=cairn{n}t{i}", *parts])
+             f"--name=cyn{n}t{i}", *parts])
         arrays.append({"md": md, "level": t.level, "members": t.members, "part": i})
     run(["sh", "-c", "mdadm --detail --scan > /etc/mdadm/mdadm.conf && update-initramfs -u"])
 
@@ -232,7 +232,7 @@ def add_disk(pool_id: int, body: AddDisk, _=Depends(require_admin)):
     dev, ref = f"/dev/{body.disk}", f"/dev/{ref_name}"
     run(["wipefs", "-a", dev])
     run(["sgdisk", "--zap-all", dev])
-    run(["sh", "-c", f"sgdisk --backup=/run/cairn-pt {ref} && sgdisk --load-backup=/run/cairn-pt {dev} && sgdisk -G {dev}"])
+    run(["sh", "-c", f"sgdisk --backup=/run/cyn-pt {ref} && sgdisk --load-backup=/run/cyn-pt {dev} && sgdisk -G {dev}"])
     run(["partprobe", dev], check=False)
 
     for a in pool["arrays"]:

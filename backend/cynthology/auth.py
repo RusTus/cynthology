@@ -1,4 +1,4 @@
-"""Login against the system's own users (PAM). Admin = member of the `cairn-admin` or `sudo` group."""
+"""Login against the system's own users (PAM). Admin = member of the `cynthology-admin` or `sudo` group."""
 import grp
 import secrets
 import time
@@ -11,7 +11,7 @@ from .util import DEV
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 SESSIONS: dict[str, dict] = {}
 SESSION_TTL = 8 * 3600
-ADMIN_GROUPS = ("cairn-admin", "sudo", "wheel")
+ADMIN_GROUPS = ("cynthology-admin", "sudo", "wheel")
 
 
 class Login(BaseModel):

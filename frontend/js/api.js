@@ -1,6 +1,6 @@
 // Tiny API client + DOM helpers shared by every app.
 const API = {
-  token: sessionStorage.getItem("cairn-token") || "",
+  token: sessionStorage.getItem("cyn-token") || "",
   async call(method, path, body) {
     const res = await fetch(path, {
       method,

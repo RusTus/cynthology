@@ -1,0 +1,4 @@
+#!/bin/sh
+# Cynthology: no-op shim for DSM-only tool
+echo "synoservicectl: not applicable on Cynthology (ignored)" >&2
+exit 0

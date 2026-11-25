@@ -5,10 +5,10 @@ import subprocess
 
 from fastapi import HTTPException
 
-# CAIRN_DEV=1 lets the UI run on a laptop/CI without root and without
+# CYN_DEV=1 lets the UI run on a laptop/CI without root and without
 # touching real disks: privileged commands are logged instead of executed.
-DEV = os.environ.get("CAIRN_DEV") == "1"
-STATE_DIR = os.path.abspath(os.environ.get("CAIRN_STATE", "/var/lib/cairn" if not DEV else "./.cairn-state"))
+DEV = os.environ.get("CYN_DEV") == "1"
+STATE_DIR = os.path.abspath(os.environ.get("CYN_STATE", "/var/lib/cynthology" if not DEV else "./.cyn-state"))
 os.makedirs(STATE_DIR, exist_ok=True)
 
 

@@ -10,7 +10,7 @@ from .util import DEV, run, valid_name
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 MIN_UID = 1000
-_DEV_USERS = [{"name": "admin", "uid": 1000, "full_name": "Administrator", "groups": ["cairn-admin", "users"]},
+_DEV_USERS = [{"name": "admin", "uid": 1000, "full_name": "Administrator", "groups": ["cynthology-admin", "users"]},
               {"name": "alice", "uid": 1001, "full_name": "Alice", "groups": ["users"]}]
 
 
@@ -43,7 +43,7 @@ def create_user(body: UserCreate, _=Depends(require_admin)):
     valid_name(body.name, "username")
     if len(body.password) < 8:
         raise HTTPException(400, "password must be at least 8 characters")
-    groups = "users,cairn-admin" if body.admin else "users"
+    groups = "users,cynthology-admin" if body.admin else "users"
     run(["useradd", "-m", "-s", "/usr/sbin/nologin", "-G", groups, "-c", body.full_name, body.name])
     run(["chpasswd"], input=f"{body.name}:{body.password}\n")
     run(["smbpasswd", "-a", "-s", body.name], input=f"{body.password}\n{body.password}\n")
@@ -76,6 +76,6 @@ def delete_user(name: str, _=Depends(require_admin)):
 @router.get("/groups")
 def list_groups(_=Depends(require_admin)):
     if DEV:
-        return [{"name": "users", "members": ["admin", "alice"]}, {"name": "cairn-admin", "members": ["admin"]}]
+        return [{"name": "users", "members": ["admin", "alice"]}, {"name": "cynthology-admin", "members": ["admin"]}]
     return [{"name": g.gr_name, "members": g.gr_mem} for g in grp.getgrall()
-            if g.gr_gid >= MIN_UID or g.gr_name in ("users", "cairn-admin")]
+            if g.gr_gid >= MIN_UID or g.gr_name in ("users", "cynthology-admin")]

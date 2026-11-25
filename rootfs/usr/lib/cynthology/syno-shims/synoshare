@@ -1,8 +1,8 @@
 #!/bin/sh
-# CairnOS shim for DSM's synoshare --get NAME (output format matches what package scripts parse)
+# Cynthology shim for DSM's synoshare --get NAME (output format matches what package scripts parse)
 [ "$1" = "--get" ] || { echo "synoshare shim: only --get is supported" >&2; exit 1; }
 path=$(python3 -c 'import json,sys
-try: s=json.load(open("/var/lib/cairn/shares.json"))
+try: s=json.load(open("/var/lib/cynthology/shares.json"))
 except Exception: s=[]
 print(next((x["path"] for x in s if x["name"].lower()==sys.argv[1].lower()),""))' "$2")
 [ -n "$path" ] || { echo "share $2 does not exist" >&2; exit 1; }

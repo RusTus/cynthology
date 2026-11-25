@@ -16,7 +16,7 @@ async function boot() {
         password: document.getElementById("login-pass").value,
       });
       API.token = r.token;
-      sessionStorage.setItem("cairn-token", r.token);
+      sessionStorage.setItem("cyn-token", r.token);
       startDesktop(r);
     } catch (ex) { err.textContent = ex.message; }
   });
@@ -41,7 +41,7 @@ function startDesktop(me) {
   document.addEventListener("click", () => document.querySelectorAll(".menu").forEach((m) => m.classList.add("hidden")));
   document.getElementById("user-menu").onclick = async (e) => {
     const a = e.target.dataset.act;
-    if (a === "logout") { await API.post("/api/auth/logout"); sessionStorage.removeItem("cairn-token"); location.reload(); }
+    if (a === "logout") { await API.post("/api/auth/logout"); sessionStorage.removeItem("cyn-token"); location.reload(); }
     else if (a && confirm(`Really ${a === "reboot" ? "restart" : "shut down"} the server?`)) act(() => API.post(`/api/system/power/${a}`), "Command sent");
   };
 

@@ -33,7 +33,7 @@ def _installed(app_id: str) -> bool:
 def _running(app_id: str) -> bool:
     if DEV:
         return app_id in _dev_installed
-    out = read_only(["docker", "compose", "-p", f"cairn-{app_id}", "ps", "-q"])
+    out = read_only(["docker", "compose", "-p", f"cyn-{app_id}", "ps", "-q"])
     return bool(out.strip())
 
 
@@ -62,7 +62,7 @@ def install(app_id: str, _=Depends(require_admin)):
     os.makedirs(data, exist_ok=True)
     with open(os.path.join(d, "compose.yml"), "w") as f:
         f.write(compose)
-    run(["docker", "compose", "-p", f"cairn-{app_id}", "-f", os.path.join(d, "compose.yml"), "up", "-d"])
+    run(["docker", "compose", "-p", f"cyn-{app_id}", "-f", os.path.join(d, "compose.yml"), "up", "-d"])
     return {"ok": True}
 
 
@@ -72,6 +72,6 @@ def uninstall(app_id: str, _=Depends(require_admin)):
         _dev_installed.discard(app_id)
         return {"ok": True}
     d = os.path.join(APPS_DIR, app_id)
-    run(["docker", "compose", "-p", f"cairn-{app_id}", "-f", os.path.join(d, "compose.yml"), "down"], check=False)
+    run(["docker", "compose", "-p", f"cyn-{app_id}", "-f", os.path.join(d, "compose.yml"), "down"], check=False)
     run(["rm", "-rf", d])
     return {"ok": True}

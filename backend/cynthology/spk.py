@@ -1,4 +1,4 @@
-"""Package Center: installs Synology-format .spk packages (e.g. SynoCommunity) on CairnOS.
+"""Package Center: installs Synology-format .spk packages (e.g. SynoCommunity) on Cynthology.
 
 Compatibility layer, written from the public SPK format (no Synology code):
   * package sources speak the DSM package-feed protocol (form POST -> {"packages": [...]})
@@ -8,7 +8,7 @@ Compatibility layer, written from the public SPK format (no Synology code):
   * conf/resource   -> usr-local-linker symlinks into /usr/local/{bin,lib,etc}
   * scripts/{preinst,postinst,preuninst,postuninst,start-stop-status} run with the SYNOPKG_* env
   * WIZARD_UIFILES/install_uifile -> wizard rendered by the web UI, answers passed as env vars
-  * each package gets a systemd unit cairn-pkg-<pkg>.service wrapping start-stop-status
+  * each package gets a systemd unit cyn-pkg-<pkg>.service wrapping start-stop-status
 Packages that need DSM-only components (WebStation, Synology's PHP/Apache packages, kernel
 modules built for Synology kernels) are detected via deppkgs and refused with an explanation.
 """
@@ -36,7 +36,7 @@ router = APIRouter(prefix="/api/packages", tags=["packages"])
 
 # What we tell package servers we are. SynoCommunity's x86-64 builds list these platforms.
 DSM_MAJOR, DSM_MINOR, DSM_MICRO, DSM_BUILD = 7, 2, 2, 72806
-ARCH = os.environ.get("CAIRN_SPK_ARCH", "geminilake")
+ARCH = os.environ.get("CYN_SPK_ARCH", "geminilake")
 X86_ARCHES = {"x86_64", "x64", "noarch", "apollolake", "avoton", "braswell", "broadwell", "broadwellnk",
               "broadwellnkv2", "broadwellntbap", "bromolow", "cedarview", "denverton", "epyc7002",
               "epyc7003", "epyc7003ntb", "geminilake", "geminilakenk", "grantley", "icelaked", "kvmx64",
@@ -49,7 +49,7 @@ ROOT = os.path.join(STATE_DIR, "root") if DEV else "/"
 PKG_DIR = os.path.join(ROOT, "var/packages")
 STAGING = os.path.join(STATE_DIR, "spk-staging")
 SOURCES_FILE = os.path.join(STATE_DIR, "package-sources.json")
-SHIM_PATH = "/usr/lib/cairn/syno-shims"
+SHIM_PATH = "/usr/lib/cynthology/syno-shims"
 DEFAULT_SOURCES = [
     {"name": "SynoCommunity", "url": "https://packages.synocommunity.com"},
     {"name": "xpenology", "url": "https://apps.xpenology.tech"},
@@ -97,10 +97,10 @@ def fetch_feed(src: dict) -> list[dict]:
     if hit and time.time() - hit[0] < 900:
         return hit[1]
     form = urllib.parse.urlencode({
-        "package_update_channel": "stable", "unique": f"cairnos_{ARCH}", "build": DSM_BUILD,
+        "package_update_channel": "stable", "unique": f"cynthology_{ARCH}", "build": DSM_BUILD,
         "language": "enu", "major": DSM_MAJOR, "minor": DSM_MINOR, "micro": DSM_MICRO, "nano": 0,
         "arch": ARCH, "timezone": "UTC"}).encode()
-    req = urllib.request.Request(src["url"], data=form, headers={"User-Agent": "CairnOS-PackageCenter/0.1"})
+    req = urllib.request.Request(src["url"], data=form, headers={"User-Agent": "Cynthology-PackageCenter/0.1"})
     with urllib.request.urlopen(req, timeout=30) as r:
         data = json.loads(r.read().decode())
     pkgs = data.get("packages", data if isinstance(data, list) else [])
@@ -188,7 +188,7 @@ def _open_url(name: str, info: dict) -> dict | None:
 def _running(name: str) -> bool:
     if DEV:
         return os.path.exists(_pkg_path(name, "enabled"))
-    return run(["systemctl", "is-active", f"cairn-pkg-{name}"], check=False, privileged=False).strip() == "active"
+    return run(["systemctl", "is-active", f"cyn-pkg-{name}"], check=False, privileged=False).strip() == "active"
 
 
 @router.get("/installed")
@@ -276,7 +276,7 @@ def _dynamic_wizard(script: str, info: dict) -> list:
     if DEV:
         return []
     import subprocess
-    out = tempfile.NamedTemporaryFile(prefix="cairn-wiz-", suffix=".json", delete=False)
+    out = tempfile.NamedTemporaryFile(prefix="cyn-wiz-", suffix=".json", delete=False)
     out.close()
     os.chmod(out.name, 0o666)
     os.chmod(script, 0o755)
@@ -322,7 +322,7 @@ def prepare(body: Prepare, _=Depends(require_admin)):
     os.makedirs(STAGING, exist_ok=True)
     fd, tmp = tempfile.mkstemp(suffix=".spk", dir=STAGING)
     md5 = hashlib.md5()
-    req = urllib.request.Request(pkg["link"], headers={"User-Agent": "CairnOS-PackageCenter/0.1"})
+    req = urllib.request.Request(pkg["link"], headers={"User-Agent": "Cynthology-PackageCenter/0.1"})
     try:
         with urllib.request.urlopen(req, timeout=300) as r, os.fdopen(fd, "wb") as f:
             while chunk := r.read(1 << 20):
@@ -364,7 +364,7 @@ def _env(name: str, info: dict, status: str, extra: dict | None = None) -> dict:
         "SYNOPKG_PKG_STATUS": status, "SYNOPKG_DSM_VERSION_MAJOR": str(DSM_MAJOR),
         "SYNOPKG_DSM_VERSION_MINOR": str(DSM_MINOR), "SYNOPKG_DSM_VERSION_BUILD": str(DSM_BUILD),
         "SYNOPKG_DSM_ARCH": ARCH, "SYNOPKG_DSM_LANGUAGE": "enu",
-        "SYNOPKG_TEMP_LOGFILE": f"/run/cairn-pkg/{name}.log", "SYNOPKG_TEMP_UPGRADE_FOLDER": f"{base}/tmp/upgrade",
+        "SYNOPKG_TEMP_LOGFILE": f"/run/cyn-pkg/{name}.log", "SYNOPKG_TEMP_UPGRADE_FOLDER": f"{base}/tmp/upgrade",
     }
     for k, v in (extra or {}).items():
         if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", k):
@@ -472,12 +472,12 @@ def _write_unit(name: str, info: dict, user: str | None) -> None:
     if DEV or info.get("startable", "yes") == "no":
         return
     env = _env(name, info, "START")
-    envfile = _pkg_path(name, "cairn.env")
+    envfile = _pkg_path(name, "cyn.env")
     with open(envfile, "w") as f:
         f.writelines(f'{k}="{v}"\n' for k, v in env.items())
     script = _pkg_path(name, "scripts", "start-stop-status")
     unit = f"""[Unit]
-Description=CairnOS package {info.get('displayname', name)}
+Description=Cynthology package {info.get('displayname', name)}
 After=network-online.target local-fs.target
 Wants=network-online.target
 
@@ -493,7 +493,7 @@ TimeoutStartSec=300
 [Install]
 WantedBy=multi-user.target
 """
-    with open(f"/etc/systemd/system/cairn-pkg-{name}.service", "w") as f:
+    with open(f"/etc/systemd/system/cyn-pkg-{name}.service", "w") as f:
         f.write(unit)
     run(["systemctl", "daemon-reload"])
 
@@ -504,9 +504,9 @@ def _service(name: str, action: str) -> None:
         open(flag, "w").close() if action == "start" else (os.path.exists(flag) and os.remove(flag))
         return
     if action == "start":
-        run(["systemctl", "enable", "--now", f"cairn-pkg-{name}"])
+        run(["systemctl", "enable", "--now", f"cyn-pkg-{name}"])
     else:
-        run(["systemctl", "disable", "--now", f"cairn-pkg-{name}"], check=False)
+        run(["systemctl", "disable", "--now", f"cyn-pkg-{name}"], check=False)
 
 
 @router.post("/installed/{name}/{action}")
@@ -528,7 +528,7 @@ def _remove(name: str, keep_data: bool) -> None:
     _link_usr_local(name, create=False)
     shutil.rmtree(base, ignore_errors=True)
     if not DEV:
-        unit = f"/etc/systemd/system/cairn-pkg-{name}.service"
+        unit = f"/etc/systemd/system/cyn-pkg-{name}.service"
         if os.path.exists(unit):
             os.remove(unit)
             run(["systemctl", "daemon-reload"])

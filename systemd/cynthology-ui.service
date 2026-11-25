@@ -1,0 +1,13 @@
+[Unit]
+Description=Cynthology web management (port 5000)
+After=network-online.target local-fs.target
+Wants=network-online.target
+
+[Service]
+Environment=CYN_STATE=/var/lib/cynthology
+WorkingDirectory=/opt/cynthology/backend
+ExecStart=/usr/bin/python3 -m uvicorn cynthology.main:app --host 0.0.0.0 --port 5000
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

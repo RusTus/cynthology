@@ -26,7 +26,7 @@ def info(_=Depends(current_user)):
         pass
     return {
         "hostname": socket.gethostname(),
-        "os": "CairnOS",
+        "os": "Cynthology",
         "kernel": platform.release(),
         "cpu": cpu_model,
         "cores": psutil.cpu_count(),

@@ -1,0 +1,72 @@
+# Builds the installer ISO + install tarball and publishes them as a GitHub Release.
+# Trigger: push a tag like v0.1.1-alpha   (or run manually from the Actions tab)
+name: Release ISO
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version (e.g. 0.1.1-alpha) - creates tag v<version>"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Work out version
+        id: v
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then V="${{ github.event.inputs.version }}"; else V="${GITHUB_REF_NAME#v}"; fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "$V" > VERSION
+
+      - name: Tests
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q xorriso python3-pytest
+          cd backend && python3 -m pytest -q tests
+
+      - name: Cache Debian netinst
+        uses: actions/cache@v4
+        with:
+          path: dist/cache
+          key: debian-netinst-${{ hashFiles('image/build-iso.sh') }}-${{ github.run_id }}
+          restore-keys: debian-netinst-
+
+      - name: Build ISO
+        env:
+          ISO_OUT_NAME: cynthology-amd64.iso
+        run: |
+          image/build-iso.sh "${{ steps.v.outputs.version }}"
+          git archive --format=tar.gz --prefix=cynthology/ --add-file=VERSION -o dist/cynthology-install.tar.gz HEAD
+          cd dist && sha256sum cynthology-install.tar.gz > cynthology-install.tar.gz.sha256
+          ls -la
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V="${{ steps.v.outputs.version }}"
+          cat > notes.md <<NOTES
+          **Cynthology $V** - alpha, for testing only.
+
+          - **cynthology-amd64.iso** - bootable installer (USB stick or VM, BIOS + UEFI). Needs internet during install.
+          - **cynthology-install.tar.gz** - install on an existing Debian 13 box: \`sudo bash install.sh\`
+
+          After installing, open \`http://<box-ip>:5000\` and sign in with the user you created.
+          NOTES
+          gh release create "v$V" --target "$GITHUB_SHA" --title "Cynthology $V" --notes-file notes.md \
+            dist/cynthology-amd64.iso dist/cynthology-amd64.iso.sha256 \
+            dist/cynthology-install.tar.gz dist/cynthology-install.tar.gz.sha256 \
+          || gh release upload "v$V" --clobber \
+            dist/cynthology-amd64.iso dist/cynthology-amd64.iso.sha256 \
+            dist/cynthology-install.tar.gz dist/cynthology-install.tar.gz.sha256

@@ -1,4 +1,4 @@
-.cairn-state/
+.cyn-state/
 __pycache__/
 *.pyc
 dist/

@@ -1,6 +1,6 @@
 import pytest
 
-from cairn.raidplan import MiB, plan
+from cynthology.raidplan import MiB, plan
 
 TB = 10**12
 

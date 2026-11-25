@@ -1,7 +1,7 @@
 """Shared folders: Btrfs subvolumes exported over SMB (Samba) and optionally NFS.
 
-Cairn owns /etc/samba/cairn-shares.conf (included from smb.conf) and
-/etc/exports.d/cairn.exports, regenerating both from shares.json on every change.
+Cynthology owns /etc/samba/cyn-shares.conf (included from smb.conf) and
+/etc/exports.d/cyn.exports, regenerating both from shares.json on every change.
 """
 import json
 import os
@@ -15,8 +15,8 @@ from .util import DEV, STATE_DIR, read_only, run, valid_name
 
 router = APIRouter(prefix="/api/shares", tags=["shares"])
 SHARES_FILE = os.path.join(STATE_DIR, "shares.json")
-SMB_CONF = os.path.join(STATE_DIR, "cairn-shares.conf") if DEV else "/etc/samba/cairn-shares.conf"
-NFS_CONF = os.path.join(STATE_DIR, "cairn.exports") if DEV else "/etc/exports.d/cairn.exports"
+SMB_CONF = os.path.join(STATE_DIR, "cyn-shares.conf") if DEV else "/etc/samba/cyn-shares.conf"
+NFS_CONF = os.path.join(STATE_DIR, "cyn.exports") if DEV else "/etc/exports.d/cyn.exports"
 
 
 class Share(BaseModel):
@@ -55,10 +55,10 @@ def write_configs(shares: list[dict]) -> None:
             nfs.append(f"{s['path']} {s['nfs_clients']}(rw,sync,no_subtree_check,root_squash)")
     os.makedirs(os.path.dirname(SMB_CONF), exist_ok=True)
     with open(SMB_CONF, "w") as f:
-        f.write("# Managed by CairnOS - do not edit\n\n" + "\n\n".join(smb) + "\n")
+        f.write("# Managed by Cynthology - do not edit\n\n" + "\n\n".join(smb) + "\n")
     os.makedirs(os.path.dirname(NFS_CONF), exist_ok=True)
     with open(NFS_CONF, "w") as f:
-        f.write("# Managed by CairnOS - do not edit\n" + "\n".join(nfs) + "\n")
+        f.write("# Managed by Cynthology - do not edit\n" + "\n".join(nfs) + "\n")
     with open(SHARES_FILE, "w") as f:
         json.dump(shares, f, indent=2)
     run(["smbcontrol", "all", "reload-config"], check=False)

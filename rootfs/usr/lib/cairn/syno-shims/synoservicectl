@@ -1,4 +1,0 @@
-#!/bin/sh
-# CairnOS: no-op shim for DSM-only tool
-echo "synoservicectl: not applicable on CairnOS (ignored)" >&2
-exit 0

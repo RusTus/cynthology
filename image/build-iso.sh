@@ -1,6 +1,6 @@
 #!/bin/bash
-# Build the CairnOS installer ISO by remastering the official Debian 13 netinst image.
-# Needs: curl, xorriso, git.   Usage: image/build-iso.sh [version]   -> dist/cairnos-<version>-amd64.iso
+# Build the Cynthology installer ISO by remastering the official Debian 13 netinst image.
+# Needs: curl, xorriso, git.   Usage: image/build-iso.sh [version]   -> dist/cynthology-<version>-amd64.iso
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VERSION="${1:-$(git -C "$ROOT" describe --tags --always 2>/dev/null || echo dev)}"
@@ -16,16 +16,16 @@ ISO_NAME=${LINE##* }
 [ -f "$CACHE/$ISO_NAME" ] || curl -fL --retry 3 "$MIRROR/$ISO_NAME" -o "$CACHE/$ISO_NAME"
 (cd "$CACHE" && echo "$LINE" | sha256sum -c -)
 
-echo "==> Staging CairnOS $VERSION"
-git -C "$ROOT" archive --format=tar --prefix=cairnos/ HEAD | tar x -C "$WORK"
-echo "$VERSION" > "$WORK/cairnos/VERSION"
+echo "==> Staging Cynthology $VERSION"
+git -C "$ROOT" archive --format=tar --prefix=cynthology/ HEAD | tar x -C "$WORK"
+echo "$VERSION" > "$WORK/cynthology/VERSION"
 
 echo "==> Writing ISO"
-OUT="$ROOT/dist/cairnos-$VERSION-amd64.iso"
+OUT="$ROOT/dist/${ISO_OUT_NAME:-cynthology-$VERSION-amd64.iso}"
 rm -f "$OUT"
 xorriso -indev "$CACHE/$ISO_NAME" -outdev "$OUT" \
-  -volid "CAIRNOS" \
-  -map "$WORK/cairnos" /cairnos \
+  -volid "CYNTHOLOGY" \
+  -map "$WORK/cynthology" /cynthology \
   -map "$ROOT/image/grub.cfg" /boot/grub/grub.cfg \
   -map "$ROOT/image/isolinux.cfg" /isolinux/isolinux.cfg \
   -rm /md5sum.txt -- \
