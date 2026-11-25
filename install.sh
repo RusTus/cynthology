@@ -18,7 +18,7 @@ echo "==> Installing packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
 apt-get install -y -q --no-install-recommends \
-  python3 python3-fastapi python3-uvicorn python3-psutil libpam0g ca-certificates curl sudo rsync util-linux acl openssl \
+  python3 python3-fastapi python3-uvicorn python3-psutil libpam0g ca-certificates curl sudo rsync util-linux acl openssl restic openssh-client \
   mdadm lvm2 btrfs-progs e2fsprogs gdisk parted smartmontools \
   samba smbclient nfs-kernel-server avahi-daemon \
   docker.io initramfs-tools
@@ -71,11 +71,11 @@ cp "$SRC"/systemd/cynthology-* /etc/systemd/system/
 cat "$SRC/VERSION" 2>/dev/null > /etc/cynthology-release || echo "Cynthology dev" > /etc/cynthology-release
 
 if [ "$CHROOT" = 1 ]; then
-  systemctl enable cynthology-ui cynthology-snapshots.timer cynthology-health.timer smbd avahi-daemon docker
+  systemctl enable cynthology-ui cynthology-snapshots.timer cynthology-health.timer cynthology-backup.timer smbd avahi-daemon docker
   systemctl enable wsdd2 2>/dev/null || systemctl enable wsdd 2>/dev/null || true
 elif [ "$NOSYSTEMD" != 1 ]; then
   systemctl daemon-reload
-  systemctl enable --now cynthology-ui cynthology-snapshots.timer cynthology-health.timer smbd avahi-daemon docker
+  systemctl enable --now cynthology-ui cynthology-snapshots.timer cynthology-health.timer cynthology-backup.timer smbd avahi-daemon docker
   systemctl restart cynthology-ui   # pick up new code when upgrading
   systemctl enable --now wsdd2 2>/dev/null || systemctl enable --now wsdd 2>/dev/null || true
 fi

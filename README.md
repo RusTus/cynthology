@@ -58,6 +58,7 @@ Running the same command again upgrades Cynthology in place. Settings, shares an
 | Users & groups (Linux + Samba passwords in sync), admin = `cynthology-admin`/`sudo` group | ✅ |
 | Services: SMB, NFS, SSH, WS-Discovery, Bonjour, Docker, rsync | ✅ |
 | Resource Monitor (CPU, RAM, network, disk) | ✅ |
+| **Backup** (restic): encrypted, versioned backups of shared folders to a USB drive, another NAS/server (SFTP), S3-compatible cloud (Backblaze B2, Wasabi, AWS, MinIO) or a restic REST server; schedules, retention, integrity checks, browse & restore any version, email on failure | ✅ |
 | Health monitoring + **email alerts** (degraded/rebuilding pool, SMART failure, volume >90% full, certificate expiry) | ✅ |
 | **Package Center**: Synology `.spk` packages from SynoCommunity and other sources, Manual Install, install wizards, start/stop/uninstall | ✅ tested with real SynoCommunity packages (Gotify, Transmission) |
 | Containers tab (Docker Compose one-click apps) | ✅ basic |
@@ -99,5 +100,5 @@ it, so the Download links above always point at the newest release.
 
 ## Roadmap
 
-Snapshot replication · Hyper-Backup-style backups (restic/borg) · UPS ·
+Snapshot replication · UPS ·
 package upgrades and dependency installs · hot-spare and SSD cache · 2FA · i18n.
