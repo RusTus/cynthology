@@ -7,6 +7,7 @@ set -euo pipefail
 SRC="$(cd "$(dirname "$0")" && pwd)"
 DEST=/opt/cairnos
 NOSYSTEMD="${CAIRN_NO_SYSTEMD:-0}"   # used by CI/container tests
+CHROOT="${CAIRN_CHROOT:-0}"         # set by the ISO installer (late_command): enable services, don't start them
 
 [ "$(id -u)" = 0 ] || { echo "Run as root (sudo bash install.sh)"; exit 1; }
 [ "$(uname -m)" = x86_64 ] || { echo "CairnOS alpha supports x86-64 only"; exit 1; }
@@ -36,7 +37,9 @@ rsync -a "$SRC/rootfs/" /
 echo "==> Configuring services"
 getent group cairn-admin >/dev/null || groupadd cairn-admin
 getent group synocommunity >/dev/null || groupadd -r synocommunity
-if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then usermod -aG cairn-admin,users "$SUDO_USER"; fi
+# the installing user (or, from the ISO, the first user created) becomes a CairnOS admin
+ADMIN_USER="${SUDO_USER:-$(getent passwd 1000 | cut -d: -f1)}"
+if [ -n "$ADMIN_USER" ] && [ "$ADMIN_USER" != root ]; then usermod -aG cairn-admin,users,sudo "$ADMIN_USER"; fi
 # Samba: include the share file CairnOS manages
 touch /etc/samba/cairn-shares.conf
 grep -q cairn-shares.conf /etc/samba/smb.conf || sed -i '/^\[global\]/a \   include = /etc/samba/cairn-shares.conf\n   server min protocol = SMB2_10\n   vfs objects = btrfs\n   map to guest = never' /etc/samba/smb.conf
@@ -52,11 +55,14 @@ ISSUE
 cp "$SRC/systemd/cairn-ui.service" /etc/systemd/system/
 echo "CairnOS 0.1.0-alpha" > /etc/cairnos-release
 
-if [ "$NOSYSTEMD" != 1 ]; then
+if [ "$CHROOT" = 1 ]; then
+  systemctl enable cairn-ui smbd avahi-daemon docker
+  systemctl enable wsdd2 2>/dev/null || systemctl enable wsdd 2>/dev/null || true
+elif [ "$NOSYSTEMD" != 1 ]; then
   systemctl daemon-reload
   systemctl enable --now cairn-ui smbd avahi-daemon docker
   systemctl enable --now wsdd2 2>/dev/null || systemctl enable --now wsdd 2>/dev/null || true
 fi
 IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 echo
-echo "CairnOS installed.  Open  http://${IP:-<this-box>}:5000  and sign in with ${SUDO_USER:-root}'s password."
+echo "CairnOS installed.  Open  http://${IP:-<this-box>}:5000  and sign in with ${ADMIN_USER:-root}'s password."
