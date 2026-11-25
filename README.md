@@ -53,6 +53,7 @@ Running the same command again upgrades Cynthology in place. Settings, shares an
 | Storage Manager: drives, SMART, pools with **Basic / RAID 0 / 1 / 5 / 6 / 10 / SHR / SHR-2**, Btrfs or ext4 | ✅ UI + planner (unit-tested); ⚠️ mdadm/LVM steps not yet run on real hardware |
 | SHR expand (add drive) / repair (replace failed drive), Btrfs scrub | ⚠️ first version, untested on hardware |
 | Shared folders (Btrfs subvolumes), SMB + NFS export, recycle bin, snapshots | ✅ |
+| File Station: browse, upload (drag & drop), download, new folder, rename, copy/move, delete to recycle bin, per-user share permissions | ✅ |
 | Users & groups (Linux + Samba passwords in sync), admin = `cynthology-admin`/`sudo` group | ✅ |
 | Services: SMB, NFS, SSH, WS-Discovery, Bonjour, Docker, rsync | ✅ |
 | Resource Monitor (CPU, RAM, network, disk) | ✅ |
@@ -96,6 +97,6 @@ it, so the Download links above always point at the newest release.
 
 ## Roadmap
 
-File Station · snapshot schedules and
+Snapshot schedules and
 replication · Hyper-Backup-style backups (restic/borg) · UPS · notifications/email ·
 package upgrades and dependency installs · hot-spare and SSD cache · 2FA · i18n.

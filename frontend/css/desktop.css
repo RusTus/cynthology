@@ -127,3 +127,17 @@ canvas.chart { width: 100%; height: 140px; display: block; }
 .wiz-list { margin: 0; padding-left: 20px; line-height: 1.8; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 textarea { font: inherit; font-family: ui-monospace, Menlo, monospace; font-size: 12px; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text); min-height: 110px; }
+
+/* File Station */
+.fs-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.fs-toolbar { flex-wrap: wrap; align-items: center; }
+.fs-toolbar .btn { padding: 5px 10px; }
+.fs-crumbs { padding: 8px 16px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.fs-crumbs a { color: var(--accent); text-decoration: none; }
+.fs-list { flex: 1; overflow: auto; }
+.fs-list.drop { outline: 2px dashed var(--accent); outline-offset: -6px; background: var(--accent-2); }
+.fs-table td, .fs-table th { padding: 6px 16px; }
+.fs-table tr { cursor: default; user-select: none; }
+.fs-table tr:hover td { background: var(--panel-2); }
+.fs-table tr.sel td { background: var(--accent-2); }
+.fs-status { padding: 6px 16px; border-top: 1px solid var(--line); font-size: 12px; }

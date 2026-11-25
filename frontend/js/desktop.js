@@ -1,5 +1,5 @@
 // Login, desktop icons, main menu, widgets, clock.
-const DESKTOP_APPS = ["storage", "control", "monitor", "appcenter"];
+const DESKTOP_APPS = ["files", "storage", "control", "appcenter", "monitor"];
 
 async function boot() {
   // session handed over from the HTTP origin by the setup wizard (see setup.js)

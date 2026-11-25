@@ -82,6 +82,9 @@ def create_share(body: Share, _=Depends(require_admin)):
     if not pool:
         raise HTTPException(400, "no such volume")
     path = f"{pool['mount']}/{body.name}"
+    if DEV:  # real folder under the dev state dir so File Station can be tried out
+        path = os.path.join(STATE_DIR, "root", pool["mount"].lstrip("/"), body.name)
+        os.makedirs(path, exist_ok=True)
     _make_dir(path)
     shares.append({**body.model_dump(), "path": path})
     write_configs(shares)
