@@ -60,11 +60,27 @@ def _is_admin(user: str) -> bool:
     return False
 
 
+def _ensure_smb_password(user: str, pw: str) -> None:
+    """Accounts made outside Cynthology (e.g. the user from the Debian installer) have no Samba
+    password, so SMB logins fail. After a successful PAM login we know the password: add it."""
+    if DEV or user == "root":
+        return
+    import subprocess
+    try:
+        known = subprocess.run(["pdbedit", "-L", "-u", user], capture_output=True, timeout=10).returncode == 0
+        if not known:
+            subprocess.run(["smbpasswd", "-a", "-s", user], input=f"{pw}\n{pw}\n", text=True,
+                           capture_output=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
 @router.post("/login")
 def login(body: Login):
     if not _pam_ok(body.username, body.password):
         time.sleep(1)
         raise HTTPException(401, "Invalid username or password")
+    _ensure_smb_password(body.username, body.password)
     token = secrets.token_urlsafe(32)
     SESSIONS[token] = {"user": body.username, "admin": _is_admin(body.username), "exp": time.time() + SESSION_TTL}
     _save_sessions()

@@ -24,7 +24,7 @@ async function storageOverview(p) {
 
 function poolCard(x) {
   const pct = x.total ? Math.round((x.used / x.total) * 100) : 0;
-  const cls = { healthy: "ok", rebuilding: "warn", degraded: "bad" }[x.status];
+  const cls = x.status === "healthy" ? "ok" : x.status.startsWith("rebuilding") ? "warn" : "bad";
   return h("div", { class: "card" },
     h("div", {}, h("b", {}, x.label), " ", h("span", { class: "pill " + cls }, x.status)),
     h("div", { class: "muted" }, `${x.mount} · ${RAID_LABEL[x.raid] || x.raid} · ${(x.fs || "btrfs").toUpperCase()}`),
@@ -56,7 +56,7 @@ async function storagePools(p) {
         h("td", {}, RAID_LABEL[x.raid], h("div", { class: "muted" }, (x.fs || "btrfs").toUpperCase())),
         h("td", {}, x.disks.join(", ")),
         h("td", {}, fmtBytes(x.total)),
-        h("td", {}, h("span", { class: "pill " + ({ healthy: "ok", rebuilding: "warn" }[x.status] || "bad") }, x.status)),
+        h("td", {}, h("span", { class: "pill " + (x.status === "healthy" ? "ok" : x.status.startsWith("rebuilding") ? "warn" : "bad") }, x.status)),
         h("td", {},
           h("button", { class: "btn", onclick: () => addDiskDialog(p, x) }, x.status === "degraded" ? "Repair" : "Add drive"), " ",
           x.fs !== "ext4" ? h("button", { class: "btn", onclick: () => act(() => API.post(`/api/storage/pools/${x.id}/scrub`), "Data scrub started") }, "Scrub") : null))))

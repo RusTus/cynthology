@@ -51,7 +51,13 @@ ADMIN_USER="${SUDO_USER:-$(getent passwd 1000 | cut -d: -f1)}"
 if [ -n "$ADMIN_USER" ] && [ "$ADMIN_USER" != root ]; then usermod -aG cynthology-admin,users,sudo "$ADMIN_USER"; fi
 # Samba: include the share file Cynthology manages
 touch /etc/samba/cyn-shares.conf
-grep -q cyn-shares.conf /etc/samba/smb.conf || sed -i '/^\[global\]/a \   include = /etc/samba/cyn-shares.conf\n   server min protocol = SMB2_10\n   vfs objects = btrfs\n   map to guest = never' /etc/samba/smb.conf
+# Global options go right after [global]; the include must be the LAST line, otherwise any
+# [global] lines after it would be parsed as options of the last share in the included file.
+sed -i -e '/^\s*include = \/etc\/samba\/cyn-shares.conf/d' -e '/^\s*# Cynthology:/d' \
+       -e '/^\s*server min protocol = SMB2_10$/d' -e '/^\s*vfs objects = btrfs$/d' -e '/^\s*map to guest = never$/d' /etc/samba/smb.conf
+sed -i '/^\[global\]/a \   # Cynthology: global options\n   server min protocol = SMB2_10' /etc/samba/smb.conf
+sed -i 's/^\(\s*\)map to guest = .*/\1map to guest = never/' /etc/samba/smb.conf   # no anonymous fallback
+printf '\n# Cynthology: shared folders (keep this the last line)\ninclude = /etc/samba/cyn-shares.conf\n' >> /etc/samba/smb.conf
 sed -i '/^\[homes\]/,/^\[/{s/^\(\s*browseable\s*=\s*\).*/\1no/}' /etc/samba/smb.conf || true
 touch /etc/exports.d/cyn.exports
 # /etc/issue shows the web address on the console
