@@ -6,38 +6,50 @@ components. It runs on Debian 13.
 
 > **Alpha:** a proof of concept to check direction. Don't put the only copy of any data on it.
 
-## ⬇️ Download (current release)
+## Install
 
-| File | What it is |
-|---|---|
-| **[cynthology-amd64.iso](https://github.com/RusTus/cynthology/releases/latest/download/cynthology-amd64.iso)** · [sha256](https://github.com/RusTus/cynthology/releases/latest/download/cynthology-amd64.iso.sha256) | Bootable installer for USB stick or VM (BIOS + UEFI, ~760 MB) |
-| **[cynthology-install.tar.gz](https://github.com/RusTus/cynthology/releases/latest/download/cynthology-install.tar.gz)** · [sha256](https://github.com/RusTus/cynthology/releases/latest/download/cynthology-install.tar.gz.sha256) | Install onto an existing Debian 13 system |
+**Requirement: a clean, minimal Debian 13 (trixie) x86-64 install.** This works on any PC,
+server, or VM (VMware, Proxmox, Hyper-V, VirtualBox).
 
-Release notes and older versions: **[Releases](https://github.com/RusTus/cynthology/releases)**
+1. Install Debian 13 from the [netinst ISO](https://www.debian.org/distrib/netinst) onto your **boot disk only**.
+   - At "Software selection", untick the desktop environment and tick only **SSH server**
+     and **standard system utilities**.
+   - Leave the root password empty, so the user you create gets `sudo`. That user
+     becomes the Cynthology administrator.
+   - Leave the data drives untouched. Cynthology's Storage Manager sets them up.
+2. Log in on the console (or over SSH) and run:
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/RusTus/cynthology/main/get.sh | sudo bash
+   ```
+3. Open **`https://<box-ip>:5001`** (or `http://<box-ip>:5000`) and sign in with your Debian user.
+   The browser warns once about the self-signed certificate, which is expected. A setup wizard
+   then walks you through server name, time zone, HTTPS, and storage.
 
-## Install from the ISO (recommended)
+Running the same command again upgrades Cynthology in place. Settings, shares and packages are kept.
 
-1. Write the ISO to a USB stick (balenaEtcher, Rufus in **DD mode**, or `dd`), or attach it to a VM.
-2. Boot it and choose **Install Cynthology**. The box needs a wired internet connection during install.
-3. The installer asks for language, network, hostname, a **user and password** (that user becomes
-   the administrator), and **which disk to install the system on**. Pick your small boot
-   SSD/USB disk and leave the data drives alone. Storage Manager sets those up later.
-4. After the reboot, the console shows the address: open `http://<box-ip>:5000` and sign in.
+<details><summary>Other options</summary>
 
-## Install on an existing Debian 13 box
+- A specific release: `curl -fsSL https://raw.githubusercontent.com/RusTus/cynthology/main/get.sh | sudo CYN_VERSION=v0.1.1-alpha bash`
+- The development code from `main`: `... | sudo CYN_CHANNEL=main bash`
+- Offline / manual: download `cynthology-install.tar.gz` from
+  [Releases](https://github.com/RusTus/cynthology/releases), then
+  `tar xzf cynthology-install.tar.gz && cd cynthology && sudo bash install.sh`
+- **All-in-one installer ISO** (Debian 13 + Cynthology in one go, BIOS + UEFI):
+  [cynthology-amd64.iso](https://github.com/RusTus/cynthology/releases/latest/download/cynthology-amd64.iso)
+  ([sha256](https://github.com/RusTus/cynthology/releases/latest/download/cynthology-amd64.iso.sha256)).
+  Boot it, choose **Install Cynthology**, and pick your boot disk when asked where to install.
+  It needs internet during install.
 
-```bash
-curl -LO https://github.com/RusTus/cynthology/releases/latest/download/cynthology-install.tar.gz
-tar xzf cynthology-install.tar.gz && cd cynthology && sudo bash install.sh
-```
-
-Leave the data drives empty: Storage Manager wipes the drives you select when it creates a pool.
+</details>
 
 ## What works so far
 
 | Area | Status |
 |---|---|
 | Web desktop: login, taskbar, main menu, draggable windows, widgets | ✅ |
+| HTTPS on 5001 (self-signed or your own certificate), optional HTTP→HTTPS redirect | ✅ |
+| First-run setup wizard (server name, time zone/NTP, HTTPS, storage) | ✅ |
+| VM guest tools installed automatically (VMware, KVM/Proxmox, Hyper-V) | ✅ |
 | Storage Manager: drives, SMART, pools with **Basic / RAID 0 / 1 / 5 / 6 / 10 / SHR / SHR-2**, Btrfs or ext4 | ✅ UI + planner (unit-tested); ⚠️ mdadm/LVM steps not yet run on real hardware |
 | SHR expand (add drive) / repair (replace failed drive), Btrfs scrub | ⚠️ first version, untested on hardware |
 | Shared folders (Btrfs subvolumes), SMB + NFS export, recycle bin, snapshots | ✅ |
@@ -84,6 +96,6 @@ it, so the Download links above always point at the newest release.
 
 ## Roadmap
 
-HTTPS + first-run wizard · File Station · snapshot schedules and
+File Station · snapshot schedules and
 replication · Hyper-Backup-style backups (restic/borg) · UPS · notifications/email ·
 package upgrades and dependency installs · hot-spare and SSD cache · 2FA · i18n.

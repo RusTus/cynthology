@@ -18,7 +18,7 @@ echo "==> Installing packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
 apt-get install -y -q --no-install-recommends \
-  python3 python3-fastapi python3-uvicorn python3-psutil libpam0g ca-certificates curl sudo rsync util-linux acl \
+  python3 python3-fastapi python3-uvicorn python3-psutil libpam0g ca-certificates curl sudo rsync util-linux acl openssl \
   mdadm lvm2 btrfs-progs e2fsprogs gdisk parted smartmontools \
   samba smbclient nfs-kernel-server avahi-daemon \
   docker.io initramfs-tools
@@ -28,6 +28,15 @@ for alts in "wsdd2 wsdd" "docker-compose docker-compose-plugin"; do
     if apt-cache show "$p" >/dev/null 2>&1; then apt-get install -y -q --no-install-recommends "$p" && break; fi
   done
 done
+
+# Virtual machine guest tools (clean shutdown from the hypervisor, IP shown in its console)
+VIRT=$(systemd-detect-virt 2>/dev/null || true)
+VENDOR=$(cat /sys/class/dmi/id/sys_vendor 2>/dev/null || true)
+case "$VIRT:$VENDOR" in
+  vmware*|*VMware*) apt-get install -y -q open-vm-tools ;;
+  kvm*|qemu*|*QEMU*) apt-get install -y -q qemu-guest-agent ;;
+  microsoft*|*Microsoft*) apt-get install -y -q hyperv-daemons ;;
+esac
 
 echo "==> Installing Cynthology to $DEST"
 mkdir -p "$DEST" /var/lib/cynthology /etc/exports.d
@@ -49,7 +58,7 @@ touch /etc/exports.d/cyn.exports
 cat > /etc/issue <<'ISSUE'
 Cynthology alpha \n  (\l)
 
-  Web management:  http://\4:5000
+  Web management:  https://\4:5001   (or http://\4:5000)
 
 ISSUE
 cp "$SRC/systemd/cynthology-ui.service" /etc/systemd/system/
@@ -61,8 +70,10 @@ if [ "$CHROOT" = 1 ]; then
 elif [ "$NOSYSTEMD" != 1 ]; then
   systemctl daemon-reload
   systemctl enable --now cynthology-ui smbd avahi-daemon docker
+  systemctl restart cynthology-ui   # pick up new code when upgrading
   systemctl enable --now wsdd2 2>/dev/null || systemctl enable --now wsdd 2>/dev/null || true
 fi
 IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 echo
-echo "Cynthology installed.  Open  http://${IP:-<this-box>}:5000  and sign in with ${ADMIN_USER:-root}'s password."
+echo "Cynthology installed.  Open  https://${IP:-<this-box>}:5001  (or http://${IP:-<this-box>}:5000)"
+echo "and sign in as ${ADMIN_USER:-root}. The browser warns once about the self-signed certificate - that is expected."

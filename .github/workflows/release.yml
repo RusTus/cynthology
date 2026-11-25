@@ -59,10 +59,13 @@ jobs:
           cat > notes.md <<NOTES
           **Cynthology $V** - alpha, for testing only.
 
-          - **cynthology-amd64.iso** - bootable installer (USB stick or VM, BIOS + UEFI). Needs internet during install.
-          - **cynthology-install.tar.gz** - install on an existing Debian 13 box: \`sudo bash install.sh\`
+          **Install** on a clean, minimal Debian 13 x86-64 system:
+          \`curl -fsSL https://raw.githubusercontent.com/RusTus/cynthology/main/get.sh | sudo bash\`
 
-          After installing, open \`http://<box-ip>:5000\` and sign in with the user you created.
+          - **cynthology-install.tar.gz** - the same installer for offline/manual use (\`sudo bash install.sh\`)
+          - **cynthology-amd64.iso** - optional all-in-one installer (Debian 13 + Cynthology, BIOS + UEFI, needs internet)
+
+          Then open \`https://<box-ip>:5001\` and sign in with your Debian user.
           NOTES
           gh release create "v$V" --target "$GITHUB_SHA" --title "Cynthology $V" --notes-file notes.md \
             dist/cynthology-amd64.iso dist/cynthology-amd64.iso.sha256 \

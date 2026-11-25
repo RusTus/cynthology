@@ -3,8 +3,8 @@ const TIER_COLORS = ["#1f7a8c", "#3a9fb0", "#6bbac6", "#9bd0d8"];
 
 WM.register("storage", {
   name: "Storage Manager", icon: "🗄️", color: "#1f7a8c",
-  open(body) {
-    sectioned({
+  open(body, win) {
+    win.show = sectioned({
       overview: { label: "Overview", render: storageOverview },
       volumes: { label: "Storage Pools", render: storagePools },
       disks: { label: "Drives", render: storageDisks },
@@ -145,4 +145,12 @@ async function storageDisks(p) {
       h("td", {}, d.system ? "System" : d.in_use ? "In use" : "Not initialised"), health));
   }
   p.append(h("h2", {}, "Drives"), tbl);
+}
+
+// Used by the setup wizard: jump straight to "Create storage pool".
+function openCreatePool() {
+  WM.open("storage");
+  const w = WM.wins.storage;
+  w.show("volumes");
+  createPoolWizard(w.show.pane);
 }

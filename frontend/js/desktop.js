@@ -2,6 +2,14 @@
 const DESKTOP_APPS = ["storage", "control", "monitor", "appcenter"];
 
 async function boot() {
+  // session handed over from the HTTP origin by the setup wizard (see setup.js)
+  const frag = new URLSearchParams(location.hash.slice(1));
+  if (frag.get("token")) {
+    API.token = frag.get("token");
+    sessionStorage.setItem("cyn-token", API.token);
+    history.replaceState(null, "", location.pathname);
+    if (frag.get("open") === "create-pool") boot.after = () => openCreatePool();
+  }
   if (API.token) {
     try { const me = await API.get("/api/auth/me"); return startDesktop(me); } catch { /* fall through to login */ }
   }
@@ -48,6 +56,8 @@ function startDesktop(me) {
   const clock = () => (document.getElementById("clock").textContent = new Date().toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" }));
   clock(); setInterval(clock, 15000);
   widgets(); setInterval(widgets, 5000);
+  if (boot.after) boot.after();
+  else if (me.admin) API.get("/api/setup/status").then((s) => s.needs_setup && runSetupWizard());
 }
 
 async function widgets() {

@@ -3,6 +3,8 @@ WM.register("control", {
   name: "Control Panel", icon: "⚙️", color: "#4f6d8a",
   open(body) {
     sectioned({
+      general: { label: "General", render: cpGeneral },
+      security: { label: "Security", render: cpSecurity },
       shares: { label: "Shared Folders", render: cpShares },
       users: { label: "Users & Groups", render: cpUsers },
       services: { label: "File Services", render: cpServices },
@@ -83,4 +85,59 @@ async function cpInfo(p) {
   p.append(h("h2", {}, "Info Center"), h("table", {},
     row("Server name", i.hostname), row("OS", i.os), row("Kernel", i.kernel), row("CPU", `${i.cpu} (${i.cores} threads)`),
     row("Memory", fmtBytes(i.memory_total)), row("Uptime", fmtUptime(i.uptime))));
+}
+
+async function cpGeneral(p) {
+  const g = await API.get("/api/setup/general");
+  const f = { hostname: g.hostname, timezone: g.timezone, ntp: g.ntp };
+  p.append(h("h2", {}, "General"), h("div", { class: "form" },
+    h("label", {}, "Server name", h("input", { value: f.hostname, oninput: (e) => (f.hostname = e.target.value.trim()) })),
+    h("label", {}, "Time zone", h("input", { list: "cp-tz", value: f.timezone, oninput: (e) => (f.timezone = e.target.value.trim()) }),
+      h("datalist", { id: "cp-tz" }, g.timezones.map((z) => h("option", { value: z })))),
+    h("label", { class: "check" }, h("input", { type: "checkbox", checked: f.ntp, onchange: (e) => (f.ntp = e.target.checked) }), "Sync time with internet time servers (NTP)"),
+    h("div", { class: "muted" }, "IP addresses: ", g.ips.filter((i) => i !== "127.0.0.1" && i !== "::1").join(", ")),
+    h("div", { class: "toolbar" },
+      h("button", { class: "btn primary", onclick: async () => {
+        const r = await act(() => API.put("/api/setup/general", f), "Saved");
+        if (r.restarting) { toast("Server name changed - reconnecting…"); await waitForServer(); }
+      } }, "Apply"),
+      h("button", { class: "btn", onclick: runSetupWizard }, "Run setup wizard again"))));
+}
+
+async function cpSecurity(p) {
+  const s = await API.get("/api/security");
+  const c = s.cert;
+  const reload = () => { p.replaceChildren(); cpSecurity(p); };
+  const row = (k, v) => h("tr", {}, h("th", {}, k), h("td", {}, v));
+  const certPem = h("textarea", { placeholder: "-----BEGIN CERTIFICATE-----\n… (certificate, then any intermediate certificates)" });
+  const keyPem = h("textarea", { placeholder: "-----BEGIN PRIVATE KEY-----\n…" });
+  p.append(h("h2", {}, "Security"),
+    h("h3", { class: "pc-group" }, "HTTPS"),
+    h("div", { class: "form" },
+      h("div", {}, `HTTP on port ${s.http_port}, HTTPS on port ${s.https_port}.`),
+      h("label", { class: "check" }, h("input", { type: "checkbox", checked: s.https_redirect, onchange: async (e) => {
+        await act(() => API.put("/api/security", { https_redirect: e.target.checked }), e.target.checked ? "HTTP now redirects to HTTPS" : "Redirect off");
+        if (e.target.checked && location.protocol === "http:") switchToHttps(false);
+      } }), "Redirect HTTP connections to HTTPS")),
+    h("h3", { class: "pc-group", style: "margin-top:20px" }, "Certificate"),
+    c.present ? h("table", {},
+      row("Type", h("span", { class: "pill " + (c.kind === "uploaded" ? "ok" : "") }, c.kind)),
+      row("Issued to", c.subject), row("Issued by", c.issuer),
+      row("Expires", h("span", { class: c.days_left < 30 ? "err" : "" }, `${c.expires} (${c.days_left} days)`)),
+      row("Valid for", h("span", { class: "mono" }, c.san.join(", "))))
+      : h("p", { class: "muted" }, "No certificate yet."),
+    h("div", { class: "toolbar", style: "margin-top:10px" },
+      h("button", { class: "btn", onclick: async () => {
+        if (!confirm("Create a new self-signed certificate? The web server restarts and browsers will warn once more.")) return;
+        await act(() => API.post("/api/security/cert/self-signed"), "New certificate - reconnecting…");
+        await waitForServer(); reload();
+      } }, "Create new self-signed certificate")),
+    h("h3", { class: "pc-group", style: "margin-top:20px" }, "Use your own certificate"),
+    h("div", { class: "form", style: "max-width:720px" },
+      h("div", { class: "muted" }, "Paste PEM text, e.g. from Let's Encrypt (fullchain.pem + privkey.pem)."),
+      h("label", {}, "Certificate (+ intermediates)", certPem), h("label", {}, "Private key", keyPem),
+      h("div", {}, h("button", { class: "btn primary", onclick: async () => {
+        await act(() => API.post("/api/security/cert/upload", { cert: certPem.value, key: keyPem.value }), "Certificate installed - reconnecting…");
+        await waitForServer(); reload();
+      } }, "Install certificate"))));
 }

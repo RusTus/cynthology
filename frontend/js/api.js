@@ -61,5 +61,6 @@ function sectioned(sections, body) {
   for (const [k, s] of Object.entries(sections)) side.append(h("button", { "data-k": k, onclick: () => show(k) }, s.label));
   body.append(side, pane);
   show(Object.keys(sections)[0]);
+  show.pane = pane;
   return show;
 }

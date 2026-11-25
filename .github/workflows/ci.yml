@@ -11,4 +11,4 @@ jobs:
       - run: pip install pytest fastapi psutil
       - run: cd backend && python -m pytest -q tests
       - run: for f in frontend/js/*.js frontend/js/apps/*.js; do node --check "$f"; done
-      - run: bash -n install.sh && bash -n image/build-iso.sh
+      - run: bash -n install.sh && bash -n get.sh && bash -n image/build-iso.sh
