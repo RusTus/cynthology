@@ -1,0 +1,8 @@
+{
+  "id": "transmission",
+  "name": "Transmission",
+  "description": "BitTorrent client",
+  "icon": "\u2b07\ufe0f",
+  "port": "9091",
+  "compose": "services:\n  transmission:\n    image: lscr.io/linuxserver/transmission:4.0.6\n    restart: unless-stopped\n    ports: [\"9091:9091\", \"51413:51413\"]\n    volumes:\n      - ${DATA}:/config\n      - /volume1/downloads:/downloads\n"
+}

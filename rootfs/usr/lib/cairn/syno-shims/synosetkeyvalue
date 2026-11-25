@@ -1,0 +1,5 @@
+#!/bin/sh
+# synosetkeyvalue FILE KEY VALUE
+f="$1"; k="$2"; v="$3"
+touch "$f"
+if grep -q "^$k=" "$f"; then sed -i "s|^$k=.*|$k=\"$v\"|" "$f"; else echo "$k=\"$v\"" >> "$f"; fi

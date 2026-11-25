@@ -1,0 +1,8 @@
+{
+  "id": "homeassistant",
+  "name": "Home Assistant",
+  "description": "Home automation hub",
+  "icon": "\ud83c\udfe0",
+  "port": "8123",
+  "compose": "services:\n  homeassistant:\n    image: ghcr.io/home-assistant/home-assistant:2025.1\n    restart: unless-stopped\n    network_mode: host\n    volumes:\n      - ${DATA}:/config\n"
+}

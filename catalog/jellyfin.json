@@ -1,0 +1,8 @@
+{
+  "id": "jellyfin",
+  "name": "Jellyfin",
+  "description": "Media server for movies, TV and music",
+  "icon": "\ud83c\udfac",
+  "port": "8096",
+  "compose": "services:\n  jellyfin:\n    image: jellyfin/jellyfin:10.10.7\n    restart: unless-stopped\n    network_mode: host\n    volumes:\n      - ${DATA}/config:/config\n      - ${DATA}/cache:/cache\n      - /volume1:/media:ro\n"
+}

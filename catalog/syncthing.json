@@ -1,0 +1,8 @@
+{
+  "id": "syncthing",
+  "name": "Syncthing",
+  "description": "Continuous file sync between devices",
+  "icon": "\ud83d\udd04",
+  "port": "8384",
+  "compose": "services:\n  syncthing:\n    image: syncthing/syncthing:1.29\n    restart: unless-stopped\n    ports: [\"8384:8384\", \"22000:22000\"]\n    volumes:\n      - ${DATA}:/var/syncthing\n"
+}

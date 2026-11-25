@@ -1,0 +1,10 @@
+#!/bin/sh
+# CairnOS shim for DSM's synopkg (subset used by package scripts)
+cmd="$1"; pkg="$2"
+case "$cmd" in
+  start|stop|restart) exec systemctl "$cmd" "cairn-pkg-$pkg" ;;
+  status|is_onoff) systemctl is-active --quiet "cairn-pkg-$pkg" && { echo "package $pkg is turned on"; exit 0; } || { echo "package $pkg is turned off"; exit 1; } ;;
+  version) sed -n 's/^version="\(.*\)"/\1/p' "/var/packages/$pkg/INFO" ;;
+  list) ls /var/packages ;;
+  *) echo "synopkg shim: '$cmd' not supported on CairnOS" >&2; exit 1 ;;
+esac

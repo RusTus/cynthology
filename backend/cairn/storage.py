@@ -1,0 +1,275 @@
+"""Storage manager: disks, SMART health, RAID pools (mdadm) with Btrfs volumes on top.
+
+Every pool uses the same stack: GPT partitions -> mdadm array(s) -> LVM -> Btrfs (or ext4),
+mounted at /volumeN. SHR uses several md arrays (one per size tier) - see raidplan.py. Shared folders are Btrfs subvolumes, which gives cheap snapshots.
+"""
+import json
+import os
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+
+from .auth import current_user, require_admin
+from . import raidplan
+from .util import DEV, STATE_DIR, read_only, run
+
+router = APIRouter(prefix="/api/storage", tags=["storage"])
+POOLS_FILE = os.path.join(STATE_DIR, "pools.json")
+
+
+def load_pools() -> list[dict]:
+    try:
+        with open(POOLS_FILE) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return []
+
+
+def save_pools(pools: list[dict]) -> None:
+    with open(POOLS_FILE, "w") as f:
+        json.dump(pools, f, indent=2)
+
+
+MOCK_DISKS = [
+    {"name": "nvme0n1", "path": "/dev/nvme0n1", "size": 256060514304, "model": "Samsung 970 EVO", "serial": "S4-MOCK0", "rota": False, "in_use": True, "system": True},
+    {"name": "sda", "path": "/dev/sda", "size": 4000787030016, "model": "WDC WD40EFRX", "serial": "WD-MOCK1", "rota": True, "in_use": False, "system": False},
+    {"name": "sdb", "path": "/dev/sdb", "size": 4000787030016, "model": "WDC WD40EFRX", "serial": "WD-MOCK2", "rota": True, "in_use": False, "system": False},
+    {"name": "sdc", "path": "/dev/sdc", "size": 8001563222016, "model": "ST8000VN004", "serial": "ZA-MOCK3", "rota": True, "in_use": False, "system": False},
+    {"name": "sdd", "path": "/dev/sdd", "size": 8001563222016, "model": "ST8000VN004", "serial": "ZA-MOCK4", "rota": True, "in_use": False, "system": False},
+]
+
+
+def list_disks() -> list[dict]:
+    if DEV:
+        used = {d for p in load_pools() for d in p["disks"]}
+        return [{**d, "in_use": d["in_use"] or d["name"] in used} for d in MOCK_DISKS]
+    out = read_only(["lsblk", "-J", "-b", "-o", "NAME,PATH,SIZE,MODEL,SERIAL,ROTA,TYPE,MOUNTPOINT,FSTYPE"])
+    disks = []
+    for d in json.loads(out or '{"blockdevices":[]}')["blockdevices"]:
+        test_loop = os.environ.get("CAIRN_TEST_LOOP") == "1" and d.get("type") == "loop"
+        if not test_loop and (d.get("type") != "disk" or d["name"].startswith(("loop", "zram", "sr"))):
+            continue
+        children = d.get("children") or []
+        mounts = [c.get("mountpoint") for c in children] + [d.get("mountpoint")]
+        disks.append({
+            "name": d["name"], "path": d["path"], "size": int(d["size"]),
+            "model": (d.get("model") or "").strip(), "serial": d.get("serial"),
+            "rota": bool(d.get("rota")),
+            "in_use": bool(children) or bool(d.get("fstype")),
+            "system": any(m in ("/", "/boot", "/boot/efi") for m in mounts if m),
+        })
+    return disks
+
+
+@router.get("/disks")
+def disks(_=Depends(current_user)):
+    return list_disks()
+
+
+@router.get("/disks/{name}/smart")
+def smart(name: str, _=Depends(require_admin)):
+    if DEV:
+        return {"passed": True, "temperature": 34, "power_on_hours": 12034, "reallocated": 0}
+    data = json.loads(read_only(["smartctl", "-j", "-a", f"/dev/{name}"]) or "{}")
+    attrs = {a["id"]: a["raw"]["value"] for a in data.get("ata_smart_attributes", {}).get("table", [])}
+    return {
+        "passed": data.get("smart_status", {}).get("passed"),
+        "temperature": data.get("temperature", {}).get("current"),
+        "power_on_hours": data.get("power_on_time", {}).get("hours"),
+        "reallocated": attrs.get(5),
+    }
+
+
+@router.get("/pools")
+def pools(_=Depends(current_user)):
+    result = []
+    for p in load_pools():
+        usage = {"total": 0, "used": 0}
+        if not DEV and os.path.ismount(p["mount"]):
+            st = os.statvfs(p["mount"])
+            usage = {"total": st.f_blocks * st.f_frsize, "used": (st.f_blocks - st.f_bfree) * st.f_frsize}
+        elif DEV:
+            usage = {"total": p.get("mock_total", 0), "used": p.get("mock_total", 0) // 3}
+        status = "healthy"
+        for a in ([] if DEV else p.get("arrays", [])):
+            md = read_only(["mdadm", "--detail", a["md"]])
+            if "degraded" in md or "FAILED" in md:
+                status = "degraded"
+                break
+            if any(w in md for w in ("recovering", "resyncing", "reshape")):
+                status = "rebuilding"
+        result.append({**p, **usage, "status": status})
+    return result
+
+
+class PoolCreate(BaseModel):
+    raid: str                  # basic | raid0 | raid1 | raid5 | raid6 | raid10 | shr | shr2
+    disks: list[str]
+    label: str = ""
+    fs: str = "btrfs"          # btrfs (snapshots, checksums, compression) | ext4
+
+
+def _part(dev: str, n: int) -> str:
+    return f"{dev}p{n}" if dev[-1].isdigit() else f"{dev}{n}"
+
+
+def _free_disks(names: list[str]) -> dict[str, dict]:
+    known = {d["name"]: d for d in list_disks()}
+    for name in names:
+        if name not in known:
+            raise HTTPException(400, f"unknown disk {name}")
+        if known[name]["system"] or known[name]["in_use"]:
+            raise HTTPException(400, f"disk {name} is in use")
+    return {n: known[n] for n in names}
+
+
+@router.post("/plan")
+def plan_preview(body: PoolCreate, _=Depends(current_user)):
+    """Capacity preview for a layout, plus a comparison of every layout for the selected disks."""
+    known = {d["name"]: d["size"] for d in list_disks()}
+    sizes = {d: known[d] for d in body.disks if d in known}
+    result = {"compare": raidplan.compare(sizes) if sizes else []}
+    try:
+        p = raidplan.plan(body.raid, sizes)
+        result["plan"] = {"usable": p.usable_bytes, "raw": p.raw_bytes, "tolerance": p.tolerance,
+                          "warnings": p.warnings,
+                          "tiers": [{"level": t.level, "members": t.members, "usable": t.usable_mib * raidplan.MiB}
+                                    for t in p.tiers]}
+    except ValueError as e:
+        result["error"] = str(e)
+    return result
+
+
+@router.post("/pools")
+def create_pool(body: PoolCreate, _=Depends(require_admin)):
+    if body.fs not in ("btrfs", "ext4"):
+        raise HTTPException(400, "filesystem must be btrfs or ext4")
+    disks = _free_disks(body.disks)
+    try:
+        p = raidplan.plan(body.raid, {n: d["size"] for n, d in disks.items()})
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    pools = load_pools()
+    n = max([x["id"] for x in pools], default=0) + 1
+    mount, vg = f"/volume{n}", f"vg_cairn{n}"
+
+    # 1. partition every disk: one GPT partition per tier it belongs to (type FD00 = Linux RAID)
+    for name in body.disks:
+        dev = f"/dev/{name}"
+        run(["wipefs", "-a", dev])
+        run(["sgdisk", "--zap-all", dev])
+        for i, t in enumerate(p.tiers, start=1):
+            if name in t.members:
+                end = "0" if t.size_mib == 0 else f"{t.start_mib + t.size_mib - 1}M"
+                run(["sgdisk", "-n", f"{i}:{t.start_mib}M:{end}", "-t", f"{i}:FD00",
+                     "-c", f"{i}:cairn{n}-t{i}", dev])
+        run(["partprobe", dev], check=False)
+
+    # 2. one md array per tier
+    arrays = []
+    for i, t in enumerate(p.tiers, start=1):
+        md = f"/dev/md/cairn{n}t{i}"
+        parts = [_part(f"/dev/{m}", i) for m in t.members]
+        run(["mdadm", "--create", md, "--run", "--force", "--metadata=1.2", f"--level={t.level}",
+             f"--raid-devices={len(parts)}", "--bitmap=internal" if t.level != "0" else "--bitmap=none",
+             f"--name=cairn{n}t{i}", *parts])
+        arrays.append({"md": md, "level": t.level, "members": t.members, "part": i})
+    run(["sh", "-c", "mdadm --detail --scan > /etc/mdadm/mdadm.conf && update-initramfs -u"])
+
+    # 3. LVM joins the tier arrays into one volume (lets SHR volumes grow later)
+    mds = [a["md"] for a in arrays]
+    run(["pvcreate", "-ff", "-y", *mds])
+    run(["vgcreate", vg, *mds])
+    run(["lvcreate", "-y", "-l", "100%FREE", "-n", "data", vg])
+    lv = f"/dev/{vg}/data"
+
+    # 4. filesystem
+    label = (body.label or f"volume{n}")[:15]
+    if body.fs == "btrfs":
+        run(["mkfs.btrfs", "-f", "-L", label, lv])
+        opts = "defaults,noatime,compress=zstd:3,space_cache=v2"
+    else:
+        run(["mkfs.ext4", "-F", "-L", label, lv])
+        opts = "defaults,noatime"
+    run(["mkdir", "-p", mount])
+    uuid = run(["blkid", "-s", "UUID", "-o", "value", lv]).strip()
+    run(["sh", "-c", f"echo 'UUID={uuid} {mount} {body.fs} {opts},nofail 0 0' >> /etc/fstab"])
+    run(["mount", mount])
+
+    pool = {"id": n, "label": body.label or f"Volume {n}", "raid": body.raid, "fs": body.fs,
+            "disks": body.disks, "arrays": arrays, "vg": vg, "lv": lv, "mount": mount, "uuid": uuid,
+            "tolerance": p.tolerance, "mock_total": p.usable_bytes}
+    pools.append(pool)
+    save_pools(pools)
+    return pool
+
+
+class AddDisk(BaseModel):
+    disk: str
+
+
+@router.post("/pools/{pool_id}/add-disk")
+def add_disk(pool_id: int, body: AddDisk, _=Depends(require_admin)):
+    """Repair a degraded pool or expand it with a new disk.
+
+    Degraded array  -> the new disk's partitions are added and md rebuilds onto them.
+    Healthy array   -> the arrays are grown onto the new disk (RAID1->RAID5 for SHR
+                       when the third disk arrives), then LVM and the filesystem are grown.
+    """
+    pools = load_pools()
+    pool = next((x for x in pools if x["id"] == pool_id), None)
+    if not pool:
+        raise HTTPException(404, "no such pool")
+    if pool["raid"] in ("raid0", "raid10", "basic"):
+        raise HTTPException(400, f"{pool['raid']} pools cannot be expanded in place")
+    new = _free_disks([body.disk])[body.disk]
+    sizes = {d["name"]: d["size"] for d in list_disks()}
+    # Copy the partition table of the largest member, so the new disk joins every tier.
+    ref_name = max(pool["disks"], key=lambda d: sizes.get(d, 0))
+    if new["size"] < sizes.get(ref_name, 0):
+        raise HTTPException(400, f"new disk must be at least as large as the largest member ({ref_name})")
+    dev, ref = f"/dev/{body.disk}", f"/dev/{ref_name}"
+    run(["wipefs", "-a", dev])
+    run(["sgdisk", "--zap-all", dev])
+    run(["sh", "-c", f"sgdisk --backup=/run/cairn-pt {ref} && sgdisk --load-backup=/run/cairn-pt {dev} && sgdisk -G {dev}"])
+    run(["partprobe", dev], check=False)
+
+    for a in pool["arrays"]:
+        part = _part(dev, a["part"])
+        detail = read_only(["mdadm", "--detail", a["md"]]) if not DEV else ""
+        run(["mdadm", "--add", a["md"], part])
+        if "degraded" in detail:
+            continue  # rebuild starts automatically
+        count = len(a["members"]) + 1
+        if pool["raid"] == "shr" and a["level"] == "1" and count >= 3:
+            run(["mdadm", "--grow", a["md"], "--level=5", f"--raid-devices={count}"])
+            a["level"] = "5"
+        elif pool["raid"] == "shr2" and a["level"] == "1" and count >= 4:
+            run(["mdadm", "--grow", a["md"], "--level=6", f"--raid-devices={count}"])
+            a["level"] = "6"
+        elif a["level"] == "1" and pool["raid"] in ("shr", "shr2"):
+            run(["mdadm", "--grow", a["md"], f"--raid-devices={count}"])
+        elif a["level"] in ("5", "6"):
+            run(["mdadm", "--grow", a["md"], f"--raid-devices={count}"])
+        a["members"].append(body.disk)
+        run(["pvresize", a["md"]])
+
+    run(["lvextend", "-l", "+100%FREE", pool["lv"]], check=False)
+    if pool.get("fs", "btrfs") == "btrfs":
+        run(["btrfs", "filesystem", "resize", "max", pool["mount"]])
+    else:
+        run(["resize2fs", pool["lv"]])
+    pool["disks"].append(body.disk)
+    run(["sh", "-c", "mdadm --detail --scan > /etc/mdadm/mdadm.conf"])
+    save_pools(pools)
+    return {"ok": True, "note": "Reshape runs in the background; the volume stays usable meanwhile."}
+
+
+@router.post("/pools/{pool_id}/scrub")
+def scrub(pool_id: int, _=Depends(require_admin)):
+    pool = next((p for p in load_pools() if p["id"] == pool_id), None)
+    if not pool:
+        raise HTTPException(404, "no such pool")
+    run(["btrfs", "scrub", "start", pool["mount"]])
+    return {"ok": True}

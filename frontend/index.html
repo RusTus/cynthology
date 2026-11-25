@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CairnOS</title>
+<link rel="stylesheet" href="/static/css/desktop.css">
+</head>
+<body>
+<div id="login" class="login">
+  <form id="login-form" class="login-card">
+    <div class="logo"><span class="stones"><i></i><i></i><i></i></span> CairnOS</div>
+    <div id="login-host" class="muted"></div>
+    <input id="login-user" placeholder="Username" autocomplete="username" required>
+    <input id="login-pass" type="password" placeholder="Password" autocomplete="current-password" required>
+    <button type="submit">Sign in</button>
+    <div id="login-err" class="err"></div>
+  </form>
+</div>
+
+<div id="desktop" class="desktop hidden">
+  <header class="taskbar">
+    <button id="menu-btn" class="tb-btn" title="Main menu">▦</button>
+    <div id="tasks" class="tasks"></div>
+    <div class="tb-right">
+      <span id="clock"></span>
+      <button id="user-btn" class="tb-btn"></button>
+    </div>
+  </header>
+  <div id="menu" class="menu hidden"></div>
+  <div id="user-menu" class="menu menu-right hidden">
+    <button data-act="reboot">Restart</button>
+    <button data-act="shutdown">Shut down</button>
+    <button data-act="logout">Sign out</button>
+  </div>
+  <div id="icons" class="icons"></div>
+  <aside id="widgets" class="widgets"></aside>
+  <div id="windows"></div>
+</div>
+
+<script src="/static/js/api.js"></script>
+<script src="/static/js/wm.js"></script>
+<script src="/static/js/apps/storage.js"></script>
+<script src="/static/js/apps/control.js"></script>
+<script src="/static/js/apps/monitor.js"></script>
+<script src="/static/js/apps/appcenter.js"></script>
+<script src="/static/js/desktop.js"></script>
+</body>
+</html>

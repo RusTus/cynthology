@@ -1,0 +1,81 @@
+"""Local users and groups (Linux accounts + Samba password database kept in sync)."""
+import grp
+import pwd
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+
+from .auth import require_admin
+from .util import DEV, run, valid_name
+
+router = APIRouter(prefix="/api/users", tags=["users"])
+MIN_UID = 1000
+_DEV_USERS = [{"name": "admin", "uid": 1000, "full_name": "Administrator", "groups": ["cairn-admin", "users"]},
+              {"name": "alice", "uid": 1001, "full_name": "Alice", "groups": ["users"]}]
+
+
+class UserCreate(BaseModel):
+    name: str
+    password: str
+    full_name: str = ""
+    admin: bool = False
+
+
+class Password(BaseModel):
+    password: str
+
+
+def _groups_of(user: str) -> list[str]:
+    return [g.gr_name for g in grp.getgrall() if user in g.gr_mem]
+
+
+@router.get("")
+def list_users(_=Depends(require_admin)):
+    if DEV:
+        return _DEV_USERS
+    return [{"name": p.pw_name, "uid": p.pw_uid, "full_name": p.pw_gecos.split(",")[0],
+             "groups": _groups_of(p.pw_name)}
+            for p in pwd.getpwall() if MIN_UID <= p.pw_uid < 60000]
+
+
+@router.post("")
+def create_user(body: UserCreate, _=Depends(require_admin)):
+    valid_name(body.name, "username")
+    if len(body.password) < 8:
+        raise HTTPException(400, "password must be at least 8 characters")
+    groups = "users,cairn-admin" if body.admin else "users"
+    run(["useradd", "-m", "-s", "/usr/sbin/nologin", "-G", groups, "-c", body.full_name, body.name])
+    run(["chpasswd"], input=f"{body.name}:{body.password}\n")
+    run(["smbpasswd", "-a", "-s", body.name], input=f"{body.password}\n{body.password}\n")
+    if DEV:
+        _DEV_USERS.append({"name": body.name, "uid": 1000 + len(_DEV_USERS), "full_name": body.full_name,
+                           "groups": groups.split(",")})
+    return {"ok": True}
+
+
+@router.put("/{name}/password")
+def set_password(name: str, body: Password, _=Depends(require_admin)):
+    valid_name(name, "username")
+    run(["chpasswd"], input=f"{name}:{body.password}\n")
+    run(["smbpasswd", "-s", name], input=f"{body.password}\n{body.password}\n")
+    return {"ok": True}
+
+
+@router.delete("/{name}")
+def delete_user(name: str, _=Depends(require_admin)):
+    valid_name(name, "username")
+    if name in ("root", "admin"):
+        raise HTTPException(400, "cannot delete built-in account")
+    run(["smbpasswd", "-x", name], check=False)
+    run(["userdel", name])
+    if DEV:
+        _DEV_USERS[:] = [u for u in _DEV_USERS if u["name"] != name]
+    return {"ok": True}
+
+
+@router.get("/groups")
+def list_groups(_=Depends(require_admin)):
+    if DEV:
+        return [{"name": "users", "members": ["admin", "alice"]}, {"name": "cairn-admin", "members": ["admin"]}]
+    return [{"name": g.gr_name, "members": g.gr_mem} for g in grp.getgrall()
+            if g.gr_gid >= MIN_UID or g.gr_name in ("users", "cairn-admin")]

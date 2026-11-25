@@ -1,0 +1,8 @@
+{
+  "id": "vaultwarden",
+  "name": "Vaultwarden",
+  "description": "Self-hosted password manager",
+  "icon": "\ud83d\udd10",
+  "port": "8222",
+  "compose": "services:\n  vaultwarden:\n    image: vaultwarden/server:1.32.7\n    restart: unless-stopped\n    ports: [\"8222:80\"]\n    volumes:\n      - ${DATA}:/data\n"
+}

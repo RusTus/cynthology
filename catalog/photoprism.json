@@ -1,0 +1,8 @@
+{
+  "id": "photoprism",
+  "name": "PhotoPrism",
+  "description": "AI-powered photo library",
+  "icon": "\ud83d\udcf7",
+  "port": "2342",
+  "compose": "services:\n  photoprism:\n    image: photoprism/photoprism:240915\n    restart: unless-stopped\n    ports: [\"2342:2342\"]\n    environment:\n      PHOTOPRISM_ADMIN_PASSWORD: changeme\n    volumes:\n      - ${DATA}/storage:/photoprism/storage\n      - /volume1/photo:/photoprism/originals\n"
+}
