@@ -5,6 +5,7 @@ WM.register("control", {
     sectioned({
       general: { label: "General", render: cpGeneral },
       security: { label: "Security", render: cpSecurity },
+      notify: { label: "Notifications", render: cpNotify },
       shares: { label: "Shared Folders", render: cpShares },
       users: { label: "Users & Groups", render: cpUsers },
       services: { label: "File Services", render: cpServices },
@@ -140,4 +141,34 @@ async function cpSecurity(p) {
         await act(() => API.post("/api/security/cert/upload", { cert: certPem.value, key: keyPem.value }), "Certificate installed - reconnecting…");
         await waitForServer(); reload();
       } }, "Install certificate"))));
+}
+
+async function cpNotify(p) {
+  const [cfg, alerts] = await Promise.all([API.get("/api/health/smtp"), API.get("/api/health/alerts")]);
+  const f = { ...cfg, password: null };
+  const inp = (label, key, attrs = {}) => h("label", {}, label, h("input", { value: f[key] ?? "", oninput: (e) => (f[key] = attrs.type === "number" ? +e.target.value : e.target.value), ...attrs }));
+  const save = () => API.put("/api/health/smtp", f);
+  p.append(h("h2", {}, "Notifications"),
+    h("div", { class: "note" }, "Get an email when a drive fails, a pool is degraded or a volume fills up. ",
+      "For Gmail or Outlook use an ", h("b", {}, "app password"), " (smtp.gmail.com / smtp.office365.com, port 587, STARTTLS)."),
+    h("div", { class: "form", style: "margin-top:12px" },
+      h("label", { class: "check" }, h("input", { type: "checkbox", checked: f.enabled, onchange: (e) => (f.enabled = e.target.checked) }), "Send email notifications"),
+      inp("Send to (comma-separated)", "to", { placeholder: "you@example.com" }),
+      inp("SMTP server", "host", { placeholder: "smtp.gmail.com" }),
+      h("div", { style: "display:flex;gap:10px" },
+        inp("Port", "port", { type: "number", style: "width:100px" }),
+        h("label", {}, "Security", h("select", { onchange: (e) => (f.security = e.target.value) },
+          [["starttls", "STARTTLS"], ["ssl", "SSL/TLS"], ["none", "None"]].map(([v, l]) => h("option", { value: v, selected: f.security === v }, l))))),
+      inp("Username", "username", { autocomplete: "off" }),
+      h("label", {}, "Password", h("input", { type: "password", autocomplete: "new-password", placeholder: cfg.has_password ? "(unchanged)" : "", oninput: (e) => (f.password = e.target.value) })),
+      inp("From address (optional)", "sender"),
+      h("div", { class: "toolbar" },
+        h("button", { class: "btn primary", onclick: () => act(save, "Saved") }, "Save"),
+        h("button", { class: "btn", onclick: async () => { await save(); await act(() => API.post("/api/health/smtp/test"), "Test email sent"); } }, "Save & send test email"))),
+    h("h3", { class: "pc-group", style: "margin-top:22px" }, "Recent alerts"),
+    alerts.length ? h("table", {}, alerts.slice(0, 30).map((a) => h("tr", {},
+      h("td", { class: "muted", style: "white-space:nowrap" }, new Date(a.time * 1000).toLocaleString()),
+      h("td", {}, h("span", { class: "pill " + (a.level === "critical" ? "bad" : a.level === "warning" ? "warn" : "ok") }, a.event === "resolved" ? "resolved" : a.level)),
+      h("td", {}, h("b", {}, a.title), h("div", { class: "muted" }, a.detail || "")))))
+      : h("p", { class: "muted" }, "No alerts so far."));
 }

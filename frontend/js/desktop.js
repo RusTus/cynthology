@@ -61,12 +61,13 @@ function startDesktop(me) {
 }
 
 async function widgets() {
-  const [info, stats, pools] = await Promise.all([API.get("/api/system/info"), API.get("/api/system/stats"), API.get("/api/storage/pools")]);
-  const bad = pools.some((p) => p.status !== "healthy");
+  const [info, stats, pools, health] = await Promise.all([API.get("/api/system/info"), API.get("/api/system/stats"), API.get("/api/storage/pools"), API.get("/api/health")]);
+  const bad = health.status !== "healthy";
   const meter = (label, pct) => h("div", { style: "margin:6px 0" }, h("div", { style: "display:flex;justify-content:space-between;font-size:12px" }, h("span", {}, label), h("span", {}, `${pct.toFixed(0)}%`)), h("div", { class: "bar" }, h("div", { style: `width:${pct}%` })));
   document.getElementById("widgets").replaceChildren(
     h("div", { class: "widget" }, h("h4", {}, "System Health"),
-      h("div", {}, h("span", { class: "pill " + (bad ? "bad" : "ok") }, bad ? "Attention needed" : "Healthy")),
+      h("div", {}, h("span", { class: "pill " + (health.status === "critical" ? "bad" : bad ? "warn" : "ok") }, bad ? "Attention needed" : "Healthy")),
+      ...health.issues.map((i) => h("div", { style: "font-size:12px;margin-top:6px", title: i.detail }, (i.level === "critical" ? "⛔ " : "⚠️ ") + i.title)),
       h("div", { class: "muted", style: "font-size:12px;margin-top:6px" }, `${info.hostname} · up ${fmtUptime(info.uptime)}`)),
     h("div", { class: "widget" }, h("h4", {}, "Resources"), meter("CPU", stats.cpu), meter("Memory", stats.mem.percent)),
     h("div", { class: "widget" }, h("h4", {}, "Storage"),
