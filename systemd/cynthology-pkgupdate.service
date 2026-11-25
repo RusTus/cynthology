@@ -1,0 +1,9 @@
+[Unit]
+Description=Cynthology automatic package updates
+After=network-online.target
+
+[Service]
+Type=oneshot
+Environment=CYN_STATE=/var/lib/cynthology
+WorkingDirectory=/opt/cynthology/backend
+ExecStart=/usr/bin/python3 -m cynthology.spk auto-update

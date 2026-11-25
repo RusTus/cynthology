@@ -43,7 +43,7 @@ X86_ARCHES = {"x86_64", "x64", "noarch", "apollolake", "avoton", "braswell", "br
               "purley", "r1000", "r1000nk", "v1000", "v1000nk", "x86"}
 # Synology-made packages that only exist on real DSM
 DSM_ONLY = {"WebStation", "PHP7.4", "PHP8.0", "PHP8.1", "PHP8.2", "PHP8.3", "PHP8.4", "Apache2.2", "Apache2.4",
-            "MariaDB10", "Node.js_v18", "Node.js_v20", "ContainerManager", "Docker", "PythonModule"}
+            "MariaDB10", "Node.js_v18", "Node.js_v20", "ContainerManager", "Docker", "PythonModule", "Perl"}
 
 ROOT = os.path.join(STATE_DIR, "root") if DEV else "/"
 PKG_DIR = os.path.join(ROOT, "var/packages")
@@ -131,7 +131,42 @@ def catalog(_=Depends(current_user)):
     inst = {p["package"]: p["version"] for p in installed_list()}
     for p in result:
         p["installed_version"] = inst.get(p["package"])
+        p["update_available"] = newer(p["version"], inst.get(p["package"]))
     return {"packages": sorted(result, key=lambda p: (p["dname"] or "").lower()), "errors": errors}
+
+
+# ---------- versions ----------
+
+def vkey(v: str | None) -> tuple:
+    """'3.1.1-3' -> (3, 1, 1, 3); good enough for SPK versions (x.y.z-build)."""
+    return tuple(int(n) for n in re.findall(r"\d+", v or ""))
+
+
+def newer(a: str | None, b: str | None) -> bool:
+    return bool(a) and bool(b) and vkey(a) > vkey(b)
+
+
+def find_in_sources(name: str) -> dict | None:
+    """Newest compatible offer of a package across all sources."""
+    best = None
+    for src in load_sources():
+        try:
+            for p in fetch_feed(src):
+                if p["package"] == name and p["compatible"] and (best is None or newer(p["version"], best["version"])):
+                    best = p
+        except Exception:
+            continue
+    return best
+
+
+def updates_available() -> list[dict]:
+    out = []
+    for p in installed_list():
+        offer = find_in_sources(p["package"])
+        if offer and newer(offer["version"], p["version"]):
+            out.append({"package": p["package"], "dname": p["dname"], "installed": p["version"],
+                        "available": offer["version"], "source": offer["source"]})
+    return out
 
 
 # ---------- reading packages ----------
@@ -259,18 +294,32 @@ def _stage(spk_path: str) -> dict:
     if set(deps) & DSM_ONLY:
         problems.append(f"needs DSM-only package(s): {', '.join(sorted(set(deps) & DSM_ONLY))}")
     missing = [x for x in deps if x not in DSM_ONLY and not os.path.isdir(_pkg_path(x))]
-    if missing:
-        problems.append(f"install these packages first: {', '.join(missing)}")
+    auto_deps = []
+    for x in missing:
+        offer = find_in_sources(x)
+        if offer:
+            auto_deps.append({"package": x, "version": offer["version"], "source": offer["source"]})
+        else:
+            problems.append(f"needs the package '{x}', which none of your package sources offers")
+    name = info.get("package", "")
+    installed = None
+    if name and os.path.exists(_pkg_path(name, "INFO")):
+        with open(_pkg_path(name, "INFO")) as f:
+            installed = parse_info(f.read()).get("version")
+        if installed and not newer(info.get("version"), installed):
+            problems.append(f"version {installed} is already installed (this is {info.get('version')})")
+    kind = "upgrade" if installed else "install"
     wizard = []
-    wf = os.path.join(d, "WIZARD_UIFILES", "install_uifile")
+    wf = os.path.join(d, "WIZARD_UIFILES", f"{kind}_uifile")
     if os.path.exists(wf):
         wizard = _read_json(wf) or []
     elif os.path.exists(wf + ".sh"):
-        wizard = _dynamic_wizard(wf + ".sh", info)
-    return {"staging": sid, "info": info, "wizard": wizard, "problems": problems}
+        wizard = _dynamic_wizard(wf + ".sh", info, "UPGRADE" if installed else "INSTALL")
+    return {"staging": sid, "info": info, "wizard": wizard, "problems": problems, "mode": kind,
+            "installed_version": installed, "dependencies": auto_deps}
 
 
-def _dynamic_wizard(script: str, info: dict) -> list:
+def _dynamic_wizard(script: str, info: dict, status: str = "INSTALL") -> list:
     """DSM runs install_uifile.sh, which writes the wizard JSON to $SYNOPKG_TEMP_LOGFILE.
     We run it unprivileged (nobody) since the package is not trusted yet."""
     if DEV:
@@ -283,7 +332,7 @@ def _dynamic_wizard(script: str, info: dict) -> list:
     env = {"PATH": f"{SHIM_PATH}:/usr/bin:/bin", "SYNOPKG_TEMP_LOGFILE": out.name,
            "SYNOPKG_PKGNAME": info.get("package", ""), "SYNOPKG_PKGVER": info.get("version", ""),
            "SYNOPKG_DSM_VERSION_MAJOR": str(DSM_MAJOR), "SYNOPKG_DSM_VERSION_MINOR": str(DSM_MINOR),
-           "SYNOPKG_PKG_STATUS": "INSTALL"}
+           "SYNOPKG_PKG_STATUS": status}
     try:
         subprocess.run(["setpriv", "--reuid=nobody", "--regid=nogroup", "--clear-groups", "--", "/bin/bash", script],
                        env=env, cwd="/tmp", capture_output=True, timeout=30)
@@ -313,10 +362,14 @@ class Prepare(BaseModel):
 
 @router.post("/prepare")
 def prepare(body: Prepare, _=Depends(require_admin)):
-    src = next((s for s in load_sources() if s["name"] == body.source), None)
+    return prepare_from_source(body.source, body.package)
+
+
+def prepare_from_source(source: str, package: str) -> dict:
+    src = next((s for s in load_sources() if s["name"] == source), None)
     if not src:
         raise HTTPException(404, "unknown source")
-    pkg = next((p for p in fetch_feed(src) if p["package"] == body.package), None)
+    pkg = next((p for p in fetch_feed(src) if p["package"] == package), None)
     if not pkg or not pkg["link"]:
         raise HTTPException(404, "package not in source")
     os.makedirs(STAGING, exist_ok=True)
@@ -364,7 +417,7 @@ def _env(name: str, info: dict, status: str, extra: dict | None = None) -> dict:
         "SYNOPKG_PKG_STATUS": status, "SYNOPKG_DSM_VERSION_MAJOR": str(DSM_MAJOR),
         "SYNOPKG_DSM_VERSION_MINOR": str(DSM_MINOR), "SYNOPKG_DSM_VERSION_BUILD": str(DSM_BUILD),
         "SYNOPKG_DSM_ARCH": ARCH, "SYNOPKG_DSM_LANGUAGE": "enu",
-        "SYNOPKG_TEMP_LOGFILE": f"/run/cyn-pkg/{name}.log", "SYNOPKG_TEMP_UPGRADE_FOLDER": f"{base}/tmp/upgrade",
+        "SYNOPKG_TEMP_LOGFILE": f"/run/cyn-pkg/{name}.log", "SYNOPKG_TEMP_UPGRADE_FOLDER": os.path.join(STATE_DIR, "spk-upgrade", name),
     }
     for k, v in (extra or {}).items():
         if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", k):
@@ -380,14 +433,17 @@ def _privilege(stage_or_pkg: str, name: str) -> tuple[str, str, bool]:
     return user, group, as_root
 
 
-def _script(name: str, script: str, env: dict, user: str | None) -> None:
-    path = _pkg_path(name, "scripts", script)
+def _script(name: str, script: str, env: dict, user: str | None, scripts_dir: str | None = None) -> None:
+    path = os.path.join(scripts_dir or _pkg_path(name, "scripts"), script)
     if not os.path.exists(path):
         return
     cmd = ["/bin/bash", path]  # DSM's /bin/sh is bash; SynoCommunity scripts rely on it
     if DEV:
         print("[dev] would run", script, "for", name)
         return
+    if user and scripts_dir:
+        os.chmod(scripts_dir, 0o755)   # staged scripts must be readable by the package user
+        os.chmod(os.path.dirname(scripts_dir), 0o755)
     log = env["SYNOPKG_TEMP_LOGFILE"]
     os.makedirs(os.path.dirname(log), exist_ok=True)
     open(log, "w").close()
@@ -409,12 +465,67 @@ def install(body: Install, _=Depends(require_admin)):
     d = os.path.join(STAGING, re.sub(r"[^a-f0-9]", "", body.staging))
     if not os.path.isdir(d):
         raise HTTPException(404, "staged package expired - start again")
-    with open(os.path.join(d, "INFO")) as f:
-        info = parse_info(f.read())
-    name = info.get("package")
+    return install_staged(d, body.wizard)
+
+
+def install_staged(d: str, wizard: dict, depth: int = 0) -> dict:
+    """Install or upgrade the package unpacked in staging dir d (installing dependencies first)."""
+    try:
+        with open(os.path.join(d, "INFO")) as f:
+            info = parse_info(f.read())
+        name = info.get("package")
+        _install_dependencies(info, depth)
+        if os.path.exists(_pkg_path(name, "INFO")):
+            return _upgrade(d, info, wizard)
+        return _fresh_install(d, info, wizard)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def _install_dependencies(info: dict, depth: int) -> None:
+    deps = [x.split(">")[0].split("<")[0].split("=")[0].strip()
+            for x in re.split(r"[:,]", info.get("install_dep_packages", "")) if x.strip()]
+    for dep in deps:
+        if dep in DSM_ONLY or os.path.isdir(_pkg_path(dep)):
+            continue
+        if depth >= 3:
+            raise HTTPException(400, f"dependency chain too deep at '{dep}'")
+        offer = find_in_sources(dep)
+        if not offer:
+            raise HTTPException(400, f"{info.get('package')} needs '{dep}', which none of your package sources offers")
+        staged = prepare_from_source(offer["source"], dep)
+        if staged["problems"]:
+            raise HTTPException(400, f"can't install dependency '{dep}': {'; '.join(staged['problems'])}")
+        install_staged(os.path.join(STAGING, staged["staging"]), _wizard_defaults(staged["wizard"]), depth + 1)
+
+
+def _wizard_defaults(wizard: list) -> dict:
+    out = {}
+    for step in wizard or []:
+        for item in step.get("items", []):
+            for sub in item.get("subitems", []):
+                if "key" in sub:
+                    out[sub["key"]] = sub.get("defaultValue", "")
+    return out
+
+
+def _move_in(d: str, base: str) -> None:
+    for item in ("INFO", "conf", "scripts", "WIZARD_UIFILES", "PACKAGE_ICON.PNG", "PACKAGE_ICON_256.PNG"):
+        src = os.path.join(d, item)
+        if os.path.exists(src):
+            shutil.move(src, os.path.join(base, item))
+
+
+def _owner(name: str, user: str, group: str) -> None:
+    if not DEV:
+        base = _pkg_path(name)
+        run(["chown", "-R", f"{user}:{group}", *(os.path.realpath(os.path.join(base, x))
+                                                 for x in ("target", "var", "home", "tmp", "etc"))])
+
+
+def _fresh_install(d: str, info: dict, wizard: dict) -> dict:
+    name = info["package"]
     base = _pkg_path(name)
-    if os.path.exists(base):
-        raise HTTPException(409, f"{name} is already installed (uninstall first; upgrades come in a later alpha)")
     vol = _volume()
     user, group, as_root = _privilege(d, name)
 
@@ -424,35 +535,154 @@ def install(body: Install, _=Depends(require_admin)):
 
     # 2. DSM 7 layout
     os.makedirs(base)
-    for item in ("INFO", "conf", "scripts", "WIZARD_UIFILES", "PACKAGE_ICON.PNG", "PACKAGE_ICON_256.PNG"):
-        src = os.path.join(d, item)
-        if os.path.exists(src):
-            shutil.move(src, os.path.join(base, item))
+    _move_in(d, base)
     for link, store in (("target", "@appstore"), ("var", "@appdata"), ("home", "@apphome"),
                         ("tmp", "@apptemp"), ("etc", "@appconf")):
         real = os.path.join(vol, store, name)
         os.makedirs(real, exist_ok=True)
         os.symlink(real, os.path.join(base, link))
-    env = _env(name, info, "INSTALL", body.wizard)
+    env = _env(name, info, "INSTALL", wizard)
     run_user = None if as_root else f"{user}:{group}"
 
     try:
-        _data_shares(base, body.wizard)
+        _data_shares(base, wizard)
         _script(name, "preinst", env, None if DEV else run_user)
         _safe_extract(os.path.join(d, "package.tgz"), os.path.realpath(os.path.join(base, "target")))
-        if not DEV:
-            run(["chown", "-R", f"{user}:{group}", *(os.path.realpath(os.path.join(base, x)) for x in ("target", "var", "home", "tmp", "etc"))])
+        _owner(name, user, group)
         _link_usr_local(name, create=True)
         _script(name, "postinst", env, run_user)
         _write_unit(name, info, run_user)
     except Exception:
         _remove(name, keep_data=False)
         raise
-    finally:
-        shutil.rmtree(d, ignore_errors=True)
     if info.get("startable", "yes") != "no":
         _service(name, "start")
-    return {"ok": True, "package": name}
+    return {"ok": True, "package": name, "version": info.get("version")}
+
+
+def _upgrade(d: str, new_info: dict, wizard: dict) -> dict:
+    """DSM 7 order: stop, new preupgrade, old preuninst+postuninst, new preinst, files, new postinst,
+    new postupgrade, start. Data (var/home/etc) is kept. On failure the old version is put back."""
+    name = new_info["package"]
+    base = _pkg_path(name)
+    with open(os.path.join(base, "INFO")) as f:
+        old_info = parse_info(f.read())
+    old_ver = old_info.get("version", "")
+    if not newer(new_info.get("version"), old_ver):
+        raise HTTPException(409, f"{name} {old_ver} is already installed")
+    user, group, as_root = _privilege(d, name)
+    run_user = None if as_root else f"{user}:{group}"
+    old_user, old_group, old_root = _privilege(base, name)
+    old_run_user = None if old_root else f"{old_user}:{old_group}"
+    extra = {**wizard, "SYNOPKG_OLD_PKGVER": old_ver}
+    env_new = _env(name, new_info, "UPGRADE", extra)
+    env_old = _env(name, old_info, "UPGRADE", extra)
+    upg = env_new["SYNOPKG_TEMP_UPGRADE_FOLDER"]
+    shutil.rmtree(upg, ignore_errors=True)
+    os.makedirs(upg)
+    if not DEV and run_user:
+        shutil.chown(upg, user, group)
+    was_running = _running(name)
+
+    # keep the old version aside so we can roll back
+    target = os.path.realpath(os.path.join(base, "target"))
+    saved_meta = base + ".cyn-old"
+    saved_target = target + ".cyn-old"
+    shutil.rmtree(saved_meta, ignore_errors=True)
+    shutil.rmtree(saved_target, ignore_errors=True)
+
+    _service(name, "stop")
+    try:
+        _script(name, "preupgrade", env_new, run_user, scripts_dir=os.path.join(d, "scripts"))
+        _script(name, "preuninst", env_old, old_run_user)
+        _script(name, "postuninst", env_old, old_run_user)
+        _link_usr_local(name, create=False)
+        os.makedirs(saved_meta)
+        for item in ("INFO", "conf", "scripts", "WIZARD_UIFILES", "PACKAGE_ICON.PNG", "PACKAGE_ICON_256.PNG"):
+            if os.path.exists(os.path.join(base, item)):
+                shutil.move(os.path.join(base, item), os.path.join(saved_meta, item))
+        os.rename(target, saved_target)
+        os.makedirs(target)
+        _move_in(d, base)
+        _script(name, "preinst", env_new, None if DEV else run_user)
+        _safe_extract(os.path.join(d, "package.tgz"), target)
+        _owner(name, user, group)
+        _link_usr_local(name, create=True)
+        _script(name, "postinst", env_new, run_user)
+        _script(name, "postupgrade", env_new, run_user)
+        _write_unit(name, new_info, run_user)
+    except Exception as e:
+        # roll back to the old version
+        if os.path.isdir(saved_target):
+            shutil.rmtree(target, ignore_errors=True)
+            os.rename(saved_target, target)
+        if os.path.isdir(saved_meta):
+            for item in os.listdir(saved_meta):
+                dst = os.path.join(base, item)
+                if os.path.isdir(dst) and not os.path.islink(dst):
+                    shutil.rmtree(dst)
+                elif os.path.exists(dst):
+                    os.remove(dst)
+                shutil.move(os.path.join(saved_meta, item), dst)
+            shutil.rmtree(saved_meta, ignore_errors=True)
+        _link_usr_local(name, create=True)
+        _write_unit(name, old_info, old_run_user)
+        if was_running:
+            try:
+                _service(name, "start")
+            except Exception:
+                pass
+        msg = e.detail if isinstance(e, HTTPException) else str(e)
+        raise HTTPException(500, f"upgrade of {name} failed and was rolled back to {old_ver}: {msg}")
+    shutil.rmtree(saved_meta, ignore_errors=True)
+    shutil.rmtree(saved_target, ignore_errors=True)
+    shutil.rmtree(upg, ignore_errors=True)
+    if new_info.get("startable", "yes") != "no":
+        _service(name, "start")
+    return {"ok": True, "package": name, "version": new_info.get("version"), "upgraded_from": old_ver}
+
+
+@router.get("/updates")
+def updates(_=Depends(current_user)):
+    return updates_available()
+
+
+def update_all() -> list[dict]:
+    results = []
+    for u in updates_available():
+        try:
+            staged = prepare_from_source(u["source"], u["package"])
+            if staged["problems"]:
+                raise HTTPException(400, "; ".join(staged["problems"]))
+            r = install_staged(os.path.join(STAGING, staged["staging"]), _wizard_defaults(staged["wizard"]))
+            results.append({"package": u["package"], "ok": True, "version": r.get("version")})
+        except HTTPException as e:
+            results.append({"package": u["package"], "ok": False, "error": e.detail})
+        except Exception as e:
+            results.append({"package": u["package"], "ok": False, "error": str(e)})
+    return results
+
+
+@router.post("/update-all")
+def update_all_api(_=Depends(require_admin)):
+    return update_all()
+
+
+class AutoUpdate(BaseModel):
+    enabled: bool
+
+
+@router.get("/auto-update")
+def get_auto(_=Depends(require_admin)):
+    from . import settings
+    return {"enabled": bool(settings.get("pkg_auto_update"))}
+
+
+@router.put("/auto-update")
+def put_auto(body: AutoUpdate, _=Depends(require_admin)):
+    from . import settings
+    settings.update(pkg_auto_update=body.enabled)
+    return {"ok": True}
 
 
 def _link_usr_local(name: str, create: bool) -> None:
@@ -551,3 +781,17 @@ def uninstall(name: str, keep_data: bool = True, _=Depends(require_admin)):
     finally:
         _remove(name, keep_data)
     return {"ok": True}
+
+
+if __name__ == "__main__":
+    import sys
+    from . import settings
+    if sys.argv[1:] == ["auto-update"]:
+        if not settings.get("pkg_auto_update"):
+            print("automatic package updates are off")
+            sys.exit(0)
+        for r in update_all():
+            print(r)
+            if not r["ok"]:
+                from .backup import _alert
+                _alert({"name": r["package"]}, "warning", f"Package update failed: {r['package']}", r["error"])

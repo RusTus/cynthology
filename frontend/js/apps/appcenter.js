@@ -13,7 +13,10 @@ WM.register("appcenter", {
       h("button", { class: "btn", onclick: settings }, "Settings"));
     const views = { installed: "Installed", all: "All Packages", community: "Community", containers: "Containers" };
     const nav = () => side.replaceChildren(...Object.entries(views).map(([k, v]) =>
-      h("button", { class: st.view === k ? "on" : "", onclick: () => { st.view = k; nav(); render(); } }, v)));
+      h("button", { class: st.view === k ? "on" : "", onclick: () => { st.view = k; nav(); render(); } }, v,
+        k === "installed" && st.updates?.length ? h("span", { class: "pc-badge" }, String(st.updates.length)) : null)));
+    const refreshUpdates = () => API.get("/api/packages/updates").then((u) => { st.updates = u; nav(); }).catch(() => {});
+    refreshUpdates();
     body.append(side, h("div", { style: "flex:1;display:flex;flex-direction:column;min-width:0" }, top, pane));
     nav();
 
@@ -39,7 +42,8 @@ WM.register("appcenter", {
 
     function pkgTile(p) {
       let action;
-      if (p.installed_version) action = h("span", { class: "pill ok" }, "Installed");
+      if (p.update_available) action = h("button", { class: "pc-install", onclick: () => installFlow(() => API.post("/api/packages/prepare", { source: p.source, package: p.package })) }, `Update (${p.installed_version} → ${p.version})`);
+      else if (p.installed_version) action = h("span", { class: "pill ok" }, "Installed");
       else if (!p.compatible) action = h("span", { class: "pill", title: p.why_not }, "Not compatible");
       else action = h("button", { class: "pc-install", onclick: () => installFlow(() => API.post("/api/packages/prepare", { source: p.source, package: p.package })) }, "Install");
       return h("div", { class: "pc-tile", title: p.desc },
@@ -49,13 +53,24 @@ WM.register("appcenter", {
     }
 
     async function renderInstalled() {
-      const list = await API.get("/api/packages/installed");
-      pane.replaceChildren(h("h3", { class: "pc-group" }, "Installed"),
+      const [list, ups] = await Promise.all([API.get("/api/packages/installed"), API.get("/api/packages/updates")]);
+      st.updates = ups; nav();
+      const upd = Object.fromEntries(ups.map((u) => [u.package, u]));
+      pane.replaceChildren(h("div", { style: "display:flex;align-items:center;gap:12px" }, h("h3", { class: "pc-group" }, "Installed"),
+          ups.length ? h("button", { class: "btn primary", onclick: async () => {
+            pane.replaceChildren(h("p", { class: "muted" }, `Updating ${ups.length} package(s)…`));
+            const res = await API.post("/api/packages/update-all").catch((e) => [{ ok: false, error: e.message }]);
+            const bad = res.filter((r) => !r.ok);
+            toast(bad.length ? `${bad.length} update(s) failed: ` + bad.map((b) => `${b.package}: ${b.error}`).join("; ") : `Updated ${res.length} package(s)`);
+            st.catalog = null; renderInstalled();
+          } }, `Update all (${ups.length})`) : null),
         list.length ? h("div", { class: "pc-grid" }, list.map((p) => h("div", { class: "pc-tile" },
           h("img", { src: `/api/packages/installed/${p.package}/icon`, alt: "" }),
           h("div", {}, h("b", {}, p.dname), h("div", { class: "muted" }, `v${p.version} · `,
             h("span", { class: "pill " + (p.running ? "ok" : "") }, p.startable ? (p.running ? "Running" : "Stopped") : "Tool")),
+            upd[p.package] ? h("div", { class: "muted", style: "font-size:12px" }, `Update available: ${upd[p.package].available}`) : null,
             h("div", { class: "toolbar", style: "margin:6px 0 0" },
+              upd[p.package] ? h("button", { class: "btn primary", onclick: () => installFlow(() => API.post("/api/packages/prepare", { source: upd[p.package].source, package: p.package })) }, "Update") : null,
               p.url && p.running ? h("a", { class: "btn primary", target: "_blank", href: `${p.url.protocol}://${location.hostname}:${p.url.port}${p.url.path}` }, "Open") : null,
               p.startable ? h("button", { class: "btn", onclick: async () => { await act(() => API.post(`/api/packages/installed/${p.package}/${p.running ? "stop" : "start"}`)); renderInstalled(); } }, p.running ? "Stop" : "Run") : null,
               h("button", { class: "btn danger", onclick: async () => {
@@ -73,8 +88,11 @@ WM.register("appcenter", {
       try { s = await prepareFn(); } catch (e) { toast("Error: " + e.message); return render(); }
       const answers = {};
       const form = h("div", { class: "form" },
-        h("h2", {}, `Install ${s.info.displayname || s.info.package} ${s.info.version}`),
-        h("div", { class: "muted" }, s.info.description || ""),
+        h("h2", {}, s.mode === "upgrade" ? `Update ${s.info.displayname || s.info.package}: ${s.installed_version} → ${s.info.version}`
+          : `Install ${s.info.displayname || s.info.package} ${s.info.version}`),
+        h("div", { class: "muted" }, s.mode === "upgrade" ? (s.info.changelog || "Settings and data are kept.") : s.info.description || ""),
+        s.dependencies?.length ? h("div", { class: "note" }, "Also installs required package(s): ",
+          s.dependencies.map((d) => `${d.package} ${d.version}`).join(", ")) : null,
         ...s.problems.map((p) => h("div", { class: "note warn" }, p)));
       // DSM-style wizard steps from WIZARD_UIFILES/install_uifile
       for (const step of s.wizard || []) {
@@ -99,10 +117,10 @@ WM.register("appcenter", {
       form.append(h("div", { class: "toolbar" },
         h("button", { class: "btn", onclick: render }, "Cancel"),
         h("button", { class: "btn primary", disabled: s.problems.length > 0, onclick: async () => {
-          pane.replaceChildren(h("p", { class: "muted" }, "Installing…"));
-          try { await act(() => API.post("/api/packages/install", { staging: s.staging, wizard: answers }), "Installed"); st.catalog = null; st.view = "installed"; nav(); }
+          pane.replaceChildren(h("p", { class: "muted" }, s.mode === "upgrade" ? "Updating…" : "Installing…"));
+          try { await act(() => API.post("/api/packages/install", { staging: s.staging, wizard: answers }), s.mode === "upgrade" ? "Updated" : "Installed"); refreshUpdates(); st.catalog = null; st.view = "installed"; nav(); }
           finally { render(); }
-        } }, "Install")));
+        } }, s.mode === "upgrade" ? "Update" : "Install")));
       pane.replaceChildren(form);
     }
 
@@ -122,6 +140,7 @@ WM.register("appcenter", {
 
     async function settings() {
       let sources = await API.get("/api/packages/sources");
+      const auto = await API.get("/api/packages/auto-update").catch(() => ({ enabled: false }));
       let sel = -1;
       const tbl = h("table", { class: "pc-src" });
       const draw = () => tbl.replaceChildren(h("tr", {}, h("th", {}, "Name"), h("th", {}, "Location")),
@@ -134,7 +153,12 @@ WM.register("appcenter", {
         draw();
       };
       draw();
-      pane.replaceChildren(h("div", { class: "form", style: "max-width:720px" }, h("h2", {}, "Settings · Package Sources"),
+      pane.replaceChildren(h("div", { class: "form", style: "max-width:720px" }, h("h2", {}, "Settings"),
+        h("h3", { class: "pc-group" }, "Auto-update"),
+        h("label", { class: "check" }, h("input", { type: "checkbox", checked: auto.enabled, onchange: (e) =>
+          act(() => API.put("/api/packages/auto-update", { enabled: e.target.checked }), e.target.checked ? "Packages will update automatically every night" : "Automatic updates off") }),
+          "Install package updates automatically (checked nightly; failures are emailed)"),
+        h("h3", { class: "pc-group" }, "Package Sources"),
         h("div", { class: "toolbar" },
           h("button", { class: "btn", onclick: () => edit(-1) }, "Add"),
           h("button", { class: "btn", onclick: () => sel >= 0 && edit(sel) }, "Edit"),

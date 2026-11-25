@@ -71,11 +71,11 @@ cp "$SRC"/systemd/cynthology-* /etc/systemd/system/
 cat "$SRC/VERSION" 2>/dev/null > /etc/cynthology-release || echo "Cynthology dev" > /etc/cynthology-release
 
 if [ "$CHROOT" = 1 ]; then
-  systemctl enable cynthology-ui cynthology-snapshots.timer cynthology-health.timer cynthology-backup.timer smbd avahi-daemon docker
+  systemctl enable cynthology-ui cynthology-snapshots.timer cynthology-health.timer cynthology-backup.timer cynthology-pkgupdate.timer smbd avahi-daemon docker
   systemctl enable wsdd2 2>/dev/null || systemctl enable wsdd 2>/dev/null || true
 elif [ "$NOSYSTEMD" != 1 ]; then
   systemctl daemon-reload
-  systemctl enable --now cynthology-ui cynthology-snapshots.timer cynthology-health.timer cynthology-backup.timer smbd avahi-daemon docker
+  systemctl enable --now cynthology-ui cynthology-snapshots.timer cynthology-health.timer cynthology-backup.timer cynthology-pkgupdate.timer smbd avahi-daemon docker
   systemctl restart cynthology-ui   # pick up new code when upgrading
   systemctl enable --now wsdd2 2>/dev/null || systemctl enable --now wsdd 2>/dev/null || true
 fi
