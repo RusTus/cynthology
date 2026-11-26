@@ -3,6 +3,7 @@
 # install into a Cynthology NAS. Run as root:   bash install.sh
 # Web UI afterwards: http://<this-box>:5000  (log in with your Debian user that has sudo, or root)
 set -euo pipefail
+umask 022   # never inherit a permissive umask (files below hold secrets)
 
 SRC="$(cd "$(dirname "$0")" && pwd)"
 DEST=/opt/cynthology
@@ -18,7 +19,7 @@ echo "==> Installing packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
 apt-get install -y -q --no-install-recommends \
-  python3 python3-fastapi python3-uvicorn python3-psutil libpam0g ca-certificates curl sudo rsync util-linux acl openssl restic openssh-client \
+  python3 python3-fastapi python3-uvicorn python3-psutil libpam0g ca-certificates curl sudo rsync util-linux acl openssl restic openssh-client nut-client nut-server \
   mdadm lvm2 btrfs-progs e2fsprogs gdisk parted smartmontools \
   samba smbclient nfs-kernel-server avahi-daemon \
   docker.io initramfs-tools
@@ -40,6 +41,7 @@ esac
 
 echo "==> Installing Cynthology to $DEST"
 mkdir -p "$DEST" /var/lib/cynthology /etc/exports.d
+chmod 755 /var/lib/cynthology && chown root:root /var/lib/cynthology
 rsync -a --delete --exclude .cyn-state --exclude __pycache__ "$SRC/backend" "$SRC/frontend" "$SRC/catalog" "$DEST/"
 rsync -a "$SRC/rootfs/" /
 
@@ -60,6 +62,10 @@ sed -i 's/^\(\s*\)map to guest = .*/\1map to guest = never/' /etc/samba/smb.conf
 printf '\n# Cynthology: shared folders (keep this the last line)\ninclude = /etc/samba/cyn-shares.conf\n' >> /etc/samba/smb.conf
 sed -i '/^\[homes\]/,/^\[/{s/^\(\s*browseable\s*=\s*\).*/\1no/}' /etc/samba/smb.conf || true
 touch /etc/exports.d/cyn.exports
+# UPS: NUT runs its event hook as user "nut"; allow exactly that one root helper, nothing else
+printf 'nut ALL=(root) NOPASSWD: /usr/lib/cynthology/ups-event-root\n' > /etc/sudoers.d/cynthology-ups
+chmod 440 /etc/sudoers.d/cynthology-ups
+visudo -cqf /etc/sudoers.d/cynthology-ups || rm -f /etc/sudoers.d/cynthology-ups
 # /etc/issue shows the web address on the console
 cat > /etc/issue <<'ISSUE'
 Cynthology alpha \n  (\l)

@@ -1,0 +1,4 @@
+#!/bin/sh
+# NUT upssched CMDSCRIPT (runs as user "nut"): pass the event to the root helper via sudo.
+case "$1" in *[!a-z-]*|"") echo "ups-event: bad event name" >&2; exit 1 ;; esac
+exec sudo -n /usr/lib/cynthology/ups-event-root "$1"

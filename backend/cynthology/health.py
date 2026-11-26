@@ -61,6 +61,11 @@ def collect() -> dict[str, dict]:
             issues[f"disk-{d.get('serial') or d['name']}-realloc"] = {
                 "level": "warning", "title": f"Drive {d['name']} has reallocated sectors",
                 "detail": f"{d['model']} (serial {d.get('serial')}): {s['reallocated']} reallocated sectors. Keep an eye on it."}
+    try:
+        from . import ups
+        issues.update(ups.health_issues())
+    except Exception:
+        pass
     c = tls.cert_info()
     if c.get("present") and c.get("kind") == "uploaded" and c.get("days_left", 999) < 14:
         issues["cert-expiry"] = {"level": "warning", "title": "HTTPS certificate expires soon",
@@ -122,7 +127,8 @@ def _log(entries: list[dict]) -> None:
 
 def run_check() -> list[dict]:
     """One monitoring pass: detect changes, log them, email them."""
-    now = collect()
+    # power events are alerted instantly by the UPS hook (ups.py); don't repeat them here
+    now = {k: v for k, v in collect().items() if k not in ("ups-onbatt", "ups-lowbatt")}
     try:
         with open(STATE_FILE) as f:
             before = json.load(f)

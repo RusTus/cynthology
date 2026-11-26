@@ -6,6 +6,7 @@ WM.register("control", {
       general: { label: "General", render: cpGeneral },
       security: { label: "Security", render: cpSecurity },
       notify: { label: "Notifications", render: cpNotify },
+      ups: { label: "UPS", render: cpUps },
       shares: { label: "Shared Folders", render: cpShares },
       users: { label: "Users & Groups", render: cpUsers },
       services: { label: "File Services", render: cpServices },
@@ -171,4 +172,70 @@ async function cpNotify(p) {
       h("td", {}, h("span", { class: "pill " + (a.level === "critical" ? "bad" : a.level === "warning" ? "warn" : "ok") }, a.event === "resolved" ? "resolved" : a.level)),
       h("td", {}, h("b", {}, a.title), h("div", { class: "muted" }, a.detail || "")))))
       : h("p", { class: "muted" }, "No alerts so far."));
+}
+
+async function cpUps(p) {
+  const { config: cfg, status: st } = await API.get("/api/ups");
+  const f = { ...cfg };
+  const reload = () => { p.replaceChildren(); cpUps(p); };
+  const box = h("div", { class: "form" });
+  const mins = (s) => (s == null ? "?" : `${Math.round(s / 60)} min`);
+
+  const statusCard = !st.enabled ? null : st.connected
+    ? h("div", { class: "card", style: "max-width:560px;margin-bottom:16px" },
+        h("div", {}, h("b", {}, st.model || "UPS"), " ", h("span", { class: "pill " + (st.on_battery || st.low_battery ? "bad" : st.replace_battery ? "warn" : "ok") }, st.status)),
+        st.charge != null ? h("div", {}, h("div", { class: "bar" }, h("div", { style: `width:${st.charge}%;background:${st.charge < 30 ? "var(--bad)" : "var(--ok)"}` })),
+          h("div", { class: "muted" }, `Battery ${st.charge}% · runtime ${mins(st.runtime)}` + (st.load != null ? ` · load ${st.load}%` : ""))) : null,
+        st.input_voltage != null ? h("div", { class: "muted" }, `Input ${st.input_voltage} V` + (st.output_voltage != null ? ` · output ${st.output_voltage} V` : "")) : null,
+        h("div", { class: "muted mono" }, st.target + (st.serial ? ` · serial ${st.serial}` : "")))
+    : h("div", { class: "note warn", style: "max-width:560px;margin-bottom:16px" }, "Can't reach the UPS: " + [].concat(st.error).join(" "));
+
+  async function draw() {
+    const parts = [
+      h("label", { class: "check" }, h("input", { type: "checkbox", checked: f.enabled, onchange: (e) => { f.enabled = e.target.checked; draw(); } }), "Enable UPS support"),
+    ];
+    if (f.enabled) {
+      parts.push(h("label", {}, "UPS type", h("select", { onchange: (e) => { f.mode = e.target.value; draw(); } },
+        [["usb", "USB UPS (connected to this NAS)"], ["snmp", "SNMP UPS (network card)"], ["network", "UPS server on the network (another Cynthology or Synology NAS)"]]
+          .map(([v, l]) => h("option", { value: v, selected: f.mode === v }, l)))));
+      if (f.mode === "usb") {
+        const found = h("div", { class: "muted" });
+        parts.push(h("div", {}, h("button", { class: "btn", onclick: async () => {
+          found.textContent = "Looking for USB UPS devices…";
+          const r = await API.get("/api/ups/detect");
+          found.textContent = r.length ? "Found: " + r.map((u) => `${u.vendor || ""} ${u.product || ""} (${u.driver})`.trim()).join("; ") : "No USB UPS found. Check the cable (a USB data cable, not just power).";
+        } }, "Detect USB UPS"), found));
+      } else if (f.mode === "snmp") {
+        parts.push(h("label", {}, "UPS IP address", h("input", { value: f.snmp_host, oninput: (e) => (f.snmp_host = e.target.value.trim()) })),
+          h("label", {}, "SNMP community", h("input", { value: f.snmp_community, oninput: (e) => (f.snmp_community = e.target.value.trim()) })));
+      } else {
+        parts.push(h("label", {}, "UPS server IP address", h("input", { value: f.server_host, placeholder: "192.168.1.10", oninput: (e) => (f.server_host = e.target.value.trim()) })),
+          h("details", {}, h("summary", { class: "muted" }, "Advanced (UPS name, login)"),
+            h("div", { class: "form", style: "margin-top:8px" },
+              h("label", {}, "UPS name", h("input", { value: f.server_ups, oninput: (e) => (f.server_ups = e.target.value.trim()) })),
+              h("label", {}, "User", h("input", { value: f.server_user, oninput: (e) => (f.server_user = e.target.value.trim()) })),
+              h("label", {}, "Password", h("input", { value: f.server_password, oninput: (e) => (f.server_password = e.target.value.trim()) })),
+              h("div", { class: "muted" }, "Synology NAS servers use ups / monuser / secret (the defaults)."))));
+      }
+      parts.push(h("h3", { class: "pc-group" }, "When the power fails"),
+        h("label", { class: "check" }, h("input", { type: "radio", name: "ups-sd", checked: f.shutdown === "timer", onchange: () => { f.shutdown = "timer"; draw(); } }),
+          "Shut down safely after ", h("input", { type: "number", min: 1, max: 240, value: f.shutdown_minutes, style: "width:70px", disabled: f.shutdown !== "timer",
+            oninput: (e) => (f.shutdown_minutes = +e.target.value) }), " minutes on battery"),
+        h("label", { class: "check" }, h("input", { type: "radio", name: "ups-sd", checked: f.shutdown === "lowbatt", onchange: () => { f.shutdown = "lowbatt"; draw(); } }),
+          "Run on battery until the UPS reports low battery, then shut down"));
+      if (f.mode !== "network") {
+        parts.push(h("label", { class: "check" }, h("input", { type: "checkbox", checked: f.ups_poweroff, onchange: (e) => (f.ups_poweroff = e.target.checked) }),
+            "Turn the UPS off after the NAS has shut down (so everything restarts cleanly when power returns)"),
+          h("h3", { class: "pc-group" }, "UPS server"),
+          h("label", { class: "check" }, h("input", { type: "checkbox", checked: f.serve, onchange: (e) => (f.serve = e.target.checked) }),
+            "Let other devices on the network use this UPS (e.g. another NAS or a Synology - they connect to this NAS's IP)"));
+      }
+    }
+    parts.push(h("div", { class: "toolbar" },
+      h("button", { class: "btn primary", onclick: async () => { await act(() => API.put("/api/ups", f), "UPS settings applied"); reload(); } }, "Apply"),
+      st.enabled ? h("button", { class: "btn", onclick: reload }, "Refresh status") : null));
+    box.replaceChildren(...parts);
+  }
+  p.append(h("h2", {}, "UPS"), statusCard, box);
+  draw();
 }
