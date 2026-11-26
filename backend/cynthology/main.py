@@ -40,6 +40,8 @@ def regenerate_share_configs():
     if DEV:
         return
     try:
+        for p in storage.load_pools():   # keep each volume's own record up to date (used when importing it later)
+            storage.write_pool_meta(p)
         if shares.load():
             shares.write_configs(shares.load())
     except Exception as e:

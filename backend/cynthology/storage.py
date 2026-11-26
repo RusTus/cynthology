@@ -5,6 +5,7 @@ mounted at /volumeN. SHR uses several md arrays (one per size tier) - see raidpl
 """
 import json
 import os
+import re
 import subprocess
 import time
 
@@ -119,6 +120,8 @@ def _mounts(dev: dict) -> list[str]:
 def list_disks() -> list[dict]:
     if DEV:
         used = {d for p in load_pools() for d in p["disks"]}
+        if os.environ.get("CYN_MOCK_FOREIGN"):
+            used |= {d for f in foreign_pools() for d in f["disks"]}
         return [{**d, "in_use": d["in_use"] or d["name"] in used} for d in MOCK_DISKS]
     out = read_only(["lsblk", "-J", "-b", "-o", "NAME,PATH,SIZE,MODEL,SERIAL,ROTA,TYPE,MOUNTPOINT,FSTYPE,TRAN,HOTPLUG"])
     disks = []
@@ -142,7 +145,13 @@ def list_disks() -> list[dict]:
 
 @router.get("/disks")
 def disks(_=Depends(current_user)):
-    return list_disks()
+    """usage: system | pool (member of a pool here) | foreign (has data from elsewhere) | free"""
+    pooled = _pooled_disks()
+    out = []
+    for d in list_disks():
+        usage = "system" if d["system"] else "pool" if d["name"] in pooled else "foreign" if d["in_use"] else "free"
+        out.append({**d, "usage": usage, "pool": pooled.get(d["name"])})
+    return out
 
 
 @router.get("/disks/{name}/smart")
@@ -353,6 +362,7 @@ def _build_pool(body: "PoolCreate", p, job: dict) -> dict:
     pools = load_pools()
     pools.append(pool)
     save_pools(pools)
+    write_pool_meta(pool)
     job["step"] = len(CREATE_STEPS)
     return pool
 
@@ -608,3 +618,244 @@ if __name__ == "__main__":
     import sys
     if sys.argv[1:] == ["scrub-due"]:
         print("scrubs started for pools:", scrub_due())
+
+
+# ---------- pools and drives from an earlier installation ----------
+# A reinstall (or moving the drives to a new box) leaves the md arrays, LVM and file system on the
+# drives intact; Linux even assembles the arrays at boot. Such a pool can be imported (DSM calls it
+# "Online Assemble"); any drive with data that isn't part of a pool here can be erased instead.
+
+POOL_META = ".cynthology-pool.json"      # on the volume itself, so an import restores name and RAID type
+VG_RE = re.compile(r"^vg_cyn(\d+)$")
+_scanned: list = []
+MOCK_FOREIGN = [{"vg": "vg_cyn1", "label": "Volume 1", "raid": "shr", "fs": "btrfs", "size": 17_100_000_000,
+                 "disks": ["sda", "sdb", "sdc", "sdd"], "status": "healthy", "tolerance": 1, "importable": True, "why_not": None,
+                 "arrays": []}]
+
+
+def write_pool_meta(pool: dict) -> None:
+    if DEV or not os.path.ismount(pool["mount"]):
+        return
+    try:
+        with open(os.path.join(pool["mount"], POOL_META), "w") as f:
+            json.dump({k: pool.get(k) for k in ("label", "raid", "fs", "tolerance")}, f)
+    except OSError:
+        pass
+
+
+def _slaves(md: str) -> list[str]:
+    d = f"/sys/block/{os.path.basename(os.path.realpath(md))}/slaves"
+    return sorted(os.listdir(d)) if os.path.isdir(d) else []
+
+
+def _part_info(part: str) -> dict:
+    disk = os.path.basename(os.path.dirname(os.path.realpath(f"/sys/class/block/{part}")))
+    try:
+        num = int(open(f"/sys/class/block/{part}/partition").read())
+    except (OSError, ValueError):
+        num = 0
+    return {"part": part, "path": f"/dev/{part}", "disk": disk, "num": num}
+
+
+def _md_info(md: str) -> dict:
+    detail = read_only(["mdadm", "--detail", md])
+    field = lambda k: next((ln.split(":", 1)[1].strip() for ln in detail.splitlines() if ln.strip().startswith(k + " :")), "")
+    level = field("Raid Level").replace("raid", "")
+    parts = [_part_info(p) for p in _slaves(md)]
+    return {"dev": md, "level": level, "state": field("State"), "devices": int(field("Raid Devices") or 0),
+            "name": field("Name").split()[0] if field("Name") else "", "parts": parts,
+            "tier": parts[0]["num"] if parts else 0}
+
+
+def _tolerance(a: dict) -> int:
+    return {"0": 0, "1": max(a["devices"] - 1, 0), "4": 1, "5": 1, "6": 2, "10": 1}.get(a["level"], 0)
+
+
+def _guess_raid(arrays: list[dict]) -> str:
+    if len(arrays) > 1:
+        return "shr2" if any(a["level"] == "6" for a in arrays) else "shr"
+    a = arrays[0] if arrays else {"level": "", "devices": 0}
+    if a["level"] == "1" and a["devices"] == 1:
+        return "basic"
+    return f"raid{a['level']}" if a["level"] else "unknown"
+
+
+def _fstab_set(uuid: str, mount: str, line: str) -> None:
+    lines = open("/etc/fstab").read().splitlines()
+    keep = [ln for ln in lines if not (ln.split() and (ln.split()[0] == f"UUID={uuid}" or (len(ln.split()) > 1 and ln.split()[1] == mount)))]
+    with open("/etc/fstab.new", "w") as f:
+        f.write("\n".join(keep + [line]) + "\n")
+    os.replace("/etc/fstab.new", "/etc/fstab")
+
+
+def foreign_pools() -> list[dict]:
+    """Cynthology pools on the drives that this installation doesn't know (yet)."""
+    if DEV:
+        return [p for p in MOCK_FOREIGN if not any(x.get("vg") == p["vg"] for x in load_pools())] if os.environ.get("CYN_MOCK_FOREIGN") else []
+    if not _scanned:   # arrays may not have been assembled (e.g. no mdadm.conf yet)
+        run(["mdadm", "--assemble", "--scan"], check=False)
+        _scanned.append(True)
+    known = {p.get("vg") for p in load_pools()}
+    out = read_only(["pvs", "--reportformat", "json", "--units", "b", "--nosuffix", "-o", "pv_name,vg_name,vg_size"])
+    try:
+        rows = json.loads(out)["report"][0]["pv"] if out else []
+    except (ValueError, KeyError, IndexError):
+        rows = []
+    vgs: dict[str, dict] = {}
+    for r in rows:
+        if VG_RE.match(r.get("vg_name", "")) and r["vg_name"] not in known:
+            v = vgs.setdefault(r["vg_name"], {"size": int(float(r.get("vg_size") or 0)), "pvs": []})
+            v["pvs"].append(r["pv_name"])
+    result = []
+    for vg, info in sorted(vgs.items()):
+        arrays = [_md_info(pv) for pv in info["pvs"]]
+        lv = f"/dev/{vg}/data"
+        run(["vgchange", "-ay", vg], check=False)
+        fs = read_only(["blkid", "-s", "TYPE", "-o", "value", lv]).strip()
+        label = read_only(["blkid", "-s", "LABEL", "-o", "value", lv]).strip()
+        mounted = read_only(["findmnt", "-n", "-o", "TARGET", "--source", lv]).strip()
+        states = " ".join(a["state"] for a in arrays)
+        status = "degraded" if any(w in states for w in ("degraded", "FAILED", "inactive")) else "healthy"
+        why = None
+        if not all(a["dev"].startswith("/dev/md") for a in arrays):
+            why = "not on RAID arrays this version understands"
+        elif fs not in ("btrfs", "ext4"):
+            why = "the file system can't be read (the pool may be missing too many drives)"
+        elif mounted:
+            why = f"already mounted at {mounted}"
+        result.append({"vg": vg, "label": label or vg, "raid": _guess_raid(arrays), "fs": fs, "size": info["size"],
+                       "disks": sorted({p["disk"] for a in arrays for p in a["parts"]}), "status": status,
+                       "tolerance": min((_tolerance(a) for a in arrays), default=0), "importable": why is None, "why_not": why,
+                       "arrays": arrays})
+    return result
+
+
+@router.get("/foreign")
+def get_foreign(_=Depends(require_admin)):
+    return foreign_pools()
+
+
+@router.post("/foreign/{vg}/import")
+def import_pool(vg: str, _=Depends(require_admin)):
+    f = next((x for x in foreign_pools() if x["vg"] == vg), None)
+    if not f:
+        raise HTTPException(404, "no such storage pool on the drives")
+    if not f["importable"]:
+        raise HTTPException(400, f"can't import: {f['why_not']}")
+    pools = load_pools()
+    ids = {p["id"] for p in pools}
+    n = int(VG_RE.match(vg).group(1))
+    if n in ids or (not DEV and os.path.ismount(f"/volume{n}")):
+        n = max(ids | {n}) + 1
+    new_vg, mount = f"vg_cyn{n}", f"/volume{n}"
+    arrays = []
+    if not DEV:
+        # Re-assemble each array under this installation's naming (cyn<n>t<tier>, local host name)
+        run(["vgchange", "-an", vg])
+        try:
+            for a in f["arrays"]:
+                name = f"cyn{n}t{a['tier']}"
+                run(["mdadm", "--stop", a["dev"]])
+                run(["mdadm", "--assemble", f"/dev/md/{name}", "--run", "--update=name", f"--name={name}",
+                     *[p["path"] for p in a["parts"]]])
+                arrays.append({"md": f"/dev/md/{name}", "level": a["level"], "part": a["tier"],
+                               "members": sorted({p["disk"] for p in a["parts"]})})
+        except HTTPException:
+            run(["mdadm", "--assemble", "--scan"], check=False)    # put back whatever we stopped
+            run(["vgchange", "-ay", vg], check=False)
+            raise
+        run(["udevadm", "settle"], check=False)
+        if new_vg != vg:
+            run(["vgrename", vg, new_vg])
+        run(["vgchange", "-ay", new_vg])
+        lv = f"/dev/{new_vg}/data"
+        uuid = run(["blkid", "-s", "UUID", "-o", "value", lv]).strip()
+        opts = "defaults,noatime,compress=zstd:3,space_cache=v2" if f["fs"] == "btrfs" else "defaults,noatime"
+        run(["mkdir", "-p", mount])
+        _fstab_set(uuid, mount, f"UUID={uuid} {mount} {f['fs']} {opts},nofail 0 0")
+        run(["systemctl", "daemon-reload"], check=False)
+        run(["mount", mount])
+    else:
+        lv, uuid = f"/dev/{new_vg}/data", "mock"
+    meta = {}
+    try:
+        meta = json.load(open(os.path.join(mount, POOL_META)))
+    except (OSError, ValueError):
+        pass
+    pool = {"id": n, "label": meta.get("label") or (f["label"] if f["label"] != vg else f"Volume {n}"),
+            "raid": meta.get("raid") or f["raid"], "fs": f["fs"], "disks": f["disks"], "arrays": arrays,
+            "vg": new_vg, "lv": lv, "mount": mount, "uuid": uuid, "tolerance": f["tolerance"],
+            "mock_total": f["size"], "imported": True}
+    pools = load_pools()
+    pools.append(pool)
+    save_pools(pools)
+    if not DEV:
+        _save_mdadm_conf(initramfs=True)
+    write_pool_meta(pool)
+    from . import shares as shares_mod
+    restored = shares_mod.adopt_pool_shares(pool)
+    return {"ok": True, "pool": pool, "shares": restored}
+
+
+class Erase(BaseModel):
+    disks: list[str]
+    confirm: str
+
+
+def _pooled_disks() -> dict[str, str]:
+    """Every drive that belongs to a pool of this installation (members, spares, failed)."""
+    out = {}
+    for p in load_pools():
+        names = set(p["disks"]) if DEV else {_part_info(s)["disk"] for a in p.get("arrays", []) for s in _slaves(a["md"])} | set(pool_disks(p))
+        for d in names:
+            out[d] = p["label"]
+    return out
+
+
+def _dismantle(dev: str) -> None:
+    """Unmount and stop everything stacked on a drive (LVM, md arrays), then wipe it."""
+    tree = json.loads(read_only(["lsblk", "-J", "-o", "PATH,TYPE,MOUNTPOINT", dev]) or '{"blockdevices":[]}')["blockdevices"]
+    mounts, lvs, mds = [], [], []
+
+    def walk(n):
+        for c in n.get("children") or []:
+            walk(c)
+        if n.get("mountpoint"):
+            mounts.append(n["mountpoint"])
+        if n.get("type") == "lvm":
+            lvs.append(n["path"])
+        elif (n.get("type") or "").startswith("raid") or n.get("type") == "linear":
+            mds.append(n["path"])
+    for n in tree:
+        walk(n)
+    for m in mounts:
+        if m in ("/", "/boot", "/boot/efi") or m.startswith("[SWAP]"):
+            raise HTTPException(400, f"{dev} is used by the system ({m})")
+        run(["umount", m])
+    for lv in lvs:
+        vg = read_only(["lvs", "--noheadings", "-o", "vg_name", lv]).strip()
+        if vg:
+            run(["vgchange", "-an", vg], check=False)
+        run(["dmsetup", "remove", "--retry", lv], check=False)
+    for md in dict.fromkeys(mds):
+        run(["mdadm", "--stop", md], check=False)
+    _scrub_disk(dev)
+
+
+@router.post("/disks/erase")
+def erase_disks(body: Erase, _=Depends(require_admin)):
+    if body.confirm != "ERASE":
+        raise HTTPException(400, "type ERASE to confirm")
+    known = {d["name"]: d for d in list_disks()}
+    pooled = _pooled_disks()
+    for name in body.disks:
+        if name not in known:
+            raise HTTPException(400, f"unknown drive {name}")
+        if known[name]["system"]:
+            raise HTTPException(400, f"{name} is the system drive")
+        if name in pooled:
+            raise HTTPException(400, f"{name} belongs to storage pool '{pooled[name]}'")
+    for name in body.disks:
+        _dismantle(f"/dev/{name}")
+    _scanned.clear()
+    return {"ok": True}

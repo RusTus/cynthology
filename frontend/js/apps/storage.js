@@ -25,9 +25,9 @@ WM.register("storage", {
       const box = h("div");
       pane.replaceChildren(box);
       drawSide();
-      if (key === "overview") storageOverview(box);
+      if (key === "overview") storageOverview(box, go);
       else if (key === "pools") storagePools(box);
-      else if (key === "drives") storageDisks(box);
+      else if (key === "drives") storageDisks(box, go);
       else if (key.startsWith("pool:")) poolDetail(box, +key.split(":")[1], go);
     }
     win.show = (k) => go({ volumes: "pools", disks: "drives" }[k] || k);
@@ -36,8 +36,48 @@ WM.register("storage", {
   },
 });
 
-async function storageOverview(p) {
-  const [pools, disks] = await Promise.all([API.get("/api/storage/pools"), API.get("/api/storage/disks")]);
+// Erase drives that hold data from elsewhere (an earlier installation, another NAS...).
+async function eraseDrives(names, after) {
+  const typed = prompt(`Erase ${names.join(", ")}?\n\nEverything on ${names.length > 1 ? "these drives" : "this drive"} is permanently deleted ` +
+    `(including any storage pool on ${names.length > 1 ? "them" : "it"}).\n\nType ERASE to confirm:`);
+  if (typed === null) return;
+  if (typed.trim() !== "ERASE") return toast("Not erased - you need to type ERASE");
+  toast(`Erasing ${names.join(", ")}…`);
+  await act(() => API.post("/api/storage/disks/erase", { disks: names, confirm: "ERASE" }), `${names.join(", ")} erased - ready for a new storage pool`);
+  after();
+}
+
+// Pools found on the drives that this installation doesn't know yet (reinstall, drives moved from another box).
+function foreignCard(f, go) {
+  return h("div", { class: "health-hero warn", style: "margin-bottom:14px;align-items:flex-start" },
+    h("div", { class: "hero-icon" }, svgIcon("storage", 26)),
+    h("div", { style: "flex:1;display:grid;gap:6px" },
+      h("div", { class: "hero-title" }, `Existing storage pool found: ${f.label}`),
+      h("div", { class: "muted" }, `${(RAID_LABEL[f.raid] || f.raid)} · ${fmtBytes(f.size)} · ${f.fs || "unknown file system"} · drives ${f.disks.join(", ")}`,
+        f.status !== "healthy" ? h("span", { class: "pill warn", style: "margin-left:8px" }, f.status) : null),
+      h("div", {}, f.importable
+        ? "These drives hold a storage pool from an earlier Cynthology installation. Import it to get its data and shared folders back, or erase the drives to start fresh."
+        : `It can't be imported: ${f.why_not}. You can erase the drives to use them again.`),
+      h("div", { class: "toolbar", style: "margin:4px 0 0" },
+        f.importable ? h("button", { class: "btn primary", onclick: async (e) => {
+          e.target.disabled = true; e.target.textContent = "Importing…";
+          try {
+            const r = await API.post(`/api/storage/foreign/${f.vg}/import`);
+            toast(`Imported ${r.pool.label}` + (r.shares.length ? ` with shared folder(s): ${r.shares.join(", ")}` : ""));
+            go("overview");
+          } catch (ex) { toast("Error: " + ex.message); e.target.disabled = false; e.target.textContent = "Import"; }
+        } }, "Import") : null,
+        h("button", { class: "btn danger", onclick: () => eraseDrives(f.disks, () => go("overview")) }, "Erase drives"))));
+}
+
+async function storageOverview(p, go) {
+  const [pools, disks, foreign] = await Promise.all([API.get("/api/storage/pools"), API.get("/api/storage/disks"),
+    API.get("/api/storage/foreign").catch(() => [])]);
+  p.append(...foreign.map((f) => foreignCard(f, go)));
+  const loose = disks.filter((d) => d.usage === "foreign" && !foreign.some((f) => f.disks.includes(d.name)));
+  if (loose.length) p.append(h("div", { class: "note warn", style: "margin-bottom:14px" },
+    `${loose.map((d) => d.name).join(", ")} contain${loose.length > 1 ? "" : "s"} data from another system. Erase ${loose.length > 1 ? "them" : "it"} under Drives to use ${loose.length > 1 ? "them" : "it"} in a storage pool. `,
+    h("button", { class: "btn", onclick: () => go("drives") }, "Go to Drives")));
   const bad = pools.filter((x) => statusClass(x.status) === "bad" || statusClass(x.status) === "warn");
   const total = pools.reduce((a, x) => a + (x.total || 0), 0), used = pools.reduce((a, x) => a + (x.used || 0), 0);
   p.append(h("div", { class: "health-hero " + (bad.length ? "warn" : pools.length ? "ok" : "") },
@@ -184,6 +224,7 @@ async function addDiskDialog(p, pool, spare = false) {
 async function createPoolWizard(p) {
   const disks = await API.get("/api/storage/disks");
   const free = disks.filter((d) => !d.in_use && !d.system);
+  const leftover = disks.filter((d) => d.usage === "foreign");
   const state = { raid: "shr", disks: new Set(free.map((d) => d.name)), fs: "btrfs", label: "" };
   const raidBox = h("div", { class: "raid-opts" });
   const preview = h("div");
@@ -215,7 +256,11 @@ async function createPoolWizard(p) {
         h("div", { class: "disk-pick" }, free.length ? free.map((d) => h("label", {},
           h("input", { type: "checkbox", checked: true, onchange: (e) => { e.target.checked ? state.disks.add(d.name) : state.disks.delete(d.name); refresh(); } }),
           h("span", {}, `${d.name} – ${d.model || "Unknown"}`), h("span", { class: "muted" }, fmtBytes(d.size)),
-          h("span", { class: "pill" }, d.rota ? "HDD" : "SSD"))) : h("p", { class: "muted" }, "No unused drives."))),
+          h("span", { class: "pill" }, d.rota ? "HDD" : "SSD"))) : h("p", { class: "muted" }, "No unused drives.")),
+        leftover.length ? h("div", { class: "note warn", style: "margin-top:8px" },
+          `${leftover.map((d) => d.name).join(", ")} still hold${leftover.length > 1 ? "" : "s"} data (e.g. a storage pool from an earlier installation). `,
+          "To keep that data, import the pool on the Overview page. To use the drive(s) here, erase them first. ",
+          h("button", { class: "btn danger", onclick: () => eraseDrives(leftover.map((d) => d.name), () => createPoolWizard(p)) }, "Erase " + leftover.map((d) => d.name).join(", "))) : null),
       h("div", {}, h("div", { class: "muted" }, "RAID type (usable capacity shown for the selected drives)"), raidBox),
       preview,
       h("label", {}, "File system", h("select", { onchange: (e) => (state.fs = e.target.value) },
@@ -233,7 +278,7 @@ async function createPoolWizard(p) {
   refresh();
 }
 
-async function storageDisks(p) {
+async function storageDisks(p, go) {
   const [disks, pools] = await Promise.all([API.get("/api/storage/disks"), API.get("/api/storage/pools")]);
   const role = {};
   for (const x of pools) {
@@ -242,7 +287,8 @@ async function storageDisks(p) {
     (x.failed || []).forEach((d) => (role[d] = [`Failed · ${x.label}`, "bad"]));
   }
   p.append(h("h2", {}, "Drives"), h("div", { class: "drive-list" }, disks.map((d) => {
-    const [r, cls] = d.system ? ["System drive", "info"] : role[d.name] || (d.in_use ? ["In use", ""] : ["Not used - available for a pool", ""]);
+    const [r, cls] = d.system ? ["System drive", "info"] : role[d.name] || (d.usage === "pool" ? [d.pool, "ok"]
+      : d.usage === "foreign" ? ["Contains data from another system or an earlier installation", "warn"] : ["Not used - available for a pool", ""]);
     const details = h("div", { class: "drive-details hidden" });
     const rowEl = h("div", { class: "drive-row" },
       h("div", { class: "drive-main", onclick: async () => {
@@ -262,6 +308,7 @@ async function storageDisks(p) {
         h("div", { style: "flex:1;min-width:0" },
           h("div", {}, h("b", {}, d.name), h("span", { class: "muted" }, `  ${d.model || "Unknown model"}  ·  ${fmtBytes(d.size)}`)),
           h("div", { class: cls === "bad" ? "err" : "muted", style: "font-size:13px" }, r)),
+        d.usage === "foreign" ? h("button", { class: "btn danger", onclick: (e) => { e.stopPropagation(); eraseDrives([d.name], () => go("drives")); } }, "Erase") : null,
         h("span", { class: "muted" }, "⌄")),
       details);
     return rowEl;

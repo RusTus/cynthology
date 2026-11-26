@@ -15,6 +15,7 @@ from .util import DEV, STATE_DIR, read_only, run, valid_name
 
 router = APIRouter(prefix="/api/shares", tags=["shares"])
 SHARES_FILE = os.path.join(STATE_DIR, "shares.json")
+SHARES_META = ".cynthology-shares.json"   # copy on each volume, so importing the pool restores its shares
 SMB_CONF = os.path.join(STATE_DIR, "cyn-shares.conf") if DEV else "/etc/samba/cyn-shares.conf"
 AVAHI_FILE = os.path.join(STATE_DIR, "avahi-timemachine.service") if DEV else "/etc/avahi/services/cynthology-timemachine.service"
 NFS_CONF = os.path.join(STATE_DIR, "cyn.exports") if DEV else "/etc/exports.d/cyn.exports"
@@ -85,10 +86,56 @@ def write_configs(shares: list[dict]) -> None:
         f.write("# Managed by Cynthology - do not edit\n" + "\n".join(nfs) + "\n")
     with open(SHARES_FILE, "w") as f:
         json.dump(shares, f, indent=2)
+    _save_volume_copies(shares)
     if os.path.exists(AVAHI_FILE):   # older versions announced Time Machine themselves; Samba does it now
         os.remove(AVAHI_FILE)
     run(["smbcontrol", "all", "reload-config"], check=False)
     run(["exportfs", "-ra"], check=False)
+
+
+def _save_volume_copies(shares: list[dict]) -> None:
+    if DEV:
+        return
+    for p in load_pools():
+        if not os.path.ismount(p["mount"]):
+            continue
+        mine = [{k: v for k, v in s.items() if k not in ("path", "pool_id")} for s in shares
+                if s.get("pool_id") == p["id"] and not s.get("usb")]
+        try:
+            with open(os.path.join(p["mount"], SHARES_META), "w") as f:
+                json.dump(mine, f, indent=1)
+        except OSError:
+            pass
+
+
+def adopt_pool_shares(pool: dict) -> list[str]:
+    """After importing a pool: bring back its shared folders (saved settings, or every top-level folder)."""
+    mount = pool["mount"] if not DEV else os.path.join(STATE_DIR, "root", pool["mount"].lstrip("/"))
+    try:
+        saved = json.load(open(os.path.join(mount, SHARES_META)))
+    except (OSError, ValueError):
+        saved = None
+    if saved is None:
+        saved = []
+        for name in sorted(os.listdir(mount)) if os.path.isdir(mount) else []:
+            if name.startswith((".", "@", "#")) or name == "lost+found" or not os.path.isdir(os.path.join(mount, name)):
+                continue
+            try:
+                valid_name(name)
+            except HTTPException:
+                continue
+            saved.append(Share(name=name, pool_id=pool["id"], description="Imported").model_dump())
+    shares = load()
+    have = {s["name"].lower() for s in shares}
+    added = []
+    for s in saved:
+        path = os.path.join(mount, s["name"])
+        if s["name"].lower() in have or not os.path.isdir(path):
+            continue
+        shares.append({**Share(name=s["name"], pool_id=pool["id"]).model_dump(), **s, "pool_id": pool["id"], "path": path})
+        added.append(s["name"])
+    write_configs(shares)
+    return added
 
 
 @router.get("")

@@ -33,6 +33,7 @@ Already installed an older version? Run the same command again - it upgrades in 
 | 16 | UPS | Only if you have a USB UPS: Control Panel → UPS → Detect | Battery status shown |
 | 17 | Drive failure (VM) | VMware: remove one pool disk while running | Pool degraded → hot spare rebuilds; email |
 | 18 | Web Station | Main menu → Web Station → Install; then copy an `index.php` (`<?php phpinfo();`) into the `web` share and open `http://<NAS>/` | PHP info page |
+| 20 | Reinstall with existing drives | Reinstall Debian + Cynthology on the system disk only, keep the pool drives → Storage Manager → Overview → Import (or Erase drives) | Pool and its shared folders are back with their files (or drives become free for a new pool) |
 | 19 | Synology alternatives | Package Center → Synology alternatives → MariaDB → Install, then phpMyAdmin → Install → Open (server: NAS IP, user root, password from Info) | phpMyAdmin logs in |
 
 Logs if something breaks: `sudo journalctl -u cynthology-ui -n 100`
