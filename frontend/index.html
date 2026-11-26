@@ -29,7 +29,7 @@
       <input id="login-code" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" maxlength="9">
       <div class="muted" style="font-size:12px">Lost your phone? Enter one of your backup codes instead (xxxx-xxxx).</div>
     </div>
-    <button type="submit">Sign in</button>
+    <button type="submit" data-t="Sign in">Sign in</button>
     <div id="login-err" class="err"></div>
   </form>
 </div>
@@ -47,16 +47,17 @@
   <div id="menu" class="menu hidden"></div>
   <div id="usb-menu" class="menu menu-right hidden" style="min-width:260px"></div>
   <div id="user-menu" class="menu menu-right hidden">
-    <button data-act="personal">Personal settings</button>
-    <button data-act="reboot">Restart</button>
-    <button data-act="shutdown">Shut down</button>
-    <button data-act="logout">Sign out</button>
+    <button data-act="personal" data-t="Personal settings">Personal settings</button>
+    <button data-act="reboot" data-t="Restart">Restart</button>
+    <button data-act="shutdown" data-t="Shut down">Shut down</button>
+    <button data-act="logout" data-t="Sign out">Sign out</button>
   </div>
   <div id="icons" class="icons"></div>
   <aside id="widgets" class="widgets"></aside>
   <div id="windows"></div>
 </div>
 
+<script src="/static/js/i18n.js"></script>
 <script src="/static/js/api.js"></script>
 <script src="/static/js/icons.js"></script>
 <script src="/static/js/wm.js"></script>

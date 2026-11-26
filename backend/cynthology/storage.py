@@ -6,6 +6,7 @@ mounted at /volumeN. SHR uses several md arrays (one per size tier) - see raidpl
 import json
 import os
 import re
+import shutil
 import subprocess
 import time
 
@@ -196,10 +197,15 @@ def pools(_=Depends(current_user)):
             elif "degraded" in state or "FAILED" in state or "inactive" in state:
                 status = "degraded"
                 break
+        if p.get("cache") and not DEV and status == "healthy":
+            cstate = _md_info(p["cache"]["md"])["state"]
+            if any(w in cstate for w in ("degraded", "FAILED", "inactive")):
+                status = "SSD cache degraded"
         roles = {} if DEV else pool_roles(p)
         spares = sorted(d for d, r in roles.items() if r == "spare") if roles else p.get("dev_spares", [])
         failed = sorted(d for d, r in roles.items() if r == "failed")
-        result.append({**p, **usage, "status": status, "disks": pool_disks(p), "spares": spares, "failed": failed})
+        result.append({**p, **usage, "status": status, "disks": pool_disks(p), "spares": spares, "failed": failed,
+                       "cache": cache_stats(p)})
     return result
 
 
@@ -373,17 +379,38 @@ def _grow_when_reshaped(pool: dict) -> None:
     mds = " ".join(a["md"] for a in pool["arrays"])
     fs_grow = (f"btrfs filesystem resize max {pool['mount']}" if pool.get("fs", "btrfs") == "btrfs"
                else f"resize2fs {pool['lv']}")
+    vg, c = pool.get("vg"), pool.get("cache")
+    # a cached volume is detached from its SSD cache while it grows, then re-attached
+    uncache = f"lvconvert -y --splitcache {vg}/data; " if c else ""
+    recache = f"; lvconvert -y --type cache --cachevol {vg}/cache --cachemode {c['mode']} {vg}/data" if c else ""
     script = (f"for md in {mds}; do mdadm --wait $md; done; "
-              f"for md in {mds}; do pvresize $md; done; "
-              f"lvextend -l +100%FREE {pool['lv']} || true; {fs_grow}")
+              f"for md in {mds}; do pvresize $md; done; {uncache}"
+              f"lvextend -l +100%FREE {pool['lv']} {' '.join(a['md'] for a in pool['arrays'])} || true; {fs_grow}{recache}")
     run(["systemd-run", f"--unit=cyn-grow-pool{pool['id']}-{int(time.time())}", "--collect",
          "--description", f"Cynthology: grow {pool['label']} after reshape", "sh", "-c", script])
+
+
+def _refuse_if_in_use(dev: str) -> None:
+    """Last line of defence before wiping: the drive and its partitions must not be held by an
+    active md array, LVM or dm device, and nothing on it may be mounted. (Drive names change
+    between boots, so a stale name must never be able to wipe a working pool member.)"""
+    name = os.path.basename(os.path.realpath(dev))
+    parts = [name] + [p for p in os.listdir(f"/sys/class/block/{name}") if p.startswith(name)] if os.path.isdir(f"/sys/class/block/{name}") else [name]
+    for p in parts:
+        holders = os.listdir(f"/sys/class/block/{p}/holders") if os.path.isdir(f"/sys/class/block/{p}/holders") else []
+        if holders:
+            raise HTTPException(409, f"refusing to erase {name}: {p} is in use by {', '.join(holders)}")
+    mounted = read_only(["lsblk", "-ln", "-o", "MOUNTPOINT", dev]).split()
+    if mounted:
+        raise HTTPException(409, f"refusing to erase {name}: mounted at {mounted[0]}")
 
 
 def _scrub_disk(dev: str) -> None:
     """Erase RAID/filesystem signatures on every partition, then the partition table.
     Order matters: if only the table is wiped, re-creating partitions at the same offsets
     brings the old md superblocks back and udev re-adds them to arrays on its own."""
+    if not DEV:
+        _refuse_if_in_use(dev)
     out = subprocess.run(["lsblk", "-ln", "-o", "PATH,TYPE", dev], capture_output=True, text=True).stdout if not DEV else ""
     for line in out.splitlines():
         path, typ = (line.split() + [""])[:2]
@@ -662,9 +689,10 @@ def _md_info(md: str) -> dict:
     field = lambda k: next((ln.split(":", 1)[1].strip() for ln in detail.splitlines() if ln.strip().startswith(k + " :")), "")
     level = field("Raid Level").replace("raid", "")
     parts = [_part_info(p) for p in _slaves(md)]
+    name = field("Name").split()[0] if field("Name") else ""
     return {"dev": md, "level": level, "state": field("State"), "devices": int(field("Raid Devices") or 0),
-            "name": field("Name").split()[0] if field("Name") else "", "parts": parts,
-            "tier": parts[0]["num"] if parts else 0}
+            "name": name, "parts": parts, "tier": parts[0]["num"] if parts else 0,
+            "cache": bool(re.search(r"cyn\d+c$", name))}
 
 
 def _tolerance(a: dict) -> int:
@@ -708,7 +736,9 @@ def foreign_pools() -> list[dict]:
             v["pvs"].append(r["pv_name"])
     result = []
     for vg, info in sorted(vgs.items()):
-        arrays = [_md_info(pv) for pv in info["pvs"]]
+        everything = [_md_info(pv) for pv in info["pvs"]]
+        arrays = [a for a in everything if not a["cache"]]
+        cache = next((a for a in everything if a["cache"]), None)
         lv = f"/dev/{vg}/data"
         run(["vgchange", "-ay", vg], check=False)
         fs = read_only(["blkid", "-s", "TYPE", "-o", "value", lv]).strip()
@@ -723,10 +753,15 @@ def foreign_pools() -> list[dict]:
             why = "the file system can't be read (the pool may be missing too many drives)"
         elif mounted:
             why = f"already mounted at {mounted}"
+        cache_info = None
+        if cache:
+            mode = read_only(["lvs", "--noheadings", "-o", "cache_mode", f"{vg}/data"]).strip() or "writethrough"
+            cache_info = {"dev": cache["dev"], "parts": cache["parts"], "level": cache["level"], "mode": mode,
+                          "disks": sorted({p["disk"] for p in cache["parts"]})}
         result.append({"vg": vg, "label": label or vg, "raid": _guess_raid(arrays), "fs": fs, "size": info["size"],
-                       "disks": sorted({p["disk"] for a in arrays for p in a["parts"]}), "status": status,
+                       "disks": sorted({p["disk"] for a in everything for p in a["parts"]}), "status": status,
                        "tolerance": min((_tolerance(a) for a in arrays), default=0), "importable": why is None, "why_not": why,
-                       "arrays": arrays})
+                       "arrays": arrays, "cache": cache_info})
     return result
 
 
@@ -760,6 +795,10 @@ def import_pool(vg: str, _=Depends(require_admin)):
                      *[p["path"] for p in a["parts"]]])
                 arrays.append({"md": f"/dev/md/{name}", "level": a["level"], "part": a["tier"],
                                "members": sorted({p["disk"] for p in a["parts"]})})
+            if f.get("cache"):
+                c = f["cache"]
+                run(["mdadm", "--stop", c["dev"]])
+                run(["mdadm", "--assemble", f"/dev/md/cyn{n}c", "--run", "--update=name", f"--name=cyn{n}c", *[p["path"] for p in c["parts"]]])
         except HTTPException:
             run(["mdadm", "--assemble", "--scan"], check=False)    # put back whatever we stopped
             run(["vgchange", "-ay", vg], check=False)
@@ -782,10 +821,15 @@ def import_pool(vg: str, _=Depends(require_admin)):
         meta = json.load(open(os.path.join(mount, POOL_META)))
     except (OSError, ValueError):
         pass
+    cache_disks = set(f["cache"]["disks"]) if f.get("cache") else set()
     pool = {"id": n, "label": meta.get("label") or (f["label"] if f["label"] != vg else f"Volume {n}"),
-            "raid": meta.get("raid") or f["raid"], "fs": f["fs"], "disks": f["disks"], "arrays": arrays,
+            "raid": meta.get("raid") or f["raid"], "fs": f["fs"], "disks": [d for d in f["disks"] if d not in cache_disks], "arrays": arrays,
             "vg": new_vg, "lv": lv, "mount": mount, "uuid": uuid, "tolerance": f["tolerance"],
             "mock_total": f["size"], "imported": True}
+    if f.get("cache"):
+        c = f["cache"]
+        pool["cache"] = {"md": f"/dev/md/cyn{n}c", "disks": c["disks"], "mode": c["mode"], "level": c["level"],
+                         "size": int(read_only(["blockdev", "--getsize64", f"/dev/md/cyn{n}c"]).strip() or 0) if not DEV else 0}
     pools = load_pools()
     pools.append(pool)
     save_pools(pools)
@@ -807,6 +851,8 @@ def _pooled_disks() -> dict[str, str]:
     out = {}
     for p in load_pools():
         names = set(p["disks"]) if DEV else {_part_info(s)["disk"] for a in p.get("arrays", []) for s in _slaves(a["md"])} | set(pool_disks(p))
+        if p.get("cache"):
+            names |= set(cache_disks(p["cache"]))
         for d in names:
             out[d] = p["label"]
     return out
@@ -858,4 +904,154 @@ def erase_disks(body: Erase, _=Depends(require_admin)):
     for name in body.disks:
         _dismantle(f"/dev/{name}")
     _scanned.clear()
+    return {"ok": True}
+
+
+# ---------- SSD cache (LVM dm-cache) ----------
+# Read-only = writethrough (every write also goes to the drives at once: losing the SSD loses
+# nothing); with 2+ SSDs they are mirrored by default so the cache survives a failing SSD, or
+# striped for more space. Read-write = writeback (needs two mirrored SSDs, like DSM). The SSDs form an md
+# array (/dev/md/cyn<n>c) that joins the pool's volume group as a "cachevol" for vg/data.
+
+class CacheCreate(BaseModel):
+    disks: list[str]
+    mode: str = "readonly"     # readonly | readwrite
+    mirror: bool = True        # 2+ drives: mirror them (redundancy) or stripe them (more space); read-write is always mirrored
+
+
+def _pool(pool_id: int) -> dict:
+    p = next((x for x in load_pools() if x["id"] == pool_id), None)
+    if not p:
+        raise HTTPException(404, "no such storage pool")
+    return p
+
+
+def cache_disks(c: dict) -> list[str]:
+    """Drives in the cache array right now (names change between boots; never trust saved ones)."""
+    if DEV:
+        return c["disks"]
+    return sorted({_part_info(x)["disk"] for x in _slaves(c["md"])})
+
+
+def cache_stats(pool: dict) -> dict | None:
+    c = pool.get("cache")
+    if not c:
+        return None
+    out = {**c, "size": c.get("size", 0), "disks": cache_disks(c)}
+    if DEV:
+        return {**out, "hit_rate": 87, "used_pct": 41, "dirty": 0}
+    raw = read_only(["lvs", "--reportformat", "json", "--units", "b", "--nosuffix", "-o",
+                     "lv_size,cache_read_hits,cache_read_misses,cache_write_hits,cache_write_misses,cache_used_blocks,cache_total_blocks,cache_dirty_blocks",
+                     f"{pool['vg']}/data"])
+    try:
+        r = json.loads(raw)["report"][0]["lv"][0]
+        num = lambda k: int(r.get(k) or 0)
+        reads = num("cache_read_hits") + num("cache_read_misses")
+        out.update(hit_rate=round(100 * num("cache_read_hits") / reads) if reads else None,
+                   used_pct=round(100 * num("cache_used_blocks") / num("cache_total_blocks")) if num("cache_total_blocks") else 0,
+                   dirty=num("cache_dirty_blocks"))
+    except (ValueError, KeyError, IndexError):
+        out["error"] = "cache statistics unavailable"
+    return out
+
+
+@router.get("/pools/{pool_id}/cache")
+def get_cache(pool_id: int, _=Depends(current_user)):
+    return cache_stats(_pool(pool_id))
+
+
+@router.post("/pools/{pool_id}/cache")
+def create_cache(pool_id: int, body: CacheCreate, _=Depends(require_admin)):
+    pool = _pool(pool_id)
+    if pool.get("cache"):
+        raise HTTPException(409, "this storage pool already has an SSD cache")
+    if not DEV and not shutil.which("cache_check"):
+        raise HTTPException(400, "SSD cache needs the thin-provisioning-tools package (without it the volume can't start at boot). "
+                                 "Update Cynthology (Control Panel > Update) to install it.")
+    if body.mode not in ("readonly", "readwrite"):
+        raise HTTPException(400, "mode must be readonly or readwrite")
+    if not body.disks:
+        raise HTTPException(400, "choose at least one drive")
+    if body.mode == "readwrite" and len(body.disks) != 2:
+        raise HTTPException(400, "a read-write cache needs exactly 2 drives (they are mirrored, so a failing SSD loses no data)")
+    if len(body.disks) > 4:
+        raise HTTPException(400, "at most 4 drives")
+    disks = _free_disks(body.disks)
+    n = pool["id"]
+    md, vg = f"/dev/md/cyn{n}c", pool["vg"]
+    # one drive or mirrored -> RAID 1 (every SSD holds the whole cache); striped read-only -> RAID 0
+    level = "0" if body.mode == "readonly" and len(disks) > 1 and not body.mirror else "1"
+    size = sum(d["size"] for d in disks.values()) if level == "0" else min(d["size"] for d in disks.values())
+    mode = "writethrough" if body.mode == "readonly" else "writeback"
+    if not DEV:
+        parts = []
+        for name in body.disks:
+            dev = f"/dev/{name}"
+            _scrub_disk(dev)
+            run(["sgdisk", "-n", "1:1M:0", "-t", "1:FD00", "-c", f"1:cyn{n}-cache", dev])
+            run(["partprobe", dev], check=False)
+            parts.append(_part(dev, 1))
+        run(["udevadm", "settle"], check=False)
+        run(["mdadm", "--create", md, "--run", "--force", "--metadata=1.2", f"--level={level}",
+             f"--raid-devices={len(parts)}", f"--name=cyn{n}c", *parts])
+        try:
+            run(["pvcreate", "-ff", "-y", md])
+            run(["vgextend", vg, md])
+            run(["lvcreate", "-y", "-n", "cache", "-l", "100%PVS", vg, md])
+            run(["lvconvert", "-y", "--type", "cache", "--cachevol", f"{vg}/cache", "--cachemode", mode, f"{vg}/data"])
+        except HTTPException:   # undo: the pool must never be left half-converted
+            run(["lvremove", "-y", f"{vg}/cache"], check=False)
+            run(["vgreduce", vg, md], check=False)
+            run(["pvremove", "-y", md], check=False)
+            run(["mdadm", "--stop", md], check=False)
+            for name in body.disks:
+                _scrub_disk(f"/dev/{name}")
+            raise
+        _save_mdadm_conf(initramfs=True)
+    pools = load_pools()
+    for p in pools:
+        if p["id"] == n:
+            p["cache"] = {"md": md, "disks": body.disks, "mode": mode, "level": level, "size": size}
+    save_pools(pools)
+    return {"ok": True}
+
+
+@router.delete("/pools/{pool_id}/cache")
+def remove_cache(pool_id: int, _=Depends(require_admin)):
+    """Detach the cache (a read-write cache first writes its data back to the drives) and free the SSDs."""
+    pool = _pool(pool_id)
+    c = pool.get("cache")
+    if not c:
+        raise HTTPException(404, "no SSD cache")
+    if not DEV:
+        vg = pool["vg"]
+        members = cache_disks(c)            # read live, before the array is stopped
+        cached = read_only(["lvs", "--noheadings", "-o", "segtype", f"{vg}/data"]).strip() == "cache"
+        if cached:
+            r = subprocess.run(["lvconvert", "-y", "--uncache", f"{vg}/data"], capture_output=True, text=True)   # may take a while (flush)
+            if r.returncode != 0 and c["mode"] == "writethrough":
+                # a dead read-only cache holds nothing that isn't on the drives: drop it without flushing
+                r = subprocess.run(["lvconvert", "-y", "--uncache", "--force", f"{vg}/data"], capture_output=True, text=True)
+            if r.returncode != 0:
+                raise HTTPException(500, "could not detach the cache: " + (r.stderr.strip() or r.stdout.strip()))
+        run(["lvremove", "-y", f"{vg}/cache"], check=False)
+        run(["vgreduce", vg, c["md"]], check=False)   # (already gone if an earlier removal stopped half-way)
+        run(["pvremove", "-y", c["md"]], check=False)
+        run(["mdadm", "--stop", c["md"]], check=False)
+    pools = load_pools()                    # the pool no longer uses the cache: record that first
+    for p in pools:
+        if p["id"] == pool_id:
+            p.pop("cache", None)
+    save_pools(pools)
+    if not DEV:
+        _save_mdadm_conf(initramfs=True)
+        run(["udevadm", "settle"], check=False)
+        failed = []
+        for name in members:
+            try:
+                _scrub_disk(f"/dev/{name}")
+            except HTTPException as e:
+                failed.append(f"{name}: {e.detail}")
+        if failed:
+            return {"ok": True, "warning": "cache removed, but some SSDs could not be wiped (erase them under Drives): " + "; ".join(failed)}
     return {"ok": True}

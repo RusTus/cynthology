@@ -19,7 +19,7 @@ const WM = {
     const body = h("div", { class: "win-body" });
     const el = h("div", { class: "win", style: `left:${140 + n * 28}px;top:${70 + n * 28}px;width:${app.w || 880}px;height:${app.h || 560}px` },
       h("div", { class: "win-title" },
-        appTile(id, 20), h("span", {}, app.name), h("span", { class: "sp" }),
+        appTile(id, 20), h("span", {}, t(app.name)), h("span", { class: "sp" }),
         h("button", { title: "Minimise", onclick: () => el.classList.add("hidden") }, "–"),
         h("button", { title: "Maximise", onclick: () => el.classList.toggle("max") }, "□"),
         h("button", { class: "close", title: "Close", onclick: () => this.close(id) }, "✕")),
@@ -29,7 +29,7 @@ const WM = {
     const task = h("button", { class: "task", onclick: () => {
       const hidden = el.classList.contains("hidden");
       if (!hidden && el.style.zIndex == this.z) el.classList.add("hidden"); else this.focus(id);
-    } }, appTile(id, 18), h("span", {}, app.name));
+    } }, appTile(id, 18), h("span", {}, t(app.name)));
     document.getElementById("tasks").append(task);
     document.getElementById("windows").append(el);
     this.wins[id] = { el, task, cleanup: [] };

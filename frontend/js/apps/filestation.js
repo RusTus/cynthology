@@ -41,7 +41,7 @@ WM.register("files", {
     function treeNode(path, name, depth, extra) {
       const kids = h("div", { class: "hidden" });
       const caret = h("span", { class: "fs-twisty", onclick: (e) => { e.stopPropagation(); toggle(path); } }, "▸");
-      const row = h("button", { class: "fs-node", style: `padding-left:${8 + depth * 14}px`, onclick: () => go(path) },
+      const row = h("button", { class: "fs-node", translate: "no", style: `padding-left:${8 + depth * 14}px`, onclick: () => go(path) },
         caret, fsIcon({ dir: true, name }, 18), h("span", { class: "fs-node-name" }, name), extra || null);
       nodes.set(path, { row, kids, caret, open: false, loaded: false, depth });
       return h("div", {}, row, kids);
@@ -127,7 +127,7 @@ WM.register("files", {
       }
       const parts = st.path.split("/");
       pathbar.replaceChildren(...parts.flatMap((p, i) => [i ? h("span", { class: "fs-sep" }, "›") : null,
-        h("button", { class: "fs-crumb", onclick: (e) => { e.stopPropagation(); go(parts.slice(0, i + 1).join("/")); } }, p)]),
+        h("button", { class: "fs-crumb", translate: "no", onclick: (e) => { e.stopPropagation(); go(parts.slice(0, i + 1).join("/")); } }, p)]),
         h("span", { style: "flex:1" }));
       pathbar.onclick = () => {   // click the empty part of the bar to type a path
         const inp = h("input", { value: st.path, class: "fs-path-input",
@@ -181,7 +181,7 @@ WM.register("files", {
           rows.map((it, i) => h("tr", { class: st.sel.has(itemPath(it)) ? "sel" : "",
             onclick: (e) => { e.stopPropagation(); clickItem(e, it, i, rows); }, ondblclick: () => open(it), oncontextmenu: (e) => ctx(e, it, i) },
             h("td", {}, h("div", { class: "fs-name" }, fsIcon(it, 20), h("span", {}, it.name))),
-            st.search ? h("td", { class: "muted fs-ellipsis" }, h("a", { href: "#", onclick: (e) => { e.preventDefault(); go(it.folder); } }, it.folder)) : null,
+            st.search ? h("td", { class: "muted fs-ellipsis" }, h("a", { href: "#", translate: "no", onclick: (e) => { e.preventDefault(); go(it.folder); } }, it.folder)) : null,
             h("td", { class: "muted" }, it.dir ? "" : fmtBytes(it.size)),
             h("td", { class: "muted" }, fileType(it)),
             h("td", { class: "muted" }, new Date(it.mtime * 1000).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })))));
@@ -361,7 +361,7 @@ WM.register("files", {
         const kids = h("div", { class: "hidden" });
         let loaded = false, opened = false;
         const caret = h("span", { class: "fs-twisty" }, "▸");
-        const row = h("button", { class: "fs-node" + (path === chosen ? " on" : ""), style: `padding-left:${8 + depth * 14}px`, onclick: async () => {
+        const row = h("button", { class: "fs-node" + (path === chosen ? " on" : ""), translate: "no", style: `padding-left:${8 + depth * 14}px`, onclick: async () => {
           chosen = path; label.textContent = "/" + path;
           rowsByPath.forEach((r, p) => r.classList.toggle("on", p === path));
           opened = !opened; kids.classList.toggle("hidden", !opened); caret.textContent = opened ? "▾" : "▸";
@@ -388,17 +388,6 @@ WM.register("files", {
   },
 });
 
-// Small modal dialog; returns a function that closes it.
-function modal(title, content, buttons = [["Close", null, "primary"]]) {
-  const wrap = h("div", { class: "wiz", onclick: (e) => { if (e.target === wrap) close(); } });
-  const close = () => wrap.remove();
-  wrap.append(h("div", { class: "wiz-card", style: "max-width:520px" }, h("h2", {}, title), content,
-    h("div", { class: "toolbar", style: "justify-content:flex-end;margin-top:14px" },
-      buttons.map(([label, fn, cls]) => h("button", { class: "btn " + (cls || ""), onclick: fn || close }, label)))));
-  document.body.append(wrap);
-  return close;
-}
-
 const FS_TYPES = {
   image: [["jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "bmp", "svg", "tif", "tiff", "raw", "cr2", "nef", "arw", "dng"], "#22c55e", "Image"],
   video: [["mp4", "mkv", "mov", "avi", "webm", "m4v", "wmv", "mts", "m2ts", "ts", "flv"], "#a855f7", "Video"],
@@ -418,10 +407,10 @@ function fsKind(name) {
   return ["file", ext];
 }
 function fileType(it) {
-  if (it.dir) return "Folder";
+  if (it.dir) return t("Folder");
   const [k, ext] = fsKind(it.name);
-  if (k === "file") return ext ? `${ext.toUpperCase()} file` : "File";
-  return FS_TYPES[k][0].length === 1 ? FS_TYPES[k][2] : `${FS_TYPES[k][2]} (${ext.toUpperCase()})`;
+  if (k === "file") return ext ? `${ext.toUpperCase()} ${t("file")}` : t("File");
+  return FS_TYPES[k][0].length === 1 ? t(FS_TYPES[k][2]) : `${t(FS_TYPES[k][2])} (${ext.toUpperCase()})`;
 }
 // SVG folder / file icon; files get a coloured badge with their extension.
 function fsIcon(it, size = 20) {

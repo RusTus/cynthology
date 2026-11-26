@@ -125,6 +125,8 @@ async function poolDetail(p, id, go) {
       row("File system", (x.fs || "btrfs") === "btrfs" ? "Btrfs (snapshots, checksums, compression)" : "ext4"),
       row("Capacity", `${fmtBytes(x.total)} (${fmtBytes(x.total - x.used)} free)`),
       row("Location", h("span", { class: "mono" }, x.mount))),
+    h("h3", { class: "section-title" }, "SSD cache"),
+    cacheSection(x, disks, reload),
     h("h3", { class: "section-title" }, "Data scrubbing"),
     h("table", { class: "kv" },
       row("Status", scrubText),
@@ -145,6 +147,78 @@ async function poolDetail(p, id, go) {
           if (!confirm(`Remove hot spare ${d}?`)) return;
           await act(() => API.post(`/api/storage/pools/${id}/spare/remove`, { disk: d }), "Hot spare removed"); reload();
         } }, "Remove") : null)))));
+}
+
+// SSD cache: read-only (1-4 drives, safe) or read-write (2 mirrored drives).
+function cacheSection(x, disks, reload) {
+  const c = x.cache;
+  const row = (k, v) => h("tr", {}, h("th", { style: "width:200px" }, k), h("td", {}, v));
+  if (c) {
+    return h("div", {}, h("table", { class: "kv" },
+      row("Mode", c.mode === "writeback" ? "Read-write" : "Read-only"),
+      row("Layout", c.disks.length < 2 ? "Single drive" : c.level === "0" ? "Striped (RAID 0) - no redundancy" : "Mirrored (RAID 1) - redundant"),
+      row("Drives", c.disks.join(", ")),
+      row("Size", fmtBytes(c.size || 0)),
+      row("Cache in use", `${c.used_pct ?? 0}%`),
+      row("Read hit rate", c.hit_rate == null ? "no reads yet" : `${c.hit_rate}%`),
+      c.mode === "writeback" ? row("Not yet written to drives", c.dirty ? `${c.dirty} block(s)` : "nothing") : null,
+      row("", h("button", { class: "btn danger", onclick: async (e) => {
+        if (!confirm(`Remove the SSD cache from ${x.label}?` + (c.mode === "writeback" ? "\n\nCached writes are first copied to the drives; this can take a few minutes." : ""))) return;
+        e.target.disabled = true; e.target.textContent = "Removing…";
+        const r = await act(() => API.del(`/api/storage/pools/${x.id}/cache`), "SSD cache removed");
+        if (r?.warning) toast(r.warning);
+        reload();
+      } }, "Remove SSD cache"))));
+  }
+  const free = disks.filter((d) => d.usage === "free");
+  return h("div", {}, h("p", { class: "muted", style: "margin:0 0 8px" },
+      "An SSD cache keeps frequently used data on fast drives, which speeds up random reads (databases, virtual machines, many small files)."),
+    h("button", { class: "btn", disabled: !free.length, title: free.length ? "" : "No unused drives", onclick: () => cacheWizard(x, free, reload) }, "Create SSD cache"));
+}
+
+function cacheWizard(x, free, reload) {
+  const st = { mode: "readonly", mirror: true, disks: new Set(free.filter((d) => !d.rota).slice(0, 1).map((d) => d.name)) };
+  const err = h("div", { class: "err" });
+  const box = h("div", { class: "form" });
+  const draw = () => {
+    const n = st.disks.size;
+    const chosen = free.filter((d) => st.disks.has(d.name));
+    const mirrored = st.mode === "readwrite" || st.mirror || n < 2;
+    const size = mirrored ? Math.min(...chosen.map((d) => d.size)) : chosen.reduce((a, d) => a + d.size, 0);
+    box.replaceChildren(
+      h("label", { class: "check" }, h("input", { type: "radio", name: "cm", checked: st.mode === "readonly", onchange: () => { st.mode = "readonly"; draw(); } }),
+        h("div", {}, h("b", {}, "Read-only cache"), h("div", { class: "muted" }, "Speeds up reads. All data also stays on the pool's drives, so a failing SSD never loses data. 1–4 drives; mirror them to keep the cache running when one fails."))),
+      h("label", { class: "check" }, h("input", { type: "radio", name: "cm", checked: st.mode === "readwrite", onchange: () => { st.mode = "readwrite"; draw(); } }),
+        h("div", {}, h("b", {}, "Read-write cache"), h("div", { class: "muted" }, "Speeds up reads and writes. Needs exactly 2 drives, mirrored, because writes live on the SSDs until they are copied to the pool."))),
+      h("div", { class: "muted" }, "Drives (everything on them is erased):"),
+      h("div", { class: "disk-pick" }, free.map((d) => h("label", {},
+        h("input", { type: "checkbox", checked: st.disks.has(d.name), onchange: (e) => { e.target.checked ? st.disks.add(d.name) : st.disks.delete(d.name); draw(); } }),
+        h("span", {}, `${d.name} – ${d.model || "Unknown"}`), h("span", { class: "muted" }, fmtBytes(d.size)),
+        h("span", { class: "pill" + (d.rota ? " warn" : " ok") }, d.rota ? "HDD" : "SSD")))),
+      chosen.some((d) => d.rota) ? h("div", { class: "note warn" }, "A hard drive as cache gives little or no speed-up. (Virtual disks in VMware often report as HDD even on an SSD; that's fine for testing.)") : null,
+      st.mode === "readwrite" && n !== 2 ? h("div", { class: "note warn" }, "Choose exactly 2 drives for a read-write cache.") : null,
+      st.mode === "readonly" && n >= 2 ? h("div", {},
+        h("label", { class: "check" }, h("input", { type: "radio", name: "cl", checked: st.mirror, onchange: () => { st.mirror = true; draw(); } }),
+          h("div", {}, h("b", {}, "Mirror (RAID 1)"), h("div", { class: "muted" }, "Redundant: the cache keeps working if an SSD fails. Size of one drive."))),
+        h("label", { class: "check" }, h("input", { type: "radio", name: "cl", checked: !st.mirror, onchange: () => { st.mirror = false; draw(); } }),
+          h("div", {}, h("b", {}, "Stripe (RAID 0)"), h("div", { class: "muted" }, "More cache space (all drives added up), no redundancy. If an SSD fails, the pool can show read errors until you remove the cache; no data is lost.")))) : null,
+      st.mode === "readwrite" ? h("div", { class: "muted" }, "Layout: mirrored (RAID 1) - required for a read-write cache.") : null,
+      n ? h("div", {}, `Cache size: `, h("b", {}, fmtBytes(size))) : null);
+  };
+  draw();
+  modal(`Create SSD cache for ${x.label}`, h("div", {}, box, err), [
+    ["Cancel", null],
+    ["Create", async (e) => {
+      err.textContent = "";
+      if (!st.disks.size) return (err.textContent = "Choose at least one drive.");
+      if (!confirm(`Erase ${[...st.disks].join(", ")} and use ${st.disks.size > 1 ? "them" : "it"} as SSD cache for ${x.label}?`)) return;
+      e.target.disabled = true; e.target.textContent = "Creating…";
+      try {
+        await API.post(`/api/storage/pools/${x.id}/cache`, { disks: [...st.disks], mode: st.mode, mirror: st.mirror });
+        document.querySelectorAll(".wiz").forEach((w) => w.remove());
+        toast("SSD cache created"); reload();
+      } catch (ex) { err.textContent = ex.message; e.target.disabled = false; e.target.textContent = "Create"; }
+    }, "primary"]]);
 }
 
 function poolCard(x) {
@@ -327,7 +401,7 @@ function openCreatePool() {
 function statusClass(s) {
   if (s === "healthy") return "ok";
   if (s.startsWith("optimizing") || s.startsWith("expanding")) return "info";
-  if (s.startsWith("rebuilding")) return "warn";
+  if (s.startsWith("rebuilding") || s.includes("cache")) return "warn";
   return "bad";
 }
 

@@ -1,4 +1,4 @@
-"""Network settings (ifupdown, Debian's default): DHCP/static IPv4, MTU, DNS, link aggregation.
+"""Network settings (ifupdown, Debian's default): DHCP/static IPv4, MTU, DNS, link aggregation, VLANs.
 
 Safe apply: the previous /etc/network/interfaces is kept, and a rollback is scheduled
 (systemd timer, 90 s) BEFORE the new configuration is activated. The browser confirms from the
@@ -116,9 +116,21 @@ class Bond(BaseModel):
     ipv4: Ipv4 = Ipv4()
 
 
+class Vlan(BaseModel):
+    parent: str                   # a network port or bond, e.g. ens33 / bond0
+    id: int                       # 802.1Q VLAN ID 1-4094
+    mtu: int = 1500
+    ipv4: Ipv4 = Ipv4()
+
+    @property
+    def name(self) -> str:
+        return f"{self.parent}.{self.id}"
+
+
 class NetConfig(BaseModel):
     nics: list[Nic]
     bonds: list[Bond] = []
+    vlans: list[Vlan] = []
     dns: list[str] = []           # empty = from DHCP
 
 
@@ -135,10 +147,22 @@ def validate(cfg: NetConfig, nics: list[str]) -> None:
             if m not in nics or m in used:
                 raise HTTPException(400, f"port {m} can't be used in {b.name}")
             used.add(m)
+    parents = {n.name: n.mtu for n in cfg.nics if n.enabled and n.name not in used} | {b.name: b.mtu for b in cfg.bonds}
+    seen = set()
+    for v in cfg.vlans:
+        if not 1 <= v.id <= 4094:
+            raise HTTPException(400, f"VLAN ID {v.id}: must be 1-4094")
+        if v.parent not in parents:
+            raise HTTPException(400, f"VLAN {v.id}: {v.parent} is not an enabled port or bond")
+        if v.name in seen:
+            raise HTTPException(400, f"VLAN {v.id} is defined twice on {v.parent}")
+        if v.mtu > parents[v.parent]:
+            raise HTTPException(400, f"{v.name}: MTU can't be larger than {v.parent}'s ({parents[v.parent]})")
+        seen.add(v.name)
     gateways = 0
     has_address = False
     for name, ip, mtu in [(n.name, n.ipv4, n.mtu) for n in cfg.nics if n.enabled and n.name not in used] + \
-                         [(b.name, b.ipv4, b.mtu) for b in cfg.bonds]:
+                         [(b.name, b.ipv4, b.mtu) for b in cfg.bonds] + [(v.name, v.ipv4, v.mtu) for v in cfg.vlans]:
         if not 576 <= mtu <= 9216:
             raise HTTPException(400, f"{name}: MTU must be 576-9216")
         if ip.mode not in ("dhcp", "static", "off"):
@@ -172,7 +196,7 @@ def validate(cfg: NetConfig, nics: list[str]) -> None:
             ipaddress.ip_address(d)
         except ValueError:
             raise HTTPException(400, f"bad DNS server {d}")
-    if not cfg.dns and not any(x.ipv4.mode == "dhcp" for x in list(cfg.nics) + list(cfg.bonds)):
+    if not cfg.dns and not any(x.ipv4.mode == "dhcp" for x in list(cfg.nics) + list(cfg.bonds) + list(cfg.vlans)):
         raise HTTPException(400, "with only static addresses, enter at least one DNS server")
 
 
@@ -216,6 +240,8 @@ def render(cfg: NetConfig) -> str:
         if b.mode == "active-backup":
             extra.append(f"bond-primary {b.members[0]}")
         out += addr_block(b.name, b.ipv4, b.mtu, extra)
+    for v in sorted(cfg.vlans, key=lambda v: (v.parent, v.id)):   # ifupdown creates <parent>.<id> as an 802.1Q interface
+        out += addr_block(v.name, v.ipv4, v.mtu, [f"vlan-raw-device {v.parent}"])
     return "\n".join(out).rstrip() + "\n"
 
 
@@ -223,7 +249,7 @@ def current_config() -> dict:
     """Saved Cynthology config, or one derived from the running system for first use."""
     try:
         with open(CFG) as f:
-            return json.load(f)
+            return {"vlans": [], **json.load(f)}
     except (OSError, ValueError):
         pass
     text = _read(IFACES)
@@ -235,7 +261,7 @@ def current_config() -> dict:
         mtu = next((i["mtu"] for i in st["interfaces"] if i["name"] == n and i["mtu"]), 1500)
         nics.append({"name": n, "enabled": True, "mtu": mtu,
                      "ipv4": {"mode": mode, "address": addr if mode == "static" else "", "gateway": st["gateway"] if mode == "static" else ""}})
-    return {"nics": nics, "bonds": [], "dns": []}
+    return {"nics": nics, "bonds": [], "vlans": [], "dns": []}
 
 
 # ---------- safe apply ----------
@@ -292,7 +318,8 @@ def apply(body: NetConfig, _=Depends(require_admin)):
     if not DEV:
         # restart networking in 2 s, from systemd, so this HTTP response still reaches the browser
         run(["systemd-run", "--on-active=2", "--unit=cyn-net-apply", "--collect", "/usr/lib/cynthology/net-restart"])
-    addresses = [x.ipv4.address.split("/")[0] for x in list(body.nics) + list(body.bonds) if x.ipv4.mode == "static" and getattr(x, "enabled", True)]
+    addresses = [x.ipv4.address.split("/")[0] for x in list(body.nics) + list(body.bonds) + list(body.vlans)
+                 if x.ipv4.mode == "static" and getattr(x, "enabled", True)]
     return {"ok": True, "rollback_in": ROLLBACK_SECONDS, "static_addresses": addresses}
 
 

@@ -14,6 +14,7 @@ async function boot() {
   if (API.token) {
     try { const me = await API.get("/api/auth/me"); return startDesktop(me); } catch { /* fall through to login */ }
   }
+  translatePage();
   document.getElementById("login-host").textContent = location.hostname;
   let ticket = null;
   document.getElementById("login-form").addEventListener("submit", async (e) => {

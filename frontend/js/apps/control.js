@@ -23,11 +23,11 @@ WM.register("control", {
         const q = search.value.toLowerCase();
         const groups = {};
         for (const [k, s] of Object.entries(CP_SECTIONS))
-          if (!q || (s.label + " " + s.desc).toLowerCase().includes(q)) (groups[s.group] ||= []).push([k, s]);
+          if (!q || (s.label + " " + t(s.label) + " " + s.desc).toLowerCase().includes(q)) (groups[s.group] ||= []).push([k, s]);
         grid.replaceChildren(...Object.entries(groups).map(([g, items]) => h("div", { class: "cp-group" },
-          h("div", { class: "cp-group-title" }, g),
+          h("div", { class: "cp-group-title" }, t(g)),
           h("div", { class: "cp-grid" }, items.map(([k, s]) => h("button", { class: "cp-item", "data-k": k, title: s.desc, onclick: () => open(k) },
-            appTile(s.icon, 44), h("span", {}, s.label)))))));
+            appTile(s.icon, 44), h("span", {}, t(s.label))))))));
         if (!Object.keys(groups).length) grid.append(h("p", { class: "muted", style: "text-align:center" }, "Nothing matches."));
       };
       body.replaceChildren(h("div", { class: "pane cp-home" }, h("div", { style: "text-align:center" }, search), grid));
@@ -383,6 +383,26 @@ async function cpNetwork(p) {
         cfg.bonds.push({ name: `bond${cfg.bonds.length}`, mode: "balance-alb", members, mtu: 1500, ipv4: first ? { ...first.ipv4 } : { mode: "dhcp", address: "", gateway: "" } });
         draw();
       } }, "+ Create link aggregation (bond)") : null,
+      h("h3", { class: "pc-group", style: "margin-top:16px" }, "VLANs"),
+      h("div", { class: "muted", style: "font-size:12px;margin-bottom:8px" },
+        "Tagged 802.1Q networks on a port or bond (the switch port must carry these VLANs). The port itself can stay on the untagged network, or be set to “No IPv4 address”."),
+      ...(cfg.vlans || []).map((v, vi) => {
+        const live = st.interfaces.find((i) => i.name === `${v.parent}.${v.id}`) || {};
+        return h("div", { class: "card", style: "margin-bottom:12px" },
+          h("div", {}, h("b", {}, `VLAN ${v.id}`), h("span", { class: "muted" }, ` on ${v.parent}`),
+            live.ipv4?.length ? h("span", { class: "muted", style: "margin-left:8px" }, live.ipv4.join(", ")) : null,
+            h("button", { class: "btn danger", style: "float:right", onclick: () => { cfg.vlans.splice(vi, 1); draw(); } }, "Remove")),
+          ipEditor(v.ipv4, "IPv4"), mtuSel(v));
+      }),
+      h("button", { class: "btn", onclick: () => {
+        const parents = [...cfg.nics.filter((n) => n.enabled && !inBond.has(n.name)).map((n) => n.name), ...cfg.bonds.map((b) => b.name)];
+        const id = parseInt(prompt("VLAN ID (1-4094)", "10"), 10);
+        if (!id) return;
+        const parent = parents.length === 1 ? parents[0] : prompt(`On which port or bond?\n${parents.join(", ")}`, parents[0]);
+        if (!parent) return;
+        (cfg.vlans ||= []).push({ parent: parent.trim(), id, mtu: 1500, ipv4: { mode: "dhcp", address: "", gateway: "" } });
+        draw();
+      } }, "+ Add VLAN"),
       h("h3", { class: "pc-group", style: "margin-top:16px" }, "DNS servers"),
       h("input", { value: cfg.dns.join(", "), placeholder: "empty = from DHCP, e.g. 1.1.1.1, 9.9.9.9", style: "width:100%;max-width:520px",
         oninput: (e) => (cfg.dns = e.target.value.split(/[ ,]+/).filter(Boolean)) }),
@@ -391,7 +411,7 @@ async function cpNetwork(p) {
   }
 
   async function applyNet() {
-    const statics = [...cfg.nics.filter((n) => n.enabled), ...cfg.bonds].filter((x) => x.ipv4.mode === "static").map((x) => x.ipv4.address.split("/")[0]);
+    const statics = [...cfg.nics.filter((n) => n.enabled), ...cfg.bonds, ...(cfg.vlans || [])].filter((x) => x.ipv4.mode === "static").map((x) => x.ipv4.address.split("/")[0]);
     const host = location.hostname;
     const hostIsIp = /^\d+\.\d+\.\d+\.\d+$/.test(host);
     const currentIps = st.interfaces.flatMap((i) => i.ipv4.map((a) => a.split("/")[0]));

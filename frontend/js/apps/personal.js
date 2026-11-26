@@ -10,11 +10,18 @@ WM.register("personal", {
       try { theme = localStorage.getItem("cyn-theme") || "dark"; } catch {}
       pane.replaceChildren(h("h2", {}, "Personal settings"),
         h("h3", { class: "pc-group" }, "Appearance"),
-        h("label", {}, "Theme ", h("select", { onchange: (e) => {
+        h("label", {}, "Theme", h("select", { onchange: (e) => {
           try { localStorage.setItem("cyn-theme", e.target.value); } catch {}
           const v = e.target.value === "auto" ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : e.target.value;
           document.documentElement.dataset.theme = v;
         } }, [["dark", "Dark"], ["light", "Light"], ["auto", "Same as this computer"]].map(([v, l]) => h("option", { value: v, selected: theme === v }, l)))),
+        h("label", {}, "Language", h("select", { onchange: (e) => {
+          try { localStorage.setItem("cyn-lang", e.target.value); } catch {}
+          location.reload();
+        } }, [["auto", "Same as this computer"], ...Object.entries(LANGS)].map(([v, l]) => {
+          let cur = "auto"; try { cur = localStorage.getItem("cyn-lang") || "auto"; } catch {}
+          return h("option", { value: v, selected: cur === v, translate: v === "auto" ? null : "no" }, l);
+        }))),
         h("h3", { class: "pc-group", style: "margin-top:18px" }, "2-step verification"));
       if (!s.enabled) {
         pane.append(h("p", {}, "Protect your account with a code from an authenticator app on your phone, in addition to your password."),

@@ -57,3 +57,19 @@ def test_validation(bad, msg):
 
 def test_valid_config_passes():
     validate(cfg(), NICS)
+
+
+def test_vlans_render_and_validate():
+    from cynthology.network import Vlan
+    c = cfg(vlans=[Vlan(parent="ens34", id=20, ipv4=Ipv4(mode="static", address="10.20.0.5/24")),
+                   Vlan(parent="ens34", id=10)])
+    validate(c, NICS)
+    t = render(c)
+    assert "auto ens34.10\niface ens34.10 inet dhcp\n    vlan-raw-device ens34" in t
+    assert "iface ens34.20 inet static\n    address 10.20.0.5/24" in t
+    assert t.index("ens34.10") < t.index("ens34.20")
+    for bad in [Vlan(parent="ens35", id=5), Vlan(parent="ens34", id=0), Vlan(parent="ens34", id=5000), Vlan(parent="ens34", id=7, mtu=9000)]:
+        with pytest.raises(HTTPException):
+            validate(cfg(vlans=[bad]), NICS)
+    with pytest.raises(HTTPException):
+        validate(cfg(vlans=[Vlan(parent="ens34", id=7), Vlan(parent="ens34", id=7)]), NICS)

@@ -27,14 +27,16 @@ const API = {
 
 function h(tag, attrs = {}, ...kids) {
   const el = document.createElement(tag);
+  const tr = typeof t === "function" && attrs?.translate !== "no";
   for (const [k, v] of Object.entries(attrs || {})) {
     if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
     else if (k === "class") el.className = v;
     else if (k === "html") el.innerHTML = v;
     else if (v === true) el.setAttribute(k, "");
-    else if (v !== false && v != null) el.setAttribute(k, v);
+    else if (v !== false && v != null) el.setAttribute(k, tr && (k === "placeholder" || k === "title") ? t(v) : v);
   }
-  for (const kid of kids.flat()) if (kid != null && kid !== false) el.append(kid.nodeType ? kid : String(kid));
+  const trKids = tr && T_TAGS.has(el.tagName);
+  for (const kid of kids.flat()) if (kid != null && kid !== false) el.append(kid.nodeType ? kid : trKids && typeof kid === "string" ? t(kid) : String(kid));
   return el;
 }
 
@@ -73,4 +75,15 @@ function sectioned(sections, body) {
   show(Object.keys(sections)[0]);
   show.pane = pane;
   return show;
+}
+
+// Small modal dialog; returns a function that closes it.
+function modal(title, content, buttons = [["Close", null, "primary"]]) {
+  const wrap = h("div", { class: "wiz", onclick: (e) => { if (e.target === wrap) close(); } });
+  const close = () => wrap.remove();
+  wrap.append(h("div", { class: "wiz-card", style: "max-width:520px" }, h("h2", {}, title), content,
+    h("div", { class: "toolbar", style: "justify-content:flex-end;margin-top:14px" },
+      buttons.map(([label, fn, cls]) => h("button", { class: "btn " + (cls || ""), onclick: fn || close }, label)))));
+  document.body.append(wrap);
+  return close;
 }
