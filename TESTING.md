@@ -5,7 +5,7 @@ left empty so your user gets sudo). Give the VM **4+ extra virtual disks** (mixe
 and, optionally, a **second network card**.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/RusTus/cynthology/main/get.sh | sudo bash
+wget -qO- https://raw.githubusercontent.com/RusTus/cynthology/main/get.sh | sudo bash
 ```
 
 Open `https://<vm-ip>:5001` (accept the self-signed certificate) and sign in with your Debian user.

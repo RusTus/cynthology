@@ -8,6 +8,8 @@ components. It runs on Debian 13.
 
 ## Install
 
+**New to this? Follow the step-by-step guide: [INSTALL.md](INSTALL.md).**
+
 **Requirement: a clean, minimal Debian 13 (trixie) x86-64 install.** This works on any PC,
 server, or VM (VMware, Proxmox, Hyper-V, VirtualBox).
 
@@ -19,7 +21,7 @@ server, or VM (VMware, Proxmox, Hyper-V, VirtualBox).
    - Leave the data drives untouched. Cynthology's Storage Manager sets them up.
 2. Log in on the console (or over SSH) and run:
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/RusTus/cynthology/main/get.sh | sudo bash
+   wget -qO- https://raw.githubusercontent.com/RusTus/cynthology/main/get.sh | sudo bash
    ```
 3. Open **`https://<box-ip>:5001`** (or `http://<box-ip>:5000`) and sign in with your Debian user.
    The browser warns once about the self-signed certificate, which is expected. A setup wizard

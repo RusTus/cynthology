@@ -3,7 +3,7 @@
 #
 # Start from a clean, minimal Debian 13 (trixie) x86-64 install, then run as root:
 #
-#   curl -fsSL https://raw.githubusercontent.com/RusTus/cynthology/main/get.sh | sudo bash
+#   wget -qO- https://raw.githubusercontent.com/RusTus/cynthology/main/get.sh | sudo bash
 #
 # Options (environment variables):
 #   CYN_VERSION=v0.2.0-alpha   install a specific release instead of the latest
@@ -13,7 +13,7 @@ set -euo pipefail
 REPO="RusTus/cynthology"
 die() { echo "Error: $*" >&2; exit 1; }
 
-[ "$(id -u)" = 0 ] || die "run as root:  curl -fsSL https://raw.githubusercontent.com/$REPO/main/get.sh | sudo bash"
+[ "$(id -u)" = 0 ] || die "run as root:  wget -qO- https://raw.githubusercontent.com/$REPO/main/get.sh | sudo bash"
 [ "$(uname -m)" = x86_64 ] || die "Cynthology needs an x86-64 (amd64) machine."
 . /etc/os-release
 if [ "${ID:-}" != debian ] || [ "${VERSION_ID:-}" != 13 ]; then
