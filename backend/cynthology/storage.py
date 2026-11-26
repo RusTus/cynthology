@@ -5,6 +5,7 @@ mounted at /volumeN. SHR uses several md arrays (one per size tier) - see raidpl
 """
 import json
 import os
+import subprocess
 import time
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -50,13 +51,54 @@ def array_members(md: str) -> list[str]:
     for part in sorted(os.listdir(slaves)) if os.path.isdir(slaves) else []:
         try:
             with open(f"/sys/block/{mdname}/md/dev-{part}/state") as f:
-                if "faulty" in f.read():
-                    continue                                   # failed drive: not a usable member
+                state = f.read()
+            with open(f"/sys/block/{mdname}/md/dev-{part}/slot") as f:
+                slot = f.read().strip()
+            if "faulty" in state or (slot == "none" and "in_sync" not in state):
+                continue                                   # failed drive or idle hot spare
         except OSError:
             pass
         parent = os.path.basename(os.path.dirname(os.path.realpath(f"/sys/class/block/{part}")))
         disks.append(parent)
     return disks
+
+
+def member_states(md: str) -> list[tuple[str, str, str]]:
+    """(disk, partition, role) for every device in an md array, read live from sysfs.
+    role: 'active' (in sync), 'rebuilding', 'spare' (idle hot spare) or 'failed'."""
+    if DEV or not md:
+        return []
+    mdname = os.path.basename(os.path.realpath(md))
+    base = f"/sys/block/{mdname}/md"
+    out = []
+    for part in sorted(os.listdir(f"/sys/block/{mdname}/slaves")) if os.path.isdir(f"/sys/block/{mdname}/slaves") else []:
+        try:
+            state = open(f"{base}/dev-{part}/state").read().strip()
+            slot = open(f"{base}/dev-{part}/slot").read().strip()
+        except OSError:
+            continue
+        if "faulty" in state:
+            role = "failed"
+        elif "in_sync" in state:
+            role = "active"
+        elif slot != "none":
+            role = "rebuilding"      # has a slot but not in sync yet: recovery onto this device
+        else:
+            role = "spare"
+        disk = os.path.basename(os.path.dirname(os.path.realpath(f"/sys/class/block/{part}")))
+        out.append((disk, part, role))
+    return out
+
+
+def pool_roles(pool: dict) -> dict[str, str]:
+    """disk -> worst role over all tiers (failed > rebuilding > active > spare)."""
+    rank = {"failed": 3, "rebuilding": 2, "active": 1, "spare": 0}
+    roles: dict[str, str] = {}
+    for a in pool.get("arrays", []):
+        for disk, _part, role in member_states(a["md"]):
+            if disk not in roles or rank[role] > rank[roles[disk]]:
+                roles[disk] = role
+    return roles
 
 
 def pool_disks(pool: dict) -> list[str]:
@@ -141,7 +183,10 @@ def pools(_=Depends(current_user)):
             elif "degraded" in state or "FAILED" in state or "inactive" in state:
                 status = "degraded"
                 break
-        result.append({**p, **usage, "status": status, "disks": pool_disks(p)})
+        roles = {} if DEV else pool_roles(p)
+        spares = sorted(d for d, r in roles.items() if r == "spare") if roles else p.get("dev_spares", [])
+        failed = sorted(d for d, r in roles.items() if r == "failed")
+        result.append({**p, **usage, "status": status, "disks": pool_disks(p), "spares": spares, "failed": failed})
     return result
 
 
@@ -272,6 +317,42 @@ def _grow_when_reshaped(pool: dict) -> None:
          "--description", f"Cynthology: grow {pool['label']} after reshape", "sh", "-c", script])
 
 
+def _scrub_disk(dev: str) -> None:
+    """Erase RAID/filesystem signatures on every partition, then the partition table.
+    Order matters: if only the table is wiped, re-creating partitions at the same offsets
+    brings the old md superblocks back and udev re-adds them to arrays on its own."""
+    out = subprocess.run(["lsblk", "-ln", "-o", "PATH,TYPE", dev], capture_output=True, text=True).stdout if not DEV else ""
+    for line in out.splitlines():
+        path, typ = (line.split() + [""])[:2]
+        if typ == "part":
+            run(["mdadm", "--zero-superblock", "--force", path], check=False)
+            run(["wipefs", "-a", path], check=False)
+    run(["wipefs", "-a", dev])
+    run(["sgdisk", "--zap-all", dev])
+    run(["partprobe", dev], check=False)
+    run(["udevadm", "settle"], check=False)
+
+
+def _clone_layout(pool: dict, disk: str) -> str:
+    """Partition a free disk exactly like the pool's largest working member, so it has a
+    partition for every tier. Returns /dev/<disk>."""
+    new = _free_disks([disk])[disk]
+    sizes = {d["name"]: d["size"] for d in list_disks()}
+    members = pool_disks(pool)
+    if not members:
+        raise HTTPException(400, "can't find any working drive of this pool")
+    ref_name = max(members, key=lambda d: sizes.get(d, 0))
+    if new["size"] < sizes.get(ref_name, 0):
+        raise HTTPException(400, f"the drive must be at least as large as the pool's largest drive "
+                                 f"({ref_name}, {sizes.get(ref_name, 0) / 1e12:.2f} TB)")
+    dev, ref = f"/dev/{disk}", f"/dev/{ref_name}"
+    _scrub_disk(dev)
+    run(["sh", "-c", f"sgdisk --backup=/run/cyn-pt {ref} && sgdisk --load-backup=/run/cyn-pt {dev} && sgdisk -e -G {dev}"])
+    run(["partprobe", dev], check=False)
+    run(["udevadm", "settle"], check=False)
+    return dev
+
+
 class AddDisk(BaseModel):
     disk: str
 
@@ -290,23 +371,9 @@ def add_disk(pool_id: int, body: AddDisk, _=Depends(require_admin)):
         raise HTTPException(404, "no such pool")
     if pool["raid"] in ("raid0", "raid10", "basic"):
         raise HTTPException(400, f"{pool['raid']} pools cannot be expanded in place")
-    new = _free_disks([body.disk])[body.disk]
-    sizes = {d["name"]: d["size"] for d in list_disks()}
     for a in pool["arrays"]:
         a["members"] = array_members(a["md"]) or a["members"]
-    members = pool_disks(pool)
-    if not members:
-        raise HTTPException(400, "can't find any working drive of this pool")
-    # Copy the partition table of the largest member, so the new disk joins every tier.
-    ref_name = max(members, key=lambda d: sizes.get(d, 0))
-    if new["size"] < sizes.get(ref_name, 0):
-        raise HTTPException(400, f"new disk must be at least as large as the largest member ({ref_name})")
-    dev, ref = f"/dev/{body.disk}", f"/dev/{ref_name}"
-    run(["wipefs", "-a", dev])
-    run(["sgdisk", "--zap-all", dev])
-    run(["sh", "-c", f"sgdisk --backup=/run/cyn-pt {ref} && sgdisk --load-backup=/run/cyn-pt {dev} && sgdisk -e -G {dev}"])
-    run(["partprobe", dev], check=False)
-    run(["udevadm", "settle"], check=False)
+    dev = _clone_layout(pool, body.disk)
 
     for a in pool["arrays"]:
         part = _part(dev, a["part"])
@@ -335,6 +402,70 @@ def add_disk(pool_id: int, body: AddDisk, _=Depends(require_admin)):
     _save_mdadm_conf()
     save_pools(pools)
     return {"ok": True, "note": "Reshape runs in the background; the volume stays usable meanwhile."}
+
+
+@router.post("/pools/{pool_id}/spare")
+def add_spare(pool_id: int, body: AddDisk, _=Depends(require_admin)):
+    """Hot spare: the drive waits in every tier's array as an md spare. If a drive fails, the kernel
+    starts rebuilding onto it immediately - no user action, nothing in Cynthology has to be running.
+    If the pool is already degraded, the rebuild starts right away (same as Repair)."""
+    pools_ = load_pools()
+    pool = next((x for x in pools_ if x["id"] == pool_id), None)
+    if not pool:
+        raise HTTPException(404, "no such pool")
+    if pool["raid"] in ("raid0", "basic"):
+        raise HTTPException(400, "a hot spare needs a pool with redundancy (not Basic or RAID 0)")
+    dev = _clone_layout(pool, body.disk)
+    for a in pool["arrays"]:
+        run(["mdadm", "--add", a["md"], _part(dev, a["part"])])
+    if DEV:
+        pool.setdefault("dev_spares", []).append(body.disk)
+    _save_mdadm_conf()
+    save_pools(pools_)
+    return {"ok": True}
+
+
+class RemoveDisk(BaseModel):
+    disk: str
+
+
+@router.post("/pools/{pool_id}/spare/remove")
+def remove_spare(pool_id: int, body: RemoveDisk, _=Depends(require_admin)):
+    """Take an idle hot spare out of the pool (only allowed while it is not rebuilding)."""
+    pools_ = load_pools()
+    pool = next((x for x in pools_ if x["id"] == pool_id), None)
+    if not pool:
+        raise HTTPException(404, "no such pool")
+    if DEV:
+        pool["dev_spares"] = [d for d in pool.get("dev_spares", []) if d != body.disk]
+        save_pools(pools_)
+        return {"ok": True}
+    removed = 0
+    for a in pool["arrays"]:
+        for disk, part, role in member_states(a["md"]):
+            if disk != body.disk:
+                continue
+            if role != "spare":
+                raise HTTPException(409, f"{disk} is no longer an idle spare (it is {role}) and can't be removed")
+            run(["mdadm", a["md"], "--remove", f"/dev/{part}"])
+            removed += 1
+    if not removed:
+        raise HTTPException(404, f"{body.disk} is not a hot spare of this pool")
+    _scrub_disk(f"/dev/{body.disk}")
+    _save_mdadm_conf()
+    return {"ok": True}
+
+
+@router.post("/pools/{pool_id}/remove-failed")
+def remove_failed(pool_id: int, _=Depends(require_admin)):
+    """Detach drives md has marked failed, so they can be pulled and the slot reused."""
+    pool = next((x for x in load_pools() if x["id"] == pool_id), None)
+    if not pool:
+        raise HTTPException(404, "no such pool")
+    for a in pool["arrays"]:
+        run(["mdadm", a["md"], "--remove", "failed"], check=False)
+    _save_mdadm_conf()
+    return {"ok": True}
 
 
 @router.post("/pools/{pool_id}/scrub")

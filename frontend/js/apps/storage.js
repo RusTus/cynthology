@@ -30,7 +30,9 @@ function poolCard(x) {
     h("div", { class: "muted" }, `${x.mount} · ${RAID_LABEL[x.raid] || x.raid} · ${(x.fs || "btrfs").toUpperCase()}`),
     h("div", { class: "bar" }, h("div", { style: `width:${pct}%` })),
     h("div", { class: "muted" }, `${fmtBytes(x.used)} used of ${fmtBytes(x.total)}`),
-    h("div", { class: "muted" }, `Drives: ${x.disks.join(", ")}`));
+    h("div", { class: "muted" }, `Drives: ${x.disks.join(", ")}`),
+    x.spares?.length ? h("div", { class: "muted" }, `Hot spare: ${x.spares.join(", ")}`) : null,
+    x.failed?.length ? h("div", { class: "err" }, `Failed: ${x.failed.join(", ")}`) : null);
 }
 
 const RAID_LABEL = { basic: "Basic", raid0: "RAID 0", raid1: "RAID 1", raid5: "RAID 5", raid6: "RAID 6", raid10: "RAID 10", shr: "SHR", shr2: "SHR-2" };
@@ -54,31 +56,42 @@ async function storagePools(p) {
       pools.map((x) => h("tr", {},
         h("td", {}, h("b", {}, x.label), h("div", { class: "muted" }, x.mount)),
         h("td", {}, RAID_LABEL[x.raid], h("div", { class: "muted" }, (x.fs || "btrfs").toUpperCase())),
-        h("td", {}, x.disks.join(", ")),
+        h("td", {}, x.disks.join(", "),
+          x.spares?.length ? h("div", { class: "muted" }, "Hot spare: ", x.spares.map((d) => h("span", {}, d, " ",
+            h("a", { href: "#", title: "Remove hot spare", onclick: async (e) => {
+              e.preventDefault();
+              if (!confirm(`Remove hot spare ${d} from ${x.label}?`)) return;
+              await act(() => API.post(`/api/storage/pools/${x.id}/spare/remove`, { disk: d }), "Hot spare removed"); p.replaceChildren(); storagePools(p);
+            } }, "✕")))) : null,
+          x.failed?.length ? h("div", { class: "err" }, `Failed: ${x.failed.join(", ")} `,
+            h("a", { href: "#", onclick: async (e) => { e.preventDefault(); await act(() => API.post(`/api/storage/pools/${x.id}/remove-failed`), "Failed drive detached - you can pull it now"); p.replaceChildren(); storagePools(p); } }, "Detach")) : null),
         h("td", {}, fmtBytes(x.total)),
         h("td", {}, h("span", { class: "pill " + (x.status === "healthy" ? "ok" : x.status.startsWith("rebuilding") ? "warn" : "bad") }, x.status)),
         h("td", {},
           h("button", { class: "btn", onclick: () => addDiskDialog(p, x) }, x.status === "degraded" ? "Repair" : "Add drive"), " ",
+          ["raid0", "basic"].includes(x.raid) ? null : h("button", { class: "btn", onclick: () => addDiskDialog(p, x, true) }, "Add hot spare"), " ",
           x.fs !== "ext4" ? h("button", { class: "btn", onclick: () => act(() => API.post(`/api/storage/pools/${x.id}/scrub`), "Data scrub started") }, "Scrub") : null))))
       : h("p", { class: "muted" }, "No storage pools yet. Click Create to set up your drives."));
 }
 
-async function addDiskDialog(p, pool) {
+async function addDiskDialog(p, pool, spare = false) {
   const disks = (await API.get("/api/storage/disks")).filter((d) => !d.in_use && !d.system);
-  p.replaceChildren(h("h2", {}, `Add drive to ${pool.label}`));
+  p.replaceChildren(h("h2", {}, spare ? `Add hot spare to ${pool.label}` : `Add drive to ${pool.label}`));
   if (!disks.length) { p.append(h("p", { class: "muted" }, "No unused drives found.")); return; }
   const sel = h("select", {}, disks.map((d) => h("option", { value: d.name }, `${d.name} – ${d.model} (${fmtBytes(d.size)})`)));
   p.append(h("div", { class: "form" },
-    h("div", { class: "note" }, pool.status === "degraded"
+    h("div", { class: "note" }, spare
+      ? "The drive stands by unused. If a drive in the pool fails, the pool automatically rebuilds onto it - no action needed. It must be at least as large as the pool's largest drive."
+      : pool.status === "degraded"
       ? "The new drive replaces the failed one and the pool rebuilds onto it."
       : "The pool grows onto the new drive. This runs in the background and can take many hours; the volume stays usable."),
     h("label", {}, "Drive", sel),
     h("div", { class: "toolbar" },
       h("button", { class: "btn", onclick: () => { p.replaceChildren(); storagePools(p); } }, "Cancel"),
       h("button", { class: "btn primary", onclick: async () => {
-        await act(() => API.post(`/api/storage/pools/${pool.id}/add-disk`, { disk: sel.value }), "Drive added");
+        await act(() => API.post(`/api/storage/pools/${pool.id}/${spare ? "spare" : "add-disk"}`, { disk: sel.value }), spare ? "Hot spare added" : "Drive added");
         p.replaceChildren(); storagePools(p);
-      } }, "Add drive"))));
+      } }, spare ? "Add hot spare" : "Add drive"))));
 }
 
 async function createPoolWizard(p) {
@@ -132,7 +145,13 @@ async function createPoolWizard(p) {
 }
 
 async function storageDisks(p) {
-  const disks = await API.get("/api/storage/disks");
+  const [disks, pools] = await Promise.all([API.get("/api/storage/disks"), API.get("/api/storage/pools")]);
+  const role = {};
+  for (const x of pools) {
+    x.disks.forEach((d) => (role[d] = `${x.label}`));
+    (x.spares || []).forEach((d) => (role[d] = `Hot spare (${x.label})`));
+    (x.failed || []).forEach((d) => (role[d] = `Failed (${x.label})`));
+  }
   const tbl = h("table", {}, h("tr", {}, h("th", {}, "Drive"), h("th", {}, "Model"), h("th", {}, "Size"), h("th", {}, "Type"), h("th", {}, "Status"), h("th", {}, "Health")));
   for (const d of disks) {
     const health = h("td", {}, h("button", { class: "btn", onclick: async () => {
@@ -143,7 +162,7 @@ async function storageDisks(p) {
     } }, "Check"));
     tbl.append(h("tr", {}, h("td", {}, d.path), h("td", {}, d.model, h("div", { class: "muted" }, d.serial || "")),
       h("td", {}, fmtBytes(d.size)), h("td", {}, d.rota ? "HDD" : "SSD"),
-      h("td", {}, d.system ? "System" : d.in_use ? "In use" : "Not initialised"), health));
+      h("td", {}, d.system ? "System" : role[d.name] ? (role[d.name].startsWith("Failed") ? h("span", { class: "pill bad" }, role[d.name]) : role[d.name]) : d.in_use ? "In use" : "Not initialised"), health));
   }
   p.append(h("h2", {}, "Drives"), tbl);
 }

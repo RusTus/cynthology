@@ -36,11 +36,17 @@ def collect() -> dict[str, dict]:
             issues[f"pool-{p['id']}-degraded"] = {
                 "level": "critical", "title": f"{p['label']} is degraded",
                 "detail": f"A drive in {p['label']} ({p['mount']}) has failed or is missing. Data is still "
-                          f"available but no longer protected. Replace the drive and use Storage Manager → Repair."}
+                          f"available but no longer protected. Replace the drive and use Storage Manager → Repair"
+                          f" (tip: a hot spare would have started the rebuild automatically)."}
         elif p["status"].startswith("rebuilding"):
             issues[f"pool-{p['id']}-rebuilding"] = {
                 "level": "warning", "title": f"{p['label']} is rebuilding",
                 "detail": f"{p['label']} is {p['status']}. Avoid powering off until it completes."}
+        if p.get("failed") and p["status"] == "healthy":
+            issues[f"pool-{p['id']}-failed-replaced"] = {
+                "level": "warning", "title": f"Hot spare took over in {p['label']}",
+                "detail": f"Drive(s) {', '.join(p['failed'])} failed and the hot spare rebuilt the pool - it is protected "
+                          f"again. Replace the failed drive and add the new one as hot spare (Storage Manager)."}
         if p.get("total") and p["used"] / p["total"] * 100 >= FULL_PCT:
             pct = round(p["used"] / p["total"] * 100)
             issues[f"pool-{p['id']}-full"] = {

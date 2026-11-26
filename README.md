@@ -53,6 +53,7 @@ Running the same command again upgrades Cynthology in place. Settings, shares an
 | VM guest tools installed automatically (VMware, KVM/Proxmox, Hyper-V) | ✅ |
 | Storage Manager: drives, SMART, pools with **Basic / RAID 0 / 1 / 5 / 6 / 10 / SHR / SHR-2**, Btrfs or ext4 | ✅ SHR verified on a real Debian 13 kernel: create, reboot, drive failure, repair, expand |
 | SHR expand (add drive, RAID1 tier → RAID5 automatically) / repair (replace failed drive), Btrfs scrub | ✅ |
+| **Hot spare**: standby drive per pool; the kernel rebuilds onto it automatically when a drive fails (all SHR tiers) | ✅ verified on a real kernel incl. reboot |
 | Shared folders (Btrfs subvolumes), SMB + NFS export, recycle bin | ✅ |
 | Snapshots: on demand or hourly/daily/weekly with retention; Windows **Previous Versions** | ✅ |
 | **Snapshot replication** to another Cynthology NAS (btrfs send/receive over SSH, incremental), one-click failover of a replica to a writable shared folder | ✅ |
@@ -104,4 +105,4 @@ it, so the Download links above always point at the newest release.
 ## Roadmap
 
 
-hot-spare and SSD cache · i18n.
+SSD cache · i18n.
