@@ -168,8 +168,12 @@ def current_user(request: Request, authorization: str = Header(default="")) -> d
 
 
 def require_admin(user: dict = Depends(current_user)) -> dict:
+    if not user["admin"] and _is_admin(user["user"]):
+        user["admin"] = True            # made admin since signing in: no need to sign in again
+        _save_sessions()
     if not user["admin"]:
-        raise HTTPException(403, "Administrator rights required")
+        raise HTTPException(403, f"Administrator rights required. The account '{user['user']}' is not an administrator - "
+                                 f"on the NAS console run:  sudo usermod -aG cynthology-admin {user['user']}")
     return user
 
 
