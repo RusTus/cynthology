@@ -140,10 +140,6 @@
     "open": "webstation",
     "name": "Web Station",
     "description": "Built in: websites from the 'web' shared folder with nginx, virtual hosts, HTTPS and reverse proxy."
-   },
-   {
-    "kind": "container",
-    "app": "sentora"
    }
   ]
  },
@@ -176,16 +172,6 @@
    {
     "kind": "container",
     "app": "phpmyadmin"
-   }
-  ]
- },
- {
-  "synology": "MailPlus Server",
-  "category": "Web & development",
-  "options": [
-   {
-    "kind": "container",
-    "app": "sentora"
    }
   ]
  },
