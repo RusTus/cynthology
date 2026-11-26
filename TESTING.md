@@ -26,7 +26,7 @@ Already installed an older version? Run the same command again - it upgrades in 
 | 9 | Containers | Container Manager → Settings → Move Docker data; Registry → nginx → Download → Run (port 8080) | Page on :8080 |
 | 10 | USB | VMware: VM → Removable Devices → your stick → Connect | `usbshare1` appears; Eject works |
 | 11 | Network | Use the 2nd NIC: give it a fixed IP → Apply | Applied & confirmed automatically |
-| 12 | Network rollback | On the 2nd NIC set a wrong subnet for the NIC you're connected through? **Don't** - instead trust the test; or try it if you have VM console access | Reverts after 90 s |
+| 12 | Network rollback (optional) | Give the NIC you are connected through a fixed IP in a *wrong* subnet → Apply (keep the VMware console open just in case) | NAS unreachable, then back on its old address ~2 min later; alert "Network change rolled back" |
 | 13 | 2-step | Your name → Personal settings → Turn on 2-step verification; sign out/in | Code required |
 | 14 | Notifications | Control Panel → Notifications → SMTP + Send test email | Mail arrives |
 | 15 | Time Machine | File Services → Time Machine on; on a Mac: Time Machine → Add Backup Disk | NAS listed; backup starts |
