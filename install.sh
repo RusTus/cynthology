@@ -57,7 +57,9 @@ touch /etc/samba/cyn-shares.conf
 # [global] lines after it would be parsed as options of the last share in the included file.
 sed -i -e '/^\s*include = \/etc\/samba\/cyn-shares.conf/d' -e '/^\s*# Cynthology:/d' \
        -e '/^\s*server min protocol = SMB2_10$/d' -e '/^\s*vfs objects = btrfs$/d' -e '/^\s*map to guest = never$/d' /etc/samba/smb.conf
-sed -i '/^\[global\]/a \   # Cynthology: global options\n   server min protocol = SMB2_10' /etc/samba/smb.conf
+sed -i -e '/^\s*vfs objects = catia fruit streams_xattr$/d' -e '/^\s*fruit:metadata = stream$/d' -e '/^\s*fruit:model = MacSamba$/d' /etc/samba/smb.conf
+# Apple SMB extensions must be on for every share (incl. Debian's [homes]/[printers]) once Time Machine uses them
+sed -i '/^\[global\]/a \   # Cynthology: global options\n   server min protocol = SMB2_10\n   vfs objects = catia fruit streams_xattr\n   fruit:metadata = stream\n   fruit:model = MacSamba' /etc/samba/smb.conf
 sed -i 's/^\(\s*\)map to guest = .*/\1map to guest = never/' /etc/samba/smb.conf   # no anonymous fallback
 printf '\n# Cynthology: shared folders (keep this the last line)\ninclude = /etc/samba/cyn-shares.conf\n' >> /etc/samba/smb.conf
 sed -i '/^\[homes\]/,/^\[/{s/^\(\s*browseable\s*=\s*\).*/\1no/}' /etc/samba/smb.conf || true

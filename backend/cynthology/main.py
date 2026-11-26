@@ -34,6 +34,18 @@ async def https_redirect(request: Request, call_next):
     return await call_next(request)
 
 
+@app.on_event("startup")
+def regenerate_share_configs():
+    """After an upgrade, rewrite smb.conf/exports from shares.json so new share templates apply."""
+    if DEV:
+        return
+    try:
+        if shares.load():
+            shares.write_configs(shares.load())
+    except Exception as e:
+        print("could not regenerate share configs:", e)
+
+
 FRONTEND = os.path.abspath(os.environ.get("CYN_WEB", os.path.join(os.path.dirname(__file__), "..", "..", "frontend")))
 app.mount("/static", StaticFiles(directory=FRONTEND), name="static")
 

@@ -77,8 +77,24 @@ async function cpUsers(p) {
 }
 
 async function cpServices(p) {
-  const svcs = await API.get("/api/services");
-  p.append(h("h2", {}, "Services"), h("table", {},
+  const [svcs, tm, shares] = await Promise.all([API.get("/api/services"), API.get("/api/shares/timemachine/status"), API.get("/api/shares")]);
+  const f = { enabled: tm.enabled, share: tm.share || "TimeMachine", max_gb: tm.max_gb || 0 };
+  const names = shares.filter((s) => !s.usb).map((s) => s.name);
+  const tmCard = h("div", { class: "card", style: "max-width:640px;margin-bottom:18px" },
+    h("div", {}, h("b", {}, "Time Machine (Mac backups)"), " ", h("span", { class: "pill " + (tm.enabled ? "ok" : "") }, tm.enabled ? `on - ${tm.share}` : "off")),
+    h("label", { class: "check" }, h("input", { type: "checkbox", checked: f.enabled, onchange: (e) => (f.enabled = e.target.checked) }),
+      "Let Macs back up to this NAS with Time Machine"),
+    h("label", {}, "Shared folder", h("input", { list: "tm-shares", value: f.share, oninput: (e) => (f.share = e.target.value.trim()) }),
+      h("datalist", { id: "tm-shares" }, names.map((n) => h("option", { value: n })))),
+    h("label", {}, "Size limit in GB (0 = no limit; with several Macs the limit is shared)",
+      h("input", { type: "number", min: 0, value: f.max_gb, style: "width:140px", oninput: (e) => (f.max_gb = +e.target.value) })),
+    h("div", { class: "muted", style: "font-size:12px" }, "On the Mac: System Settings → General → Time Machine → Add Backup Disk, then pick this NAS. ",
+      "Sign in with your Cynthology user. A new folder name creates that shared folder."),
+    h("div", {}, h("button", { class: "btn primary", onclick: async () => {
+      await act(() => API.put("/api/shares/timemachine/config", f), f.enabled ? "Time Machine is on" : "Time Machine is off");
+      p.replaceChildren(); cpServices(p);
+    } }, "Apply")));
+  p.append(h("h2", {}, "File Services"), tmCard, h("table", {},
     svcs.map((s) => h("tr", {}, h("td", {}, h("b", {}, s.label), h("div", { class: "muted" }, s.unit)),
       h("td", {}, h("span", { class: "pill " + (s.running ? "ok" : "") }, s.running ? "Running" : "Stopped")),
       h("td", {}, h("button", { class: "btn", onclick: async () => {

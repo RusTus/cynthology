@@ -60,6 +60,7 @@ Running the same command again upgrades Cynthology in place. Settings, shares an
 | **Snapshot replication** to another Cynthology NAS (btrfs send/receive over SSH, incremental), one-click failover of a replica to a writable shared folder | ✅ |
 | **External USB drives**: auto-mount on plug-in as shared folders `usbshare1…` (exFAT, NTFS, FAT32, ext4, Btrfs, XFS; HFS+ read-only), safe eject (refused while in use), format, never offered to Storage Manager; used by Backup | ✅ tested with hot-plugged USB in a VM |
 | File Station: browse, upload (drag & drop), download, new folder, rename, copy/move, delete to recycle bin, per-user share permissions | ✅ |
+| **Time Machine** for Macs over SMB (Bonjour-discovered, optional size limit); Apple SMB extensions on all shares | ✅ config, streams and Bonjour verified; ⚠️ not yet tried from a real Mac |
 | Users & groups (Linux + Samba passwords in sync), admin = `cynthology-admin`/`sudo` group | ✅ |
 | Services: SMB, NFS, SSH, WS-Discovery, Bonjour, Docker, rsync | ✅ |
 | Resource Monitor (CPU, RAM, network, disk) | ✅ |

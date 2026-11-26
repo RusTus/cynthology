@@ -126,7 +126,7 @@ def mount_disk(kname: str) -> list[str]:
             mp = p["mountpoint"]
         shares = [s for s in shares if s["name"] != name]
         shares.append({"name": name, "pool_id": 0, "path": mp, "smb": True, "nfs": False, "nfs_clients": "",
-                       "recycle_bin": False, "read_users": [], "write_users": ["@users"], "usb": True,
+                       "recycle_bin": False, "read_users": [], "write_users": ["@users"], "usb": True, "fstype": p["fstype"],
                        "description": f"USB: {p.get('label') or disk.get('model') or p['name']}"})
         made.append(name)
     shares_mod.write_configs(shares)
