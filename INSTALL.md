@@ -101,7 +101,7 @@ Boot the machine from the ISO and choose **Graphical install**. Answer the scree
 
 ## Updating
 
-Run the install command again - it upgrades in place and keeps all settings and data.
+**Control Panel → Update → Update now** (or `sudo cynthology update` on the NAS). Settings and data are kept.
 
 ## Help
 

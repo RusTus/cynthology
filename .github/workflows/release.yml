@@ -61,7 +61,9 @@ jobs:
           **Cynthology $V** - alpha, for testing only.
 
           **Install** on a clean, minimal Debian 13 x86-64 system:
-          \`curl -fsSL https://raw.githubusercontent.com/RusTus/cynthology/main/get.sh | sudo bash\`
+          \`wget -qO- https://raw.githubusercontent.com/RusTus/cynthology/main/get.sh | sudo bash\`
+
+          **Already installed?** Control Panel → Update → Update now, or \`sudo cynthology update\`.
 
           - **cynthology-install.tar.gz** - the same installer for offline/manual use (\`sudo bash install.sh\`)
           - **cynthology-amd64.iso** - optional all-in-one installer (Debian 13 + Cynthology, BIOS + UEFI, needs internet)

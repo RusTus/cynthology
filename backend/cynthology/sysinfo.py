@@ -32,7 +32,19 @@ def info(_=Depends(current_user)):
         "cores": psutil.cpu_count(),
         "memory_total": psutil.virtual_memory().total,
         "uptime": int(time.time() - BOOT),
+        "ips": lan_ips(),
     }
+
+
+def lan_ips() -> list[str]:
+    """IPv4 addresses on real interfaces (Docker/virtual bridges skipped)."""
+    import socket
+    out = []
+    for name, addrs in psutil.net_if_addrs().items():
+        if name == "lo" or name.startswith(("docker", "br-", "veth", "virbr", "tun", "tap", "wg")):
+            continue
+        out += [a.address for a in addrs if a.family == socket.AF_INET]
+    return out
 
 
 @router.get("/stats")

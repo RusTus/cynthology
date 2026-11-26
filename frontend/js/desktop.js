@@ -85,18 +85,52 @@ function startDesktop(me) {
   else if (me.admin) API.get("/api/setup/status").then((s) => s.needs_setup && runSetupWizard());
 }
 
+const NET_HIST = { last: null, rx: [], tx: [] };
+const UPDATE_INFO = { available: false, checked: 0 };
+
+function openControl(section) {
+  WM.open("control");
+  setTimeout(() => document.querySelector(`.cp-item[data-k="${section}"]`)?.click(), 50);
+}
+
 async function widgets() {
   const [info, stats, pools, health] = await Promise.all([API.get("/api/system/info"), API.get("/api/system/stats"), API.get("/api/storage/pools"), API.get("/api/health")]);
   const bad = health.status !== "healthy";
-  const meter = (label, pct) => h("div", { style: "margin:6px 0" }, h("div", { style: "display:flex;justify-content:space-between;font-size:12px" }, h("span", {}, label), h("span", {}, `${pct.toFixed(0)}%`)), h("div", { class: "bar" }, h("div", { style: `width:${pct}%` })));
+  // network rate history for the sparkline
+  if (NET_HIST.last) {
+    const dt = Math.max(1, stats.t - NET_HIST.last.t);
+    NET_HIST.rx.push((stats.net.recv - NET_HIST.last.net.recv) / dt); NET_HIST.tx.push((stats.net.sent - NET_HIST.last.net.sent) / dt);
+    if (NET_HIST.rx.length > 36) { NET_HIST.rx.shift(); NET_HIST.tx.shift(); }
+  }
+  NET_HIST.last = stats;
+  if (Date.now() - UPDATE_INFO.checked > 3600e3) {     // check hourly (the server caches GitHub too)
+    UPDATE_INFO.checked = Date.now();
+    API.get("/api/update").then((u) => { UPDATE_INFO.available = !!u.update_available; UPDATE_INFO.version = u.latest?.version; }).catch(() => {});
+  }
+  const meter = (label, pct) => h("div", { class: "w-meter" }, h("span", {}, label), h("div", { class: "bar" }, h("div", { style: `width:${pct}%` })), h("span", {}, `${pct.toFixed(0)}%`));
+  const spark = h("canvas", { class: "w-spark", width: 248, height: 54 });
+  const ctx = spark.getContext("2d"), max = Math.max(1024, ...NET_HIST.rx, ...NET_HIST.tx);
+  for (const [series, color] of [[NET_HIST.rx, "#0ea5b7"], [NET_HIST.tx, "#3b82f6"]]) {
+    ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = 1.6;
+    series.forEach((v, i) => { const x = (i / 35) * 248, y = 52 - (v / max) * 48; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    ctx.stroke();
+  }
+  const kv = (k, v) => h("div", { class: "w-kv" }, h("span", { class: "muted" }, k), h("span", {}, v));
   document.getElementById("widgets").replaceChildren(
     h("div", { class: "widget" }, h("h4", {}, "System Health"),
-      h("div", {}, h("span", { class: "pill " + (health.status === "critical" ? "bad" : bad ? "warn" : "ok") }, bad ? "Attention needed" : "Healthy")),
-      ...health.issues.map((i) => h("div", { style: "font-size:12px;margin-top:6px", title: i.detail }, (i.level === "critical" ? "⛔ " : "⚠️ ") + i.title)),
-      h("div", { class: "muted", style: "font-size:12px;margin-top:6px" }, `${info.hostname} · up ${fmtUptime(info.uptime)}`)),
-    h("div", { class: "widget" }, h("h4", {}, "Resources"), meter("CPU", stats.cpu), meter("Memory", stats.mem.percent)),
+      h("div", { class: "w-health " + (health.status === "critical" ? "bad" : bad ? "warn" : "ok") },
+        h("div", { class: "w-health-icon" }, bad ? "!" : "✓"),
+        h("div", {}, h("div", { class: "w-health-title" }, bad ? "Attention needed" : "Healthy"),
+          h("div", { class: "muted", style: "font-size:12px" }, bad ? `${health.issues.length} issue(s)` : "Your NAS is working well."))),
+      ...health.issues.slice(0, 3).map((i) => h("div", { class: "w-issue", title: i.detail }, (i.level === "critical" ? "⛔ " : "⚠️ ") + i.title)),
+      kv("Server name", info.hostname), kv("LAN", (info.ips || [])[0] || "-"), kv("Uptime", fmtUptime(info.uptime)),
+      UPDATE_INFO.available ? h("a", { href: "#", class: "w-update", onclick: (e) => { e.preventDefault(); openControl("update"); } },
+        `⬆ Update ${UPDATE_INFO.version} available`) : null),
+    h("div", { class: "widget" }, h("h4", {}, "Resource Monitor"), meter("CPU", stats.cpu), meter("RAM", stats.mem.percent),
+      h("div", { class: "w-kv" }, h("span", { style: "color:#3b82f6" }, `↑ ${fmtBytes(NET_HIST.tx.at(-1) || 0)}/s`), h("span", { style: "color:#0ea5b7" }, `↓ ${fmtBytes(NET_HIST.rx.at(-1) || 0)}/s`)),
+      spark),
     h("div", { class: "widget" }, h("h4", {}, "Storage"),
-      pools.length ? pools.map((p) => meter(`${p.label} (${p.raid.toUpperCase()})`, p.total ? (100 * p.used) / p.total : 0))
+      pools.length ? pools.map((p) => meter(p.label, p.total ? (100 * p.used) / p.total : 0))
         : h("div", { class: "muted", style: "font-size:12px" }, "No storage pools yet")));
 }
 

@@ -27,7 +27,7 @@ server, or VM (VMware, Proxmox, Hyper-V, VirtualBox).
    The browser warns once about the self-signed certificate, which is expected. A setup wizard
    then walks you through server name, time zone, HTTPS, and storage.
 
-Running the same command again upgrades Cynthology in place. Settings, shares and packages are kept.
+**Updating:** Control Panel → Update → **Update now**, or `sudo cynthology update` on the NAS. Settings, shares and packages are kept.
 
 <details><summary>Other options</summary>
 

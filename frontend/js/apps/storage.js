@@ -2,24 +2,109 @@
 const TIER_COLORS = ["#1f7a8c", "#3a9fb0", "#6bbac6", "#9bd0d8"];
 
 WM.register("storage", {
-  name: "Storage Manager", icon: "🗄️", color: "#1f7a8c",
+  name: "Storage Manager", icon: "🗄️", color: "#1f7a8c", w: 1000, h: 640,
   open(body, win) {
-    win.show = sectioned({
-      overview: { label: "Overview", render: storageOverview },
-      volumes: { label: "Storage Pools", render: storagePools },
-      disks: { label: "Drives", render: storageDisks },
-    }, body);
+    const side = h("nav", { class: "side tree" });
+    const pane = h("div", { class: "pane" });
+    body.append(side, pane);
+    let current = "overview";
+    const item = (key, label, opts = {}) => h("button", { "data-k": key, class: (current === key ? "on " : "") + (opts.sub ? "sub" : ""), onclick: () => go(key) },
+      opts.icon ? svgIcon(opts.icon, 16) : null, h("span", { style: "flex:1" }, label),
+      opts.dot ? h("span", { class: "dot-status " + opts.dot }) : null);
+    async function drawSide() {
+      let pools = [];
+      try { pools = await API.get("/api/storage/pools"); } catch { /* keep going */ }
+      side.replaceChildren(
+        item("overview", "Overview", { icon: "cp_info" }),
+        item("pools", "Storage", { icon: "storage" }),
+        ...pools.map((x) => item(`pool:${x.id}`, x.label, { sub: true, dot: statusClass(x.status) })),
+        item("drives", "Drives", { icon: "hdd" }));
+    }
+    function go(key) {
+      current = key;
+      const box = h("div");
+      pane.replaceChildren(box);
+      drawSide();
+      if (key === "overview") storageOverview(box);
+      else if (key === "pools") storagePools(box);
+      else if (key === "drives") storageDisks(box);
+      else if (key.startsWith("pool:")) poolDetail(box, +key.split(":")[1], go);
+    }
+    win.show = (k) => go({ volumes: "pools", disks: "drives" }[k] || k);
+    win.show.pane = pane;
+    go("overview");
   },
 });
 
 async function storageOverview(p) {
   const [pools, disks] = await Promise.all([API.get("/api/storage/pools"), API.get("/api/storage/disks")]);
-  const bad = pools.filter((x) => x.status !== "healthy");
-  p.append(h("h2", {}, "Overview"),
-    h("div", { class: "note" + (bad.length ? " warn" : "") },
-      bad.length ? `${bad.length} storage pool(s) need attention.` : `All storage is healthy. ${pools.length} pool(s), ${disks.length} drive(s).`),
-    h("br"),
-    h("div", { class: "cards" }, pools.map(poolCard)));
+  const bad = pools.filter((x) => statusClass(x.status) === "bad" || statusClass(x.status) === "warn");
+  const total = pools.reduce((a, x) => a + (x.total || 0), 0), used = pools.reduce((a, x) => a + (x.used || 0), 0);
+  p.append(h("div", { class: "health-hero " + (bad.length ? "warn" : pools.length ? "ok" : "") },
+      h("div", { class: "hero-icon" }, bad.length ? "!" : "✓"),
+      h("div", {}, h("div", { class: "hero-title" }, bad.length ? "Attention needed" : pools.length ? "Healthy" : "No storage yet"),
+        h("div", { class: "muted" }, bad.length ? `${bad.length} storage pool(s) need attention.` : pools.length ? "All storage pools and drives are working well." : "Create a storage pool to start using your drives."))),
+    pools.length ? h("div", { class: "stat-row" },
+      h("div", { class: "stat" }, h("div", { class: "stat-num" }, fmtBytes(total)), h("div", { class: "muted" }, "total capacity")),
+      h("div", { class: "stat" }, h("div", { class: "stat-num" }, fmtBytes(used)), h("div", { class: "muted" }, "used")),
+      h("div", { class: "stat" }, h("div", { class: "stat-num" }, String(pools.length)), h("div", { class: "muted" }, "storage pool(s)")),
+      h("div", { class: "stat" }, h("div", { class: "stat-num" }, String(disks.filter((d) => !d.system).length)), h("div", { class: "muted" }, "data drive(s)"))) : null,
+    h("div", { class: "cards", style: "margin-top:14px" }, pools.map(poolCard)));
+}
+
+// One storage pool: summary, info, data scrubbing, drives.
+async function poolDetail(p, id, go) {
+  const [pools, disks] = await Promise.all([API.get("/api/storage/pools"), API.get("/api/storage/disks")]);
+  const x = pools.find((q) => q.id === id);
+  if (!x) return p.append(h("p", { class: "muted" }, "This storage pool no longer exists."));
+  const scrub = await API.get(`/api/storage/pools/${id}/scrub`).catch(() => ({ supported: false }));
+  const pct = x.total ? Math.round((x.used / x.total) * 100) : 0;
+  const cls = statusClass(x.status);
+  const tol = { basic: "none", raid0: "none", raid1: "all but one drive", raid5: "1 drive", raid6: "2 drives", raid10: "1 drive per mirror pair", shr: "1 drive", shr2: "2 drives" }[x.raid];
+  const byName = Object.fromEntries(disks.map((d) => [d.name, d]));
+  const rows = [...x.disks.map((d) => [d, "Member"]), ...(x.spares || []).map((d) => [d, "Hot spare"]), ...(x.failed || []).map((d) => [d, "Failed"])];
+  const reload = () => go(`pool:${id}`);
+  const row = (k, v) => h("tr", {}, h("th", { style: "width:200px" }, k), h("td", {}, v));
+  const scrubText = !scrub.supported ? "Not available (ext4)" : scrub.state === "running" ? `Running… ${scrub.rate || ""}` :
+    scrub.state === "finished" ? `Finished ${scrub.started || ""} · ${scrub.errors || ""}` : scrub.state === "aborted" ? "Stopped before finishing" : "Never run";
+  p.append(
+    h("div", { class: "pool-head" },
+      h("div", { class: "pool-icon " + cls }, appTile("storage", 44)),
+      h("div", { style: "flex:1;min-width:0" },
+        h("div", {}, h("b", { style: "font-size:17px" }, x.label), "  ", h("span", { class: "pill " + cls }, x.status)),
+        h("div", { class: "muted" }, `${RAID_LABEL[x.raid]} · ${(x.fs || "btrfs").toUpperCase()} · ${x.mount}`),
+        h("div", { class: "bar", style: "margin-top:8px" }, h("div", { style: `width:${pct}%` })),
+        h("div", { class: "muted", style: "font-size:12px;margin-top:4px" }, `${fmtBytes(x.used)} used of ${fmtBytes(x.total)} (${pct}%)`))),
+    h("div", { class: "toolbar", style: "margin:14px 0" },
+      h("button", { class: "btn" + (x.status === "degraded" ? " primary" : ""), onclick: () => addDiskDialog(p, x) }, x.status === "degraded" ? "Repair" : "Add drive"),
+      ["raid0", "basic"].includes(x.raid) ? null : h("button", { class: "btn", onclick: () => addDiskDialog(p, x, true) }, "Add hot spare"),
+      x.failed?.length ? h("button", { class: "btn", onclick: async () => { await act(() => API.post(`/api/storage/pools/${id}/remove-failed`), "Failed drive detached - you can pull it now"); reload(); } }, "Detach failed drive") : null),
+    h("h3", { class: "section-title" }, "Info"),
+    h("table", { class: "kv" },
+      row("RAID type", `${RAID_LABEL[x.raid]} - survives ${tol} failing`),
+      row("File system", (x.fs || "btrfs") === "btrfs" ? "Btrfs (snapshots, checksums, compression)" : "ext4"),
+      row("Capacity", `${fmtBytes(x.total)} (${fmtBytes(x.total - x.used)} free)`),
+      row("Location", h("span", { class: "mono" }, x.mount))),
+    h("h3", { class: "section-title" }, "Data scrubbing"),
+    h("table", { class: "kv" },
+      row("Status", scrubText),
+      scrub.duration ? row("Duration", scrub.duration) : null,
+      scrub.supported ? row("Schedule", h("select", { onchange: (e) => act(() => API.put("/api/storage/scrub-schedule", { schedule: e.target.value }), "Schedule saved") },
+        [["off", "Off"], ["monthly", "Every month (recommended)"], ["quarterly", "Every 3 months"]].map(([v, l]) => h("option", { value: v, selected: scrub.schedule === v }, l)))) : null,
+      scrub.supported ? row("", h("button", { class: "btn", disabled: scrub.state === "running", onclick: async () => { await act(() => API.post(`/api/storage/pools/${id}/scrub`), "Data scrubbing started"); reload(); } }, "Run now")) : null),
+    h("div", { class: "muted", style: "font-size:12px" }, "Scrubbing reads all data and repairs silent corruption from the RAID redundancy."),
+    h("h3", { class: "section-title" }, "Drives"),
+    h("table", {},
+      h("tr", {}, h("th", {}, "Drive"), h("th", {}, "Model"), h("th", {}, "Size"), h("th", {}, "Role"), h("th", {}, "")),
+      rows.map(([d, role]) => h("tr", {},
+        h("td", {}, h("span", { style: "display:inline-flex;gap:8px;align-items:center" }, svgIcon(byName[d]?.rota === false ? "ssd" : "hdd", 18), h("b", {}, d))),
+        h("td", { class: "muted" }, byName[d]?.model || ""),
+        h("td", {}, byName[d] ? fmtBytes(byName[d].size) : ""),
+        h("td", {}, h("span", { class: "pill " + (role === "Failed" ? "bad" : role === "Hot spare" ? "info" : "ok") }, role)),
+        h("td", {}, role === "Hot spare" ? h("button", { class: "btn", onclick: async () => {
+          if (!confirm(`Remove hot spare ${d}?`)) return;
+          await act(() => API.post(`/api/storage/pools/${id}/spare/remove`, { disk: d }), "Hot spare removed"); reload();
+        } }, "Remove") : null)))));
 }
 
 function poolCard(x) {
@@ -152,23 +237,35 @@ async function storageDisks(p) {
   const [disks, pools] = await Promise.all([API.get("/api/storage/disks"), API.get("/api/storage/pools")]);
   const role = {};
   for (const x of pools) {
-    x.disks.forEach((d) => (role[d] = `${x.label}`));
-    (x.spares || []).forEach((d) => (role[d] = `Hot spare (${x.label})`));
-    (x.failed || []).forEach((d) => (role[d] = `Failed (${x.label})`));
+    x.disks.forEach((d) => (role[d] = [`${x.label}`, "ok"]));
+    (x.spares || []).forEach((d) => (role[d] = [`Hot spare · ${x.label}`, "info"]));
+    (x.failed || []).forEach((d) => (role[d] = [`Failed · ${x.label}`, "bad"]));
   }
-  const tbl = h("table", {}, h("tr", {}, h("th", {}, "Drive"), h("th", {}, "Model"), h("th", {}, "Size"), h("th", {}, "Type"), h("th", {}, "Status"), h("th", {}, "Health")));
-  for (const d of disks) {
-    const health = h("td", {}, h("button", { class: "btn", onclick: async () => {
-      const s = await API.get(`/api/storage/disks/${d.name}/smart`);
-      if (!s.supported) return health.replaceChildren(h("span", { class: "pill" }, "SMART not available"), h("div", { class: "muted" }, "Virtual disks and some USB enclosures don't report health"));
-      health.replaceChildren(h("span", { class: "pill " + (s.passed ? "ok" : "bad") }, s.passed ? "Healthy" : "Failing"),
-        h("div", { class: "muted" }, `${s.temperature ?? "?"}°C · ${s.power_on_hours ?? "?"} h · realloc ${s.reallocated ?? "?"}`));
-    } }, "Check"));
-    tbl.append(h("tr", {}, h("td", {}, d.path), h("td", {}, d.model, h("div", { class: "muted" }, d.serial || "")),
-      h("td", {}, fmtBytes(d.size)), h("td", {}, d.rota ? "HDD" : "SSD"),
-      h("td", {}, d.system ? "System" : role[d.name] ? (role[d.name].startsWith("Failed") ? h("span", { class: "pill bad" }, role[d.name]) : role[d.name]) : d.in_use ? "In use" : "Not initialised"), health));
-  }
-  p.append(h("h2", {}, "Drives"), tbl);
+  p.append(h("h2", {}, "Drives"), h("div", { class: "drive-list" }, disks.map((d) => {
+    const [r, cls] = d.system ? ["System drive", "info"] : role[d.name] || (d.in_use ? ["In use", ""] : ["Not used - available for a pool", ""]);
+    const details = h("div", { class: "drive-details hidden" });
+    const rowEl = h("div", { class: "drive-row" },
+      h("div", { class: "drive-main", onclick: async () => {
+        details.classList.toggle("hidden");
+        if (details.dataset.loaded) return;
+        details.dataset.loaded = 1;
+        details.replaceChildren(h("span", { class: "muted" }, "Reading health data…"));
+        const s = await API.get(`/api/storage/disks/${d.name}/smart`).catch(() => ({ supported: false }));
+        const kv = (k, v) => h("div", {}, h("span", { class: "muted" }, k + ": "), v);
+        details.replaceChildren(kv("Device", h("span", { class: "mono" }, d.path)), kv("Serial", d.serial || "-"), kv("Type", d.rota ? "Hard drive" : "SSD"),
+          s.supported ? [kv("SMART", h("span", { class: "pill " + (s.passed ? "ok" : "bad") }, s.passed ? "Passed" : "FAILING")),
+            kv("Temperature", s.temperature != null ? `${s.temperature} °C` : "-"), kv("Power-on hours", s.power_on_hours ?? "-"),
+            kv("Reallocated sectors", s.reallocated ?? "-")]
+            : kv("SMART", "not available (virtual disks and some USB enclosures don't report health)"));
+      } },
+        h("div", { class: "drive-icon" }, svgIcon(d.rota ? "hdd" : "ssd", 26), h("span", { class: "dot-status " + (cls || "none") })),
+        h("div", { style: "flex:1;min-width:0" },
+          h("div", {}, h("b", {}, d.name), h("span", { class: "muted" }, `  ${d.model || "Unknown model"}  ·  ${fmtBytes(d.size)}`)),
+          h("div", { class: cls === "bad" ? "err" : "muted", style: "font-size:13px" }, r)),
+        h("span", { class: "muted" }, "⌄")),
+      details);
+    return rowEl;
+  })));
 }
 
 // Used by the setup wizard: jump straight to "Create storage pool".

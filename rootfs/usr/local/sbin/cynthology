@@ -1,0 +1,36 @@
+#!/bin/sh
+# Cynthology command line.
+#   cynthology version        installed version
+#   cynthology check          is a newer release available?
+#   cynthology update         install the newest release (keeps settings and data)
+#   cynthology update vX.Y.Z  install a specific release
+#   cynthology status         service status and web address
+REPO=RusTus/cynthology
+current() { cat /etc/cynthology-release 2>/dev/null || echo dev; }
+latest() {   # GitHub's /releases/latest redirect names the newest tag (no API rate limit)
+  URL="https://github.com/$REPO/releases/latest"
+  if command -v curl >/dev/null; then
+    curl -fsSLI -o /dev/null -w '%{url_effective}' "$URL" 2>/dev/null
+  else
+    wget -S --spider --max-redirect=5 "$URL" 2>&1 | sed -n 's/^ *Location: *//p' | tail -1
+  fi | sed -n 's#.*/tag/\(v[^/]*\)$#\1#p'
+}
+case "${1:-}" in
+  version) current ;;
+  check)
+    L=$(latest); [ -n "$L" ] || { echo "Could not reach GitHub."; exit 1; }
+    C=$(current)
+    if [ "v$C" = "$L" ] || [ "$C" = "$L" ]; then echo "Cynthology $C is up to date."; else echo "Update available: $C -> ${L#v}   (run: sudo cynthology update)"; fi ;;
+  update)
+    [ "$(id -u)" = 0 ] || { echo "Run with sudo: sudo cynthology update"; exit 1; }
+    TAG="${2:-$(latest)}"; [ -n "$TAG" ] || { echo "Could not reach GitHub."; exit 1; }
+    echo "Updating Cynthology $(current) -> ${TAG#v} ..."
+    CYN_VERSION="$TAG" exec /usr/lib/cynthology/get.sh ;;
+  status)
+    echo "Cynthology $(current)"
+    systemctl is-active --quiet cynthology-ui && echo "Web interface: running" || echo "Web interface: NOT running (sudo systemctl restart cynthology-ui)"
+    for a in $(ip -4 -o addr show scope global | awk '{print $2, $4}' | grep -vE '^(docker|br-|veth)' | awk '{split($2,x,"/"); print x[1]}'); do
+      echo "  https://$a:5001"
+    done ;;
+  *) echo "usage: cynthology {version|check|update [vX.Y.Z]|status}"; exit 1 ;;
+esac

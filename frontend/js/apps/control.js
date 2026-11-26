@@ -1,19 +1,49 @@
 // Control Panel: shared folders, users, file services, info.
+const CP_SECTIONS = {
+  shares: { label: "Shared Folders", group: "File Sharing", icon: "cp_shares", desc: "Folders on your storage pools", render: (p) => cpShares(p) },
+  services: { label: "File Services", group: "File Sharing", icon: "cp_services", desc: "SMB, NFS, Time Machine, SSH", render: (p) => cpServices(p) },
+  users: { label: "Users & Groups", group: "File Sharing", icon: "cp_users", desc: "Accounts and 2-step status", render: (p) => cpUsers(p) },
+  network: { label: "Network", group: "Connectivity", icon: "cp_network", desc: "IP address, DNS, link aggregation", render: (p) => cpNetwork(p) },
+  security: { label: "Security", group: "Connectivity", icon: "cp_security", desc: "HTTPS certificate, 2-step policy", render: (p) => cpSecurity(p) },
+  general: { label: "General", group: "System", icon: "cp_general", desc: "Server name, time zone", render: (p) => cpGeneral(p) },
+  info: { label: "Info Center", group: "System", icon: "cp_info", desc: "Hardware and system details", render: (p) => cpInfo(p) },
+  notify: { label: "Notifications", group: "System", icon: "cp_notify", desc: "Email alerts", render: (p) => cpNotify(p) },
+  ups: { label: "UPS", group: "System", icon: "cp_ups", desc: "Power failure protection", render: (p) => cpUps(p) },
+  usb: { label: "External Devices", group: "System", icon: "cp_usb", desc: "USB drives", render: (p) => cpUsb(p) },
+  update: { label: "Update", group: "System", icon: "cp_update", desc: "Cynthology and Debian updates", render: (p) => cpUpdate(p) },
+};
+
 WM.register("control", {
-  name: "Control Panel", icon: "⚙️", color: "#4f6d8a",
+  name: "Control Panel", icon: "⚙️", color: "#4f6d8a", w: 960, h: 620,
   open(body) {
-    sectioned({
-      general: { label: "General", render: cpGeneral },
-      network: { label: "Network", render: cpNetwork },
-      security: { label: "Security", render: cpSecurity },
-      notify: { label: "Notifications", render: cpNotify },
-      ups: { label: "UPS", render: cpUps },
-      usb: { label: "External Devices", render: cpUsb },
-      shares: { label: "Shared Folders", render: cpShares },
-      users: { label: "Users & Groups", render: cpUsers },
-      services: { label: "File Services", render: cpServices },
-      info: { label: "Info Center", render: cpInfo },
-    }, body);
+    const home = () => {
+      const search = h("input", { class: "cp-search", placeholder: "Search settings", oninput: () => draw() });
+      const grid = h("div");
+      const draw = () => {
+        const q = search.value.toLowerCase();
+        const groups = {};
+        for (const [k, s] of Object.entries(CP_SECTIONS))
+          if (!q || (s.label + " " + s.desc).toLowerCase().includes(q)) (groups[s.group] ||= []).push([k, s]);
+        grid.replaceChildren(...Object.entries(groups).map(([g, items]) => h("div", { class: "cp-group" },
+          h("div", { class: "cp-group-title" }, g),
+          h("div", { class: "cp-grid" }, items.map(([k, s]) => h("button", { class: "cp-item", "data-k": k, title: s.desc, onclick: () => open(k) },
+            appTile(s.icon, 44), h("span", {}, s.label)))))));
+        if (!Object.keys(groups).length) grid.append(h("p", { class: "muted", style: "text-align:center" }, "Nothing matches."));
+      };
+      body.replaceChildren(h("div", { class: "pane cp-home" }, h("div", { style: "text-align:center" }, search), grid));
+      draw();
+      search.focus();
+    };
+    const open = (key) => {
+      body.replaceChildren();
+      const sections = Object.fromEntries(Object.entries(CP_SECTIONS).map(([k, s]) => [k, { label: s.label, render: s.render }]));
+      const show = sectioned(sections, body);
+      const side = body.querySelector(".side");
+      side.prepend(h("button", { class: "cp-back", onclick: home }, "‹ All settings"));
+      side.querySelectorAll("button[data-k]").forEach((b) => b.prepend(svgIcon(CP_SECTIONS[b.dataset.k].icon, 16)));
+      show(key);
+    };
+    home();
   },
 });
 
@@ -399,4 +429,71 @@ async function cpNetwork(p) {
     h("div", { class: "muted", style: "margin-bottom:12px" }, `Default gateway ${st.gateway || "-"} · DNS ${st.dns.join(", ") || "-"}`),
     box);
   draw();
+}
+
+async function cpUpdate(p) {
+  const s = await API.get("/api/update?refresh=1");
+  const logBox = h("pre", { class: "mono update-log hidden" });
+  const reload = () => { p.replaceChildren(); cpUpdate(p); };
+  const follow = async (logUrl, done) => {
+    logBox.classList.remove("hidden");
+    for (;;) {
+      let r = null;
+      try { r = await API.get(logUrl); }
+      catch (e) {
+        // the web UI restarts during an update; once it answers but has no log page, the new version is running
+        if (/Not Found/.test(e.message)) return done({ current: "the new version" });
+      }
+      if (r) {
+        logBox.textContent = r.log || "Starting…";
+        logBox.scrollTop = logBox.scrollHeight;
+        if (!r.running) return done(r);
+      } else logBox.textContent += "\n… restarting the web interface …";
+      await new Promise((res) => setTimeout(res, 2500));
+    }
+  };
+  const lat = s.latest;
+  p.append(h("h2", {}, "Update"),
+    h("div", { class: "card", style: "max-width:720px" },
+      h("div", { style: "display:flex;align-items:center;gap:14px" }, appTile("cp_update", 44),
+        h("div", { style: "flex:1" }, h("div", { style: "font-size:16px;font-weight:600" }, `Cynthology ${s.current}`),
+          s.error ? h("div", { class: "err" }, s.error)
+            : s.update_available ? h("div", {}, h("span", { class: "pill info" }, `Version ${lat.version} is available`))
+            : h("div", { class: "muted" }, "You are up to date."))),
+      s.update_available && lat ? h("details", { open: true }, h("summary", { class: "muted" }, `What's new in ${lat.version}`),
+        h("div", { class: "release-notes" }, lat.notes || "(no release notes)")) : null,
+      h("div", { class: "toolbar", style: "margin:4px 0 0" },
+        s.update_available ? h("button", { class: "btn primary", disabled: s.running, onclick: async () => {
+          if (!confirm(`Update Cynthology to ${lat.version}? Settings and data are kept. The web interface restarts for a moment.`)) return;
+          await act(() => API.post("/api/update/start"), "Update started");
+          follow("/api/update/log", (r) => {
+            toast(`Cynthology ${r.current} installed - reloading`);
+            setTimeout(() => location.reload(), 2500);
+          });
+        } }, s.running ? "Updating…" : "Update now") : null,
+        h("button", { class: "btn", onclick: reload }, "Check again")),
+      h("div", { class: "muted", style: "font-size:12px" }, "Command line on the NAS: ", h("span", { class: "mono" }, "sudo cynthology update"))),
+    logBox,
+    h("h3", { class: "section-title", style: "max-width:720px" }, "Debian system updates"),
+    h("div", { id: "deb-box", class: "muted" }, "Checking Debian packages…"));
+  if (s.running) follow("/api/update/log", () => setTimeout(() => location.reload(), 2500));
+  const deb = await API.get("/api/update/debian").catch((e) => ({ error: e.message }));
+  const box = p.querySelector("#deb-box");
+  if (!box) return;
+  const debLog = h("pre", { class: "mono update-log hidden" });
+  box.replaceChildren(deb.error ? h("div", { class: "err" }, deb.error) : deb.count
+      ? h("div", {}, h("div", { style: "color:var(--text)" }, `${deb.count} package update(s) available`,
+          deb.security?.length ? h("span", { class: "pill warn", style: "margin-left:8px" }, `${deb.security.length} security`) : null),
+        h("div", { style: "font-size:12px;margin:4px 0 8px" }, deb.packages.slice(0, 30).join(", ") + (deb.count > 30 ? " …" : "")),
+        h("button", { class: "btn", onclick: async () => {
+          await act(() => API.post("/api/update/debian/start"), "Installing Debian updates");
+          debLog.classList.remove("hidden");
+          for (;;) {
+            const r = await API.get("/api/update/debian/log");
+            debLog.textContent = r.log; debLog.scrollTop = debLog.scrollHeight;
+            if (!r.running) { toast(r.reboot_required ? "Updates installed - restart the NAS to finish" : "Debian updates installed"); break; }
+            await new Promise((res) => setTimeout(res, 2500));
+          }
+        } }, "Install Debian updates"), debLog)
+      : h("div", {}, "✓ All Debian packages are up to date."));
 }

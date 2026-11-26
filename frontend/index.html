@@ -5,6 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Cynthology</title>
 <link rel="stylesheet" href="/static/css/desktop.css">
+<script>
+  // Theme: dark by default; "auto" follows the computer. Chosen in Personal settings (per browser).
+  (function () {
+    let t = "dark";
+    try { t = localStorage.getItem("cyn-theme") || "dark"; } catch (e) {}
+    if (t === "auto") t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    document.documentElement.dataset.theme = t;
+  })();
+</script>
 </head>
 <body>
 <div id="login" class="login">

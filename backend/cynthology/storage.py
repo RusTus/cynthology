@@ -521,6 +521,80 @@ def remove_failed(pool_id: int, _=Depends(require_admin)):
     return {"ok": True}
 
 
+def scrub_status(pool: dict) -> dict:
+    """Parsed `btrfs scrub status` (Btrfs pools only)."""
+    if pool.get("fs", "btrfs") != "btrfs":
+        return {"supported": False}
+    if DEV:
+        return {"supported": True, "state": "never"}
+    out = read_only(["btrfs", "scrub", "status", pool["mount"]])
+    info = {"supported": True, "state": "never"}
+    for line in out.splitlines():
+        k, _, v = line.partition(":")
+        k, v = k.strip().lower(), v.strip()
+        if k == "status":
+            info["state"] = {"finished": "finished", "running": "running", "aborted": "aborted", "interrupted": "aborted"}.get(v, v)
+        elif k == "scrub started":
+            info["started"] = v
+        elif k == "duration":
+            info["duration"] = v
+        elif k == "error summary":
+            info["errors"] = v
+        elif k == "total to scrub":
+            info["total"] = v
+        elif k == "rate":
+            info["rate"] = v
+    if "no stats available" in out:
+        info["state"] = "never"
+    return info
+
+
+@router.get("/pools/{pool_id}/scrub")
+def get_scrub(pool_id: int, _=Depends(current_user)):
+    pool = next((p for p in load_pools() if p["id"] == pool_id), None)
+    if not pool:
+        raise HTTPException(404, "no such pool")
+    from . import settings
+    return {**scrub_status(pool), "schedule": settings.get("scrub_schedule") or "off"}
+
+
+class ScrubSchedule(BaseModel):
+    schedule: str      # off | monthly | quarterly
+
+
+@router.put("/scrub-schedule")
+def put_scrub_schedule(body: ScrubSchedule, _=Depends(require_admin)):
+    if body.schedule not in ("off", "monthly", "quarterly"):
+        raise HTTPException(400, "schedule must be off, monthly or quarterly")
+    from . import settings
+    settings.update(scrub_schedule=body.schedule)
+    return {"ok": True}
+
+
+def scrub_due() -> list[int]:
+    """Start scrubs that are due (cynthology-scrub.timer, daily)."""
+    from . import settings
+    days = {"monthly": 30, "quarterly": 91}.get(settings.get("scrub_schedule") or "off")
+    started = []
+    if not days:
+        return started
+    for p in load_pools():
+        st = scrub_status(p)
+        if not st.get("supported") or st.get("state") == "running":
+            continue
+        last = 0
+        if st.get("started"):
+            import datetime
+            try:
+                last = datetime.datetime.strptime(st["started"], "%a %b %d %H:%M:%S %Y").timestamp()
+            except ValueError:
+                pass
+        if time.time() - last > days * 86400:
+            run(["btrfs", "scrub", "start", p["mount"]], check=False)
+            started.append(p["id"])
+    return started
+
+
 @router.post("/pools/{pool_id}/scrub")
 def scrub(pool_id: int, _=Depends(require_admin)):
     pool = next((p for p in load_pools() if p["id"] == pool_id), None)
@@ -528,3 +602,9 @@ def scrub(pool_id: int, _=Depends(require_admin)):
         raise HTTPException(404, "no such pool")
     run(["btrfs", "scrub", "start", pool["mount"]])
     return {"ok": True}
+
+
+if __name__ == "__main__":
+    import sys
+    if sys.argv[1:] == ["scrub-due"]:
+        print("scrubs started for pools:", scrub_due())
