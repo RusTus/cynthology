@@ -103,5 +103,5 @@ it, so the Download links above always point at the newest release.
 
 ## Roadmap
 
-Snapshot replication ·
+
 hot-spare and SSD cache · i18n.
