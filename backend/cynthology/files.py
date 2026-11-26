@@ -13,7 +13,7 @@ import time
 import urllib.parse
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from . import shares as shares_mod
@@ -105,14 +105,20 @@ def my_shares(user=Depends(current_user)):
     return out
 
 
+def _hidden(name: str) -> bool:
+    return name.startswith(".") or name in ("#recycle", "@eaDir")
+
+
 @router.get("/list")
-def list_dir(path: str, hidden: bool = False, user=Depends(current_user)):
+def list_dir(path: str, hidden: bool = False, dirs_only: bool = False, user=Depends(current_user)):
     share, full = resolve(user, path)
     if not os.path.isdir(full):
         raise HTTPException(404, "not a folder")
     items = []
     for name in os.listdir(full):
-        if not hidden and (name.startswith(".") or name in ("#recycle", "@eaDir")):
+        if not hidden and _hidden(name):
+            continue
+        if dirs_only and not os.path.isdir(os.path.join(full, name)):
             continue
         e = _entry(os.path.join(full, name), name)
         if e:
@@ -235,37 +241,130 @@ async def upload(request: Request, path: str, name: str, overwrite: bool = False
     return {"ok": True}
 
 
-_TICKETS: dict[str, tuple[float, dict, str]] = {}
+_TICKETS: dict[str, tuple[float, dict, list[str]]] = {}
 
 
 class Ticket(BaseModel):
-    path: str
+    path: str = ""
+    paths: list[str] = []        # several items (or a folder) download as one .zip
 
 
 @router.post("/ticket")
 def ticket(body: Ticket, user=Depends(current_user)):
     """Single-use, 60 s download link (a plain <a href> can't send the Authorization header)."""
     import secrets
-    resolve(user, body.path)
+    paths = body.paths or ([body.path] if body.path else [])
+    if not paths:
+        raise HTTPException(400, "nothing to download")
+    for p in paths:
+        resolve(user, p)
     now = time.time()
     for k in [k for k, v in _TICKETS.items() if v[0] < now]:
         del _TICKETS[k]
     t = secrets.token_urlsafe(24)
-    _TICKETS[t] = (now + 60, user, body.path)
+    _TICKETS[t] = (now + 60, user, paths)
     return {"url": f"/api/files/download?ticket={t}"}
+
+
+def _disposition(name: str, inline: bool = False) -> dict:
+    return {"Content-Disposition": f"{'inline' if inline else 'attachment'}; filename*=UTF-8''{urllib.parse.quote(name)}"}
+
+
+class _Sink:
+    """Write-only, unseekable buffer for streaming a zip as it is built."""
+    def __init__(self):
+        self.chunks: list[bytes] = []
+        self.pos = 0
+
+    def write(self, b):
+        self.chunks.append(bytes(b))
+        self.pos += len(b)
+        return len(b)
+
+    def tell(self):
+        return self.pos
+
+    def flush(self):
+        pass
+
+    def drain(self) -> bytes:
+        out = b"".join(self.chunks)
+        self.chunks.clear()
+        return out
+
+
+def zip_stream(items: list[tuple[str, str]]):
+    """items: (absolute path, name in the zip). Folders are added recursively, hidden items skipped."""
+    import zipfile
+    sink = _Sink()
+    with zipfile.ZipFile(sink, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as zf:
+        def add_file(path: str, arc: str):
+            try:
+                with open(path, "rb") as src, zf.open(arc, "w", force_zip64=True) as dst:
+                    while True:
+                        chunk = src.read(1 << 20)
+                        if not chunk:
+                            break
+                        dst.write(chunk)
+                        yield sink.drain()
+            except OSError:
+                return
+        for full, arc in items:
+            if os.path.isdir(full) and not os.path.islink(full):
+                for dirpath, dirs, files in os.walk(full):
+                    dirs[:] = sorted(d for d in dirs if not _hidden(d))
+                    rel = os.path.relpath(dirpath, os.path.dirname(full))
+                    base = os.path.join(os.path.dirname(arc), rel) if os.path.dirname(arc) else rel
+                    if not files and not dirs:
+                        zf.writestr(base + "/", b"")
+                    for f in sorted(files):
+                        if not _hidden(f) and not os.path.islink(os.path.join(dirpath, f)):
+                            yield from add_file(os.path.join(dirpath, f), os.path.join(base, f))
+            elif os.path.isfile(full):
+                yield from add_file(full, arc)
+    yield sink.drain()
 
 
 @router.get("/download")
 def download(ticket: str, inline: bool = False):
-    exp, user, path = _TICKETS.pop(ticket, (0, None, ""))
+    exp, user, paths = _TICKETS.pop(ticket, (0, None, []))
     if exp < time.time():
         raise HTTPException(403, "download link expired - try again")
-    _, full = resolve(user, path)
-    if not os.path.isfile(full):
-        raise HTTPException(404, "not a file")
-    name = os.path.basename(full)
-    disp = "inline" if inline else "attachment"
-    return FileResponse(full, headers={"Content-Disposition": f"{disp}; filename*=UTF-8''{urllib.parse.quote(name)}"})
+    resolved = [resolve(user, p)[1] for p in paths]
+    if len(resolved) == 1 and os.path.isfile(resolved[0]):
+        return FileResponse(resolved[0], headers=_disposition(os.path.basename(resolved[0]), inline))
+    for full in resolved:
+        if not os.path.exists(full):
+            raise HTTPException(404, f"{os.path.basename(full)} no longer exists")
+    name = (os.path.basename(resolved[0]) if len(resolved) == 1 else os.path.basename(os.path.dirname(resolved[0])) or "files") + ".zip"
+    return StreamingResponse(zip_stream([(f, os.path.basename(f)) for f in resolved]), media_type="application/zip",
+                             headers=_disposition(name))
+
+
+@router.get("/search")
+def search(path: str, q: str, hidden: bool = False, user=Depends(current_user)):
+    """Find files and folders whose name contains q, below path (or in every share when path is empty)."""
+    q = q.strip().lower()
+    if len(q) < 2:
+        raise HTTPException(400, "type at least 2 characters")
+    roots = [path.strip("/")] if path.strip("/") else [s["name"] for s in shares_mod.load() if access(user, s)]
+    out, deadline = [], time.time() + 8
+    for root_path in roots:
+        share, full = resolve(user, root_path)
+        share_root = os.path.realpath(share["path"])
+        for dirpath, dirs, files in os.walk(full):
+            if not hidden:
+                dirs[:] = [d for d in dirs if not _hidden(d)]
+            for name in dirs + files:
+                if q in name.lower() and (hidden or not _hidden(name)):
+                    e = _entry(os.path.join(dirpath, name), name)
+                    if e:
+                        rel = os.path.relpath(dirpath, share_root)
+                        e["folder"] = share["name"] if rel == "." else f"{share['name']}/{rel}"
+                        out.append(e)
+            if len(out) >= 500 or time.time() > deadline:
+                return {"items": out, "truncated": True}
+    return {"items": out, "truncated": False}
 
 
 @router.get("/usage")

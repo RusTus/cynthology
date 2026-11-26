@@ -180,7 +180,7 @@ WM.register("backup", {
             up ? h("tr", { ondblclick: () => { st.path = up; draw(); } }, h("td", { colspan: 3 }, "⬆ ..")) : null,
             items.map((i) => h("tr", { ondblclick: () => { if (i.dir) { st.path = i.path; draw(); } } },
               h("td", {}, h("label", { class: "check" }, h("input", { type: "checkbox", checked: st.sel.has(i.path),
-                onchange: (e) => { e.target.checked ? st.sel.add(i.path) : st.sel.delete(i.path); } }), (i.dir ? "📁 " : fileIcon(i.name) + " ") + i.name)),
+                onchange: (e) => { e.target.checked ? st.sel.add(i.path) : st.sel.delete(i.path); } }), fsIcon(i, 18), " " + i.name)),
               h("td", { class: "muted" }, i.dir ? "" : fmtBytes(i.size)),
               h("td", { class: "muted" }, i.mtime ? new Date(i.mtime).toLocaleString() : "")))),
           h("div", { class: "muted", style: "margin-top:6px" }, "Double-click a folder to open it. Tick files or folders to restore."));

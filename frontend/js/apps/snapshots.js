@@ -174,7 +174,7 @@ async function snapBrowse(pane, share, snap, back) {
       items.length ? items.map((i) => h("tr", { ondblclick: () => { if (i.dir) { st.path = rel(i.name); draw(); } } },
         h("td", {}, h("label", { class: "check" }, h("input", { type: "checkbox", checked: st.sel.has(rel(i.name)),
             onchange: (e) => (e.target.checked ? st.sel.add(rel(i.name)) : st.sel.delete(rel(i.name))) }),
-          (i.dir ? "📁 " : fileIcon(i.name) + " ") + i.name)),
+          fsIcon(i, 18), " " + i.name)),
         h("td", { class: "muted" }, i.dir ? "" : fmtBytes(i.size)),
         h("td", { class: "muted" }, new Date(i.mtime * 1000).toLocaleString()),
         h("td", {}, !i.exists_now ? h("span", { class: "pill bad" }, "deleted since") : i.changed ? h("span", { class: "pill warn" }, "changed since") : h("span", { class: "muted" }, "same"))))
