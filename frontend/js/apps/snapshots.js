@@ -47,7 +47,15 @@ function snapshotsLocal(pane) {
         h("div", { class: "toolbar" }, h("button", { class: "btn", onclick: render }, "← Back")),
         snaps.length ? h("table", {}, h("tr", {}, h("th", {}, "Taken"), h("th", {}, "Name"), h("th", {})),
           snaps.map((s) => h("tr", {}, h("td", {}, new Date(s.time).toLocaleString()), h("td", { class: "mono muted" }, s.name),
-            h("td", {}, h("button", { class: "btn danger", onclick: async () => {
+            h("td", { style: "white-space:nowrap" },
+              h("button", { class: "btn primary", onclick: () => snapBrowse(pane, share, s, () => showList(share)) }, "Browse & restore"), " ",
+              h("button", { class: "btn", onclick: async () => {
+                if (!confirm(`Put the WHOLE shared folder "${share}" back to how it was on ${new Date(s.time).toLocaleString()}?\n\nEverything changed or added since then is undone. A safety snapshot of the current state is taken first, so you can go back.`)) return;
+                const r = await act(() => API.post(`/api/snapshots/${share}/${encodeURIComponent(s.name)}/revert`), "Shared folder restored");
+                if (r) toast("Safety snapshot of the previous state: " + snapWhen(r.safety_snapshot));
+                showList(share);
+              } }, "Restore whole folder"), " ",
+              h("button", { class: "btn danger", onclick: async () => {
               if (!confirm(`Delete snapshot ${s.name}?`)) return;
               await act(() => API.del(`/api/snapshots/${share}/${encodeURIComponent(s.name)}`), "Snapshot deleted"); showList(share);
             } }, "Delete")))))
@@ -149,4 +157,42 @@ async function replicationReceive(pane) {
             } }, "Delete")) : null));
       }))
       : h("p", { class: "muted" }, "No replicas received yet."));
+}
+
+// Browse a snapshot like a folder and restore selected items.
+async function snapBrowse(pane, share, snap, back) {
+  const st = { path: "", sel: new Set() };
+  const list = h("div"), crumbs = h("div", { class: "fs-crumbs" });
+  const draw = async () => {
+    const items = await API.get(`/api/snapshots/${share}/${encodeURIComponent(snap.name)}/browse?path=${encodeURIComponent(st.path)}`);
+    const parts = st.path ? st.path.split("/") : [];
+    crumbs.replaceChildren(h("a", { href: "#", onclick: (e) => { e.preventDefault(); st.path = ""; draw(); } }, share),
+      ...parts.flatMap((x, i) => [h("span", { class: "muted" }, " › "), h("a", { href: "#", onclick: (e) => { e.preventDefault(); st.path = parts.slice(0, i + 1).join("/"); draw(); } }, x)]));
+    const rel = (n) => (st.path ? `${st.path}/${n}` : n);
+    list.replaceChildren(h("table", { class: "fs-table" },
+      h("tr", {}, h("th", {}, "Name"), h("th", {}, "Size"), h("th", {}, "Modified then"), h("th", {}, "Now")),
+      items.length ? items.map((i) => h("tr", { ondblclick: () => { if (i.dir) { st.path = rel(i.name); draw(); } } },
+        h("td", {}, h("label", { class: "check" }, h("input", { type: "checkbox", checked: st.sel.has(rel(i.name)),
+            onchange: (e) => (e.target.checked ? st.sel.add(rel(i.name)) : st.sel.delete(rel(i.name))) }),
+          (i.dir ? "📁 " : fileIcon(i.name) + " ") + i.name)),
+        h("td", { class: "muted" }, i.dir ? "" : fmtBytes(i.size)),
+        h("td", { class: "muted" }, new Date(i.mtime * 1000).toLocaleString()),
+        h("td", {}, !i.exists_now ? h("span", { class: "pill bad" }, "deleted since") : i.changed ? h("span", { class: "pill warn" }, "changed since") : h("span", { class: "muted" }, "same"))))
+        : h("tr", {}, h("td", { colspan: 4, class: "muted" }, "Empty folder"))));
+  };
+  const restore = async (to) => {
+    if (!st.sel.size) return toast("Tick the files or folders to restore");
+    if (to === "original" && !confirm(`Restore ${st.sel.size} item(s) to their original place? Current versions are overwritten.`)) return;
+    const r = await act(() => API.post(`/api/snapshots/${share}/${encodeURIComponent(snap.name)}/restore`, { paths: [...st.sel], to }),
+      to === "copy" ? "Restored into a new folder" : "Restored");
+    if (r && to === "copy") toast(`Find them in ${share}/${r.target.split("/").pop()}`);
+    st.sel.clear(); draw();
+  };
+  pane.replaceChildren(h("h2", {}, `${share} - ${new Date(snap.time).toLocaleString()}`),
+    h("div", { class: "toolbar" }, h("button", { class: "btn", onclick: back }, "← Back"),
+      h("button", { class: "btn primary", onclick: () => restore("original") }, "Restore to original location"),
+      h("button", { class: "btn", onclick: () => restore("copy") }, "Restore as copy")),
+    h("div", { class: "muted", style: "margin-bottom:6px" }, "Double-click a folder to open it, tick items to restore."),
+    crumbs, list);
+  draw();
 }

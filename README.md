@@ -58,7 +58,7 @@ Running the same command again upgrades Cynthology in place. Settings, shares an
 | SHR expand (add drive, RAID1 tier → RAID5 automatically) / repair (replace failed drive), Btrfs scrub | ✅ |
 | **Hot spare**: standby drive per pool; the kernel rebuilds onto it automatically when a drive fails (all SHR tiers) | ✅ verified on a real kernel incl. reboot |
 | Shared folders (Btrfs subvolumes), SMB + NFS export, recycle bin | ✅ |
-| Snapshots: on demand or hourly/daily/weekly with retention; Windows **Previous Versions** | ✅ |
+| Snapshots: on demand or hourly/daily/weekly with retention; **browse & restore files** (to original place or as a copy), restore a whole folder (with safety snapshot); Windows **Previous Versions** | ✅ |
 | **Snapshot replication** to another Cynthology NAS (btrfs send/receive over SSH, incremental), one-click failover of a replica to a writable shared folder | ✅ |
 | **External USB drives**: auto-mount on plug-in as shared folders `usbshare1…` (exFAT, NTFS, FAT32, ext4, Btrfs, XFS; HFS+ read-only), safe eject (refused while in use), format, never offered to Storage Manager; used by Backup | ✅ tested with hot-plugged USB in a VM |
 | File Station: browse, upload (drag & drop), download, new folder, rename, copy/move, delete to recycle bin, per-user share permissions | ✅ |

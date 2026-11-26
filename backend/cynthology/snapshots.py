@@ -7,6 +7,7 @@ A systemd timer runs `python3 -m cynthology.snapshots` hourly to take due snapsh
 import datetime
 import os
 import re
+import subprocess
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -49,8 +50,9 @@ def take(share: dict) -> str:
         raise HTTPException(400, "snapshots need a Btrfs volume")
     name = datetime.datetime.now(datetime.timezone.utc).strftime(FMT)
     d = os.path.join(share["path"], SNAPDIR)
-    if DEV:
-        os.makedirs(os.path.join(d, name), exist_ok=True)
+    if DEV:   # no Btrfs in dev mode: a plain copy stands in for the snapshot
+        import shutil
+        shutil.copytree(share["path"], os.path.join(d, name), ignore=shutil.ignore_patterns(SNAPDIR, "#recycle"))
         return name
     run(["mkdir", "-p", d])
     run(["btrfs", "subvolume", "snapshot", "-r", share["path"], os.path.join(d, name)])
@@ -145,6 +147,99 @@ def snapshot_now(share: str, _=Depends(require_admin)):
 def delete_snap(share: str, name: str, _=Depends(require_admin)):
     delete(_share(share), name)
     return {"ok": True}
+
+
+# ---------- browse & restore ----------
+
+def _snap_root(share: dict, name: str) -> str:
+    if not NAME_RE.match(name):
+        raise HTTPException(400, "bad snapshot name")
+    p = os.path.join(share["path"], SNAPDIR, name)
+    if not os.path.isdir(p):
+        raise HTTPException(404, "no such snapshot")
+    return p
+
+
+def _inside(root: str, rel: str) -> str:
+    full = os.path.realpath(os.path.join(root, rel.strip("/")))
+    if full != os.path.realpath(root) and not full.startswith(os.path.realpath(root) + os.sep):
+        raise HTTPException(400, "path leaves the snapshot")
+    return full
+
+
+@router.get("/{share}/{name}/browse")
+def browse(share: str, name: str, path: str = "", _=Depends(require_admin)):
+    s = _share(share)
+    root = _snap_root(s, name)
+    d = _inside(root, path)
+    if not os.path.isdir(d):
+        raise HTTPException(404, "not a folder")
+    items = []
+    for n in sorted(os.listdir(d), key=str.lower):
+        if n in (SNAPDIR, "#recycle"):
+            continue
+        full = os.path.join(d, n)
+        try:
+            st = os.lstat(full)
+        except OSError:
+            continue
+        cur = os.path.join(s["path"], path.strip("/"), n)
+        items.append({"name": n, "dir": os.path.isdir(full) and not os.path.islink(full), "size": st.st_size,
+                      "mtime": int(st.st_mtime), "exists_now": os.path.lexists(cur),
+                      "changed": not os.path.lexists(cur) or (not os.path.isdir(full) and int(os.lstat(cur).st_mtime) != int(st.st_mtime))})
+    items.sort(key=lambda i: (not i["dir"], i["name"].lower()))
+    return items
+
+
+class Restore(BaseModel):
+    paths: list[str]          # relative to the share root
+    to: str = "original"      # original | copy
+
+
+@router.post("/{share}/{name}/restore")
+def restore(share: str, name: str, body: Restore, _=Depends(require_admin)):
+    """Copy files/folders back out of a snapshot (copies are instant on Btrfs: reflinks)."""
+    s = _share(share)
+    root = _snap_root(s, name)
+    if not body.paths:
+        raise HTTPException(400, "choose files or folders to restore")
+    if body.to == "copy":
+        stamp = snap_time(name).astimezone().strftime("%Y-%m-%d %H.%M")
+        dest_root = os.path.join(s["path"], f"Restored {stamp}")
+    elif body.to == "original":
+        dest_root = s["path"]
+    else:
+        raise HTTPException(400, "to must be original or copy")
+    restored = 0
+    for rel in body.paths:
+        src = _inside(root, rel)
+        if not os.path.lexists(src):
+            raise HTTPException(404, f"{rel} is not in this snapshot")
+        dst = os.path.join(dest_root, rel.strip("/"))
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        # cp -a keeps owners/permissions/times; --reflink makes it instant and free of extra space on Btrfs
+        if os.path.isdir(src):
+            os.makedirs(dst, exist_ok=True)
+            r = subprocess.run(["cp", "-a", "--reflink=auto", src + "/.", dst], capture_output=True, text=True)
+        else:
+            r = subprocess.run(["cp", "-a", "--reflink=auto", src, dst], capture_output=True, text=True)
+        if r.returncode != 0:
+            raise HTTPException(500, f"restoring {rel} failed: {r.stderr.strip()}")
+        restored += 1
+    return {"ok": True, "restored": restored, "target": dest_root}
+
+
+@router.post("/{share}/{name}/revert")
+def revert(share: str, name: str, _=Depends(require_admin)):
+    """Put the whole shared folder back to a snapshot. A safety snapshot of the current state is taken first."""
+    s = _share(share)
+    root = _snap_root(s, name)
+    safety = take(s)
+    r = subprocess.run(["rsync", "-a", "--delete", "--exclude", f"/{SNAPDIR}", "--exclude", "/#recycle",
+                        root + "/", s["path"] + "/"], capture_output=True, text=True)
+    if r.returncode not in (0, 24):     # 24 = some files vanished meanwhile
+        raise HTTPException(500, f"revert failed: {r.stderr.strip()[-300:]}")
+    return {"ok": True, "safety_snapshot": safety}
 
 
 if __name__ == "__main__":

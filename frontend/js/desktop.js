@@ -52,14 +52,16 @@ async function boot() {
 function launcher(id) {
   const a = WM.apps[id];
   return h("button", { class: "launch", onclick: () => { document.getElementById("menu").classList.add("hidden"); WM.open(id); } },
-    h("div", { class: "app-ico", style: `background:${a.color}` }, a.icon), a.name);
+    appTile(id, 48), a.name);
 }
 
 function startDesktop(me) {
   document.getElementById("login").classList.add("hidden");
   if (me.enroll_required) return requiredTwoFactor(me);
   document.getElementById("desktop").classList.remove("hidden");
-  document.getElementById("user-btn").textContent = "👤 " + me.user;
+  document.getElementById("user-btn").replaceChildren(svgIcon("user", 18), h("span", {}, me.user));
+  document.getElementById("menu-btn").replaceChildren(svgIcon("menu", 18));
+  document.getElementById("usb-btn").replaceChildren(svgIcon("eject", 18));
   document.getElementById("icons").append(...DESKTOP_APPS.map(launcher));
   document.getElementById("menu").append(...Object.keys(WM.apps).map(launcher));
 

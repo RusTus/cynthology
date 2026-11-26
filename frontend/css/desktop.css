@@ -152,3 +152,16 @@ textarea { font: inherit; font-family: ui-monospace, Menlo, monospace; font-size
 .step.now { color: var(--text); font-weight: 600; } .step.now .dot { border-color: var(--accent); border-top-color: transparent; animation: spin 0.9s linear infinite; }
 .step.fail { color: var(--bad); } .step.fail .dot { background: var(--bad); border-color: var(--bad); color: #fff; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* icon tiles */
+.app-tile { display: grid; place-items: center; flex-shrink: 0; color: #fff;
+  box-shadow: 0 4px 10px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.35), inset 0 -1px 0 rgba(0,0,0,.12); }
+.app-tile .svg-icon, .svg-icon { display: inline-grid; place-items: center; line-height: 0; }
+.win-title .app-tile, .task .app-tile { box-shadow: none; }
+.task { display: inline-flex; align-items: center; gap: 8px; }
+.tb-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+#user-btn { padding: 0 10px; font-size: 14px; }
+.launch { gap: 8px; }
+.launch:hover .app-tile { transform: translateY(-1px); transition: transform .12s; }
+.pane a, .menu a { color: var(--accent); }
+@media (prefers-color-scheme: dark) { :root { --accent: #3fb2c4; } }
