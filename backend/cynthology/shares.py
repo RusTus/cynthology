@@ -106,7 +106,7 @@ def _make_dir(path: str) -> None:
     run(["chmod", "2775", path])
 
 
-def ensure_share(name: str, rw_users: list[str]) -> str:
+def ensure_share(name: str, rw_users: list[str], description: str = "Created by a package") -> str:
     """Used by packages (conf/resource data-share): create the share if missing, grant rw via ACL."""
     valid_name(name, "share name")
     shares = load()
@@ -115,7 +115,7 @@ def ensure_share(name: str, rw_users: list[str]) -> str:
         pools = load_pools()
         if not pools:
             raise HTTPException(400, "no volume to create shared folder on")
-        share = create_share(Share(name=name, pool_id=pools[0]["id"], description="Created by a package"))
+        share = create_share(Share(name=name, pool_id=pools[0]["id"], description=description))
     for u in rw_users:
         valid_name(u, "user")
         run(["setfacl", "-R", "-m", f"u:{u}:rwX,d:u:{u}:rwX", share["path"]])

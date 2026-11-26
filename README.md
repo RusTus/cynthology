@@ -65,7 +65,7 @@ Running the same command again upgrades Cynthology in place. Settings, shares an
 | **UPS** (NUT): USB, SNMP or network UPS (incl. a Synology UPS server); safe shutdown after N minutes on battery or at low battery; turn UPS off afterwards; act as UPS server for other devices (Synology-compatible); instant power-failure emails | ✅ |
 | Health monitoring + **email alerts** (degraded/rebuilding pool, SMART failure, volume >90% full, certificate expiry) | ✅ |
 | **Package Center**: Synology `.spk` packages from SynoCommunity and other sources, Manual Install, install wizards, start/stop/uninstall, **updates** (with automatic rollback if an update fails), **automatic dependency install**, optional nightly auto-update | ✅ tested with real SynoCommunity packages (Gotify, Transmission, Subliminal + Python 3.14) |
-| Containers tab (Docker Compose one-click apps) | ✅ basic |
+| **Container Manager**: containers (start/stop/logs/details, live CPU & memory), images (pull, Docker Hub search, run wizard with ports, shared-folder mappings, env, restart policy), **Compose projects** in the `docker` shared folder (create/edit/start/stop/update/logs), Docker data on a storage pool | ✅ |
 
 ## How SHR works here
 

@@ -24,7 +24,7 @@ apt-get install -y -q --no-install-recommends \
   samba smbclient nfs-kernel-server avahi-daemon \
   docker.io initramfs-tools
 # optional packages whose names differ between Debian releases
-for alts in "wsdd2 wsdd" "docker-compose docker-compose-plugin"; do
+for alts in "wsdd2 wsdd" "docker-cli" "docker-compose docker-compose-plugin"; do
   for p in $alts; do
     if apt-cache show "$p" >/dev/null 2>&1; then apt-get install -y -q --no-install-recommends "$p" && break; fi
   done
