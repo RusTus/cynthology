@@ -1,0 +1,8 @@
+{
+  "id": "mariadb",
+  "name": "MariaDB",
+  "description": "MySQL-compatible database server for websites and apps (port 3306).",
+  "port": null,
+  "notes": "root password: ${SECRET}. From Web Station PHP sites connect to 127.0.0.1:3306.",
+  "compose": "services:\n  mariadb:\n    image: mariadb:11\n    restart: unless-stopped\n    ports:\n      - \"3306:3306\"\n    environment:\n      - MARIADB_ROOT_PASSWORD=${SECRET}\n    volumes:\n      - ./data:/var/lib/mysql\n"
+}

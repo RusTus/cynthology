@@ -1,0 +1,8 @@
+{
+  "id": "nextcloud",
+  "name": "Nextcloud",
+  "description": "Your own cloud: file sync for desktop and phone, sharing links, calendar, contacts and office apps.",
+  "port": 8080,
+  "notes": "Database: MariaDB, host 'db', user 'nextcloud', password ${SECRET}, database 'nextcloud'. They are pre-filled; just create your admin account on first visit.",
+  "compose": "services:\n  db:\n    image: mariadb:11\n    restart: unless-stopped\n    command: --transaction-isolation=READ-COMMITTED\n    environment:\n      - MARIADB_ROOT_PASSWORD=${SECRET}\n      - MARIADB_DATABASE=nextcloud\n      - MARIADB_USER=nextcloud\n      - MARIADB_PASSWORD=${SECRET}\n    volumes:\n      - ./db:/var/lib/mysql\n  redis:\n    image: redis:alpine\n    restart: unless-stopped\n  app:\n    image: nextcloud:stable\n    restart: unless-stopped\n    depends_on: [db, redis]\n    ports:\n      - \"8080:80\"\n    environment:\n      - MYSQL_HOST=db\n      - MYSQL_DATABASE=nextcloud\n      - MYSQL_USER=nextcloud\n      - MYSQL_PASSWORD=${SECRET}\n      - REDIS_HOST=redis\n      - NEXTCLOUD_TRUSTED_DOMAINS=${HOST} ${HOSTNAME} ${HOSTNAME}.local\n      - PHP_UPLOAD_LIMIT=16G\n    volumes:\n      - ./html:/var/www/html\n"
+}

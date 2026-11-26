@@ -1,0 +1,8 @@
+{
+  "id": "plex",
+  "name": "Plex Media Server",
+  "description": "Popular media server (free account needed for some features).",
+  "port": 32400,
+  "path": "/web",
+  "compose": "services:\n  plex:\n    image: plexinc/pms-docker:latest\n    restart: unless-stopped\n    network_mode: host\n    environment:\n      - TZ=${TZ}\n    volumes:\n      - ./config:/config\n      - ./transcode:/transcode\n      - ${SHARE:video}:/data/video:ro\n      - ${SHARE:music}:/data/music:ro\n"
+}

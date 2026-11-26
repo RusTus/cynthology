@@ -1,0 +1,8 @@
+{
+  "id": "phpmyadmin",
+  "name": "phpMyAdmin",
+  "description": "Manage MariaDB / MySQL databases in the browser.",
+  "port": 8081,
+  "notes": "Server: the NAS's address (e.g. ${HOST}), user root and the MariaDB root password.",
+  "compose": "services:\n  phpmyadmin:\n    image: phpmyadmin:latest\n    restart: unless-stopped\n    ports:\n      - \"8081:80\"\n    environment:\n      - PMA_ARBITRARY=1\n      - UPLOAD_LIMIT=512M\n"
+}

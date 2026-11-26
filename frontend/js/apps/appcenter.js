@@ -1,3 +1,5 @@
+const appInitial = (name) => (name || "?").replace(/[^A-Za-z0-9]/g, "").slice(0, 2) || "•";
+
 // Package Center: SPK packages from configurable sources (SynoCommunity etc.), manual .spk
 // install, install wizards, plus one-click Docker containers.
 WM.register("appcenter", {
@@ -11,7 +13,7 @@ WM.register("appcenter", {
       h("button", { class: "btn", title: "Refresh", onclick: () => { st.catalog = null; render(); } }, "⟳"), search,
       h("button", { class: "btn", onclick: manualInstall }, "Manual Install"),
       h("button", { class: "btn", onclick: settings }, "Settings"));
-    const views = { installed: "Installed", all: "All Packages", community: "Community", containers: "Containers" };
+    const views = { installed: "Installed", all: "All Packages", alternatives: "Synology alternatives", community: "Community", containers: "Containers" };
     const nav = () => side.replaceChildren(...Object.entries(views).map(([k, v]) =>
       h("button", { class: st.view === k ? "on" : "", onclick: () => { st.view = k; nav(); render(); } }, v,
         k === "installed" && st.updates?.length ? h("span", { class: "pc-badge" }, String(st.updates.length)) : null)));
@@ -23,6 +25,7 @@ WM.register("appcenter", {
     async function render() {
       pane.replaceChildren(h("p", { class: "muted" }, "Loading…"));
       if (st.view === "containers") return renderContainers();
+      if (st.view === "alternatives") return renderAlternatives();
       if (st.view === "installed") return renderInstalled();
       if (!st.catalog) st.catalog = await API.get("/api/packages/catalog");
       const { packages, errors } = st.catalog;
@@ -169,16 +172,91 @@ WM.register("appcenter", {
           h("button", { class: "btn primary", onclick: async () => { await act(() => API.put("/api/packages/sources", sources), "Sources saved"); st.catalog = null; render(); } }, "OK"))));
     }
 
+    // ---------- one-click container apps ----------
+    const appUrl = (a) => a.port ? `${a.scheme || "http"}://${location.hostname}:${a.port}${a.path || "/"}` : null;
+
+    function containerActions(a, back) {
+      if (!a.installed && a.blocked) return [h("span", { class: "pill warn", title: a.blocked }, "Needs newer Docker")];
+      if (!a.installed) return [h("button", { class: "pc-install", onclick: () => containerInstall(a, back) }, "Install")];
+      return [
+        a.running && appUrl(a) ? h("a", { class: "btn primary", href: appUrl(a), target: "_blank" }, "Open") : h("span", { class: "pill" + (a.running ? " ok" : "") }, a.running ? "Running" : (a.status || "Stopped")),
+        a.notes ? h("button", { class: "btn", onclick: () => alert(`${a.name}\n\n${a.notes}`) }, "Info") : null,
+        h("button", { class: "btn danger", onclick: async () => {
+          if (a.holds_data) {
+            if (!confirm(`Stop ${a.name}?\n\nIts data lives inside its container and is kept; start it again in Container Manager → Projects → ${a.project}.`)) return;
+            await act(() => API.post(`/api/apps/${a.id}/uninstall`), `${a.name} stopped`); return back();
+          }
+          if (!confirm(`Uninstall ${a.name}?\n\nIts data folder (docker/${a.project}) is kept for a later reinstall.`)) return;
+          const erase = confirm(`Also ERASE ${a.name}'s data (docker/${a.project})? This cannot be undone.\n\nOK = erase, Cancel = keep`);
+          await act(() => API.post(`/api/apps/${a.id}/uninstall?delete_data=${erase}`), `${a.name} uninstalled`); back();
+        } }, a.holds_data ? "Stop" : "Uninstall")];
+    }
+
+    function containerInstall(a, back) {
+      const ans = Object.fromEntries((a.fields || []).map((f) => [f.key, f.default || ""]));
+      const go = async () => {
+        const box = h("div");
+        pane.replaceChildren(h("h2", {}, `Installing ${a.name}`), h("p", { class: "muted" }, "Preparing…"));
+        let r;
+        try { r = await API.post(`/api/apps/${a.id}/install`, { fields: ans }); } catch (e) { toast("Error: " + e.message); return back(); }
+        pane.replaceChildren(h("div", { class: "form", style: "max-width:760px" }, h("h2", {}, `Installing ${a.name}`),
+          r.notes ? h("div", { class: "note" }, h("b", {}, "Keep this: "), r.notes) : null, box,
+          h("p", { class: "muted" }, `It runs as project “${"app-" + a.id}” in Container Manager, with its data in the “docker” shared folder.`),
+          h("div", { class: "toolbar" }, h("button", { class: "btn", onclick: back }, "Done"))));
+        if (r.job) { if (await ctJob(box, r.job)) toast(`${a.name} is installed`); }
+        else box.append(h("span", { class: "pill ok" }, "Done"));
+      };
+      if (!a.fields?.length && !a.holds_data) return go();
+      pane.replaceChildren(h("div", { class: "form", style: "max-width:640px" }, h("h2", {}, `Install ${a.name}`),
+        h("div", { class: "muted" }, a.description),
+        a.holds_data ? h("div", { class: "note warn" }, "This app keeps its data (websites, mail, databases) inside its container, not in the docker shared folder. ",
+          "Snapshots and backups of shared folders don't include it; use the app's own backup. Update it from inside the app.") : null,
+        ...(a.fields || []).map((f) => h("label", {}, h("span", {}, f.label), h("input", { value: ans[f.key], oninput: (e) => (ans[f.key] = e.target.value.trim()) }))),
+        h("div", { class: "toolbar", style: "justify-content:flex-end" }, h("button", { class: "btn", onclick: back }, "Cancel"),
+          h("button", { class: "btn primary", onclick: go }, "Install"))));
+    }
+
     async function renderContainers() {
       const apps = await API.get("/api/apps");
-      pane.replaceChildren(h("h3", { class: "pc-group" }, "Containers (Docker)"), h("div", { class: "pc-grid" }, apps.map((a) => h("div", { class: "pc-tile" },
-        h("div", { class: "pc-noimg" }, a.icon),
-        h("div", {}, h("b", {}, a.name), h("div", { class: "muted pc-desc" }, a.description),
-          a.installed
-            ? h("div", { class: "toolbar", style: "margin:6px 0 0" },
-                h("a", { class: "btn primary", href: `${location.protocol}//${location.hostname}:${a.port}`, target: "_blank" }, "Open"),
-                h("button", { class: "btn danger", onclick: async () => { await act(() => API.post(`/api/apps/${a.id}/uninstall`), `${a.name} removed`); renderContainers(); } }, "Uninstall"))
-            : h("button", { class: "pc-install", onclick: async () => { await act(() => API.post(`/api/apps/${a.id}/install`), `${a.name} installed`); renderContainers(); } }, "Install"))))));
+      pane.replaceChildren(h("h3", { class: "pc-group" }, "Containers (Docker)"),
+        h("div", { class: "muted", style: "margin:-4px 0 12px" }, "One-click apps. Each becomes a Container Manager project with its data in the “docker” shared folder."),
+        h("div", { class: "pc-grid" }, apps.map((a) => h("div", { class: "pc-tile" }, h("div", { class: "pc-noimg app-initial" }, appInitial(a.name)),
+          h("div", {}, h("b", {}, a.name), h("div", { class: "muted pc-desc" }, a.blocked || a.description),
+            h("div", { class: "toolbar", style: "margin:6px 0 0" }, ...containerActions(a, renderContainers)))))));
+    }
+
+    // ---------- Synology app alternatives ----------
+    async function renderAlternatives() {
+      const alts = await API.get("/api/apps/alternatives");
+      const match = (a) => !st.q || JSON.stringify([a.synology, a.options.map((o) => [o.name, o.description])]).toLowerCase().includes(st.q);
+      const kindLabel = { spk: "Package", container: "Container", builtin: "Built in" };
+      const option = (o) => {
+        let acts;
+        if (o.kind === "builtin") acts = [h("button", { class: "btn primary", onclick: () => WM.open(o.open) }, "Open")];
+        else if (o.kind === "container") acts = containerActions(o, renderAlternatives);
+        else if (o.installed) acts = [o.url && o.running ? h("a", { class: "btn primary", target: "_blank", href: `${o.url.protocol}://${location.hostname}:${o.url.port}${o.url.path}` }, "Open")
+          : h("span", { class: "pill ok" }, "Installed")];
+        else if (o.available) acts = [h("button", { class: "pc-install", onclick: () => installFlow(() => API.post("/api/packages/prepare", { source: o.source, package: o.package })) }, "Install")];
+        else if (o.why_not) acts = [h("span", { class: "pill", title: o.why_not }, "Not compatible")];
+        else acts = [h("span", { class: "pill", title: "Add a package source that has it (Settings → Package Sources)" }, "Not in your package sources")];
+        const img = o.kind === "spk" && o.thumbnail ? h("img", { src: o.thumbnail, loading: "lazy", alt: "" })
+          : o.kind === "builtin" ? appTile(o.open, 48) : h("div", { class: "pc-noimg app-initial alt-img" }, appInitial(o.name));
+        return h("div", { class: "alt-opt" }, img,
+          h("div", { style: "min-width:0" }, h("div", {}, h("b", {}, o.name), " ", h("span", { class: "pill alt-kind" }, kindLabel[o.kind])),
+            h("div", { class: "muted pc-desc" }, (o.kind === "spk" && !o.installed && o.why_not) ? o.why_not.replace("DSM-only", "Synology-only") : o.blocked || o.description || ""),
+            h("div", { class: "toolbar", style: "margin:6px 0 0" }, ...acts)));
+      };
+      const groups = {};
+      for (const a of alts.filter(match)) (groups[a.category] ||= []).push(a);
+      pane.replaceChildren(
+        h("div", { class: "note" }, "Open-source replacements for the apps that come with Synology DSM, ready to install here. ",
+          "Packages come from your package sources, containers run in Container Manager, and some are built into Cynthology. ",
+          h("span", { class: "muted" }, "Cynthology is not affiliated with Synology.")),
+        ...Object.entries(groups).map(([cat, list]) => h("div", {}, h("h3", { class: "pc-group" }, cat),
+          h("div", { class: "alt-list" }, list.map((a) => h("div", { class: "alt-row" },
+            h("div", { class: "alt-syn" }, h("div", { class: "muted", style: "font-size:11px;text-transform:uppercase;letter-spacing:.05em" }, "Instead of"), h("b", {}, a.synology)),
+            h("div", { class: "alt-opts" }, a.options.map(option))))))));
+      if (!Object.keys(groups).length) pane.append(h("p", { class: "muted" }, "Nothing matches."));
     }
 
     render();

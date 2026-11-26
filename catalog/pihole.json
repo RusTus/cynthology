@@ -1,0 +1,9 @@
+{
+  "id": "pihole",
+  "name": "Pi-hole",
+  "description": "DNS server for your network that blocks ads and trackers.",
+  "port": 8053,
+  "path": "/admin",
+  "notes": "Web password: ${SECRET}. Point your router's DNS setting at this NAS.",
+  "compose": "services:\n  pihole:\n    image: pihole/pihole:latest\n    restart: unless-stopped\n    ports:\n      - \"53:53/tcp\"\n      - \"53:53/udp\"\n      - \"8053:80/tcp\"\n    environment:\n      - TZ=${TZ}\n      - FTLCONF_webserver_api_password=${SECRET}\n      - FTLCONF_dns_listeningMode=all\n    volumes:\n      - ./etc-pihole:/etc/pihole\n"
+}

@@ -1,0 +1,8 @@
+{
+  "id": "joplin",
+  "name": "Joplin Server",
+  "description": "Sync server for Joplin notes (desktop and mobile note-taking app).",
+  "port": 22300,
+  "notes": "First sign-in: admin@localhost / admin. Change it right away.",
+  "compose": "services:\n  db:\n    image: postgres:16\n    restart: unless-stopped\n    environment:\n      - POSTGRES_PASSWORD=${SECRET}\n      - POSTGRES_USER=joplin\n      - POSTGRES_DB=joplin\n    volumes:\n      - ./db:/var/lib/postgresql/data\n  app:\n    image: joplin/server:latest\n    restart: unless-stopped\n    depends_on: [db]\n    ports:\n      - \"22300:22300\"\n    environment:\n      - APP_PORT=22300\n      - APP_BASE_URL=http://${HOST}:22300\n      - DB_CLIENT=pg\n      - POSTGRES_PASSWORD=${SECRET}\n      - POSTGRES_DATABASE=joplin\n      - POSTGRES_USER=joplin\n      - POSTGRES_PORT=5432\n      - POSTGRES_HOST=db\n"
+}

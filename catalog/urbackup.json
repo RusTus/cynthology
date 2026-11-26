@@ -1,0 +1,8 @@
+{
+  "id": "urbackup",
+  "name": "UrBackup Server",
+  "description": "Backs up whole Windows, macOS and Linux PCs (image and file backups) to this NAS.",
+  "port": 55414,
+  "notes": "Install the UrBackup client on each PC; it finds this server on the local network automatically.",
+  "compose": "services:\n  urbackup:\n    image: uroni/urbackup-server:latest\n    restart: unless-stopped\n    network_mode: host\n    environment:\n      - TZ=${TZ}\n    volumes:\n      - ./database:/var/urbackup\n      - ${SHARE:pcbackup}:/backups\n"
+}

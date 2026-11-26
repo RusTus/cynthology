@@ -1,0 +1,8 @@
+{
+  "id": "onlyoffice",
+  "name": "ONLYOFFICE Docs",
+  "description": "Online editors for documents, spreadsheets and presentations (connects to Nextcloud).",
+  "port": 8088,
+  "notes": "JWT secret for connecting Nextcloud: ${SECRET}",
+  "compose": "services:\n  onlyoffice:\n    image: onlyoffice/documentserver:latest\n    restart: unless-stopped\n    ports:\n      - \"8088:80\"\n    environment:\n      - JWT_SECRET=${SECRET}\n    volumes:\n      - ./data:/var/www/onlyoffice/Data\n      - ./logs:/var/log/onlyoffice\n"
+}

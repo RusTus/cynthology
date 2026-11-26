@@ -32,5 +32,7 @@ Already installed an older version? Run the same command again - it upgrades in 
 | 15 | Time Machine | File Services → Time Machine on; on a Mac: Time Machine → Add Backup Disk | NAS listed; backup starts |
 | 16 | UPS | Only if you have a USB UPS: Control Panel → UPS → Detect | Battery status shown |
 | 17 | Drive failure (VM) | VMware: remove one pool disk while running | Pool degraded → hot spare rebuilds; email |
+| 18 | Web Station | Main menu → Web Station → Install; then copy an `index.php` (`<?php phpinfo();`) into the `web` share and open `http://<NAS>/` | PHP info page |
+| 19 | Synology alternatives | Package Center → Synology alternatives → MariaDB → Install, then phpMyAdmin → Install → Open (server: NAS IP, user root, password from Info) | phpMyAdmin logs in |
 
 Logs if something breaks: `sudo journalctl -u cynthology-ui -n 100`

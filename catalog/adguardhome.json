@@ -1,0 +1,8 @@
+{
+  "id": "adguardhome",
+  "name": "AdGuard Home",
+  "description": "DNS server with ad blocking, parental controls and encrypted DNS.",
+  "port": 3000,
+  "notes": "Finish setup at port 3000, and set the web interface port to 3000 there as well (80 is used by Web Station).",
+  "compose": "services:\n  adguardhome:\n    image: adguard/adguardhome:latest\n    restart: unless-stopped\n    ports:\n      - \"53:53/tcp\"\n      - \"53:53/udp\"\n      - \"3000:3000/tcp\"\n    volumes:\n      - ./work:/opt/adguardhome/work\n      - ./conf:/opt/adguardhome/conf\n"
+}

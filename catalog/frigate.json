@@ -1,0 +1,9 @@
+{
+  "id": "frigate",
+  "name": "Frigate NVR",
+  "description": "Network video recorder for IP cameras with object detection (people, cars, animals).",
+  "port": 8971,
+  "scheme": "https",
+  "notes": "The admin password is printed in the container log on first start (Container Manager \u2192 Projects \u2192 app-frigate \u2192 Log). Recordings go to the 'surveillance' shared folder.",
+  "compose": "services:\n  frigate:\n    image: ghcr.io/blakeblackshear/frigate:stable\n    restart: unless-stopped\n    shm_size: \"512mb\"\n    ports:\n      - \"8971:8971\"\n      - \"8554:8554\"\n      - \"8555:8555/tcp\"\n      - \"8555:8555/udp\"\n    environment:\n      - TZ=${TZ}\n    volumes:\n      - ./config:/config\n      - ${SHARE:surveillance}:/media/frigate\n      - type: tmpfs\n        target: /tmp/cache\n        tmpfs:\n          size: 1000000000\n"
+}

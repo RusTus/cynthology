@@ -1,0 +1,286 @@
+[
+ {
+  "synology": "Synology Photos",
+  "category": "Photos & media",
+  "options": [
+   {
+    "kind": "spk",
+    "package": "immich"
+   },
+   {
+    "kind": "container",
+    "app": "photoprism"
+   }
+  ]
+ },
+ {
+  "synology": "Video Station / Media Server",
+  "category": "Photos & media",
+  "options": [
+   {
+    "kind": "spk",
+    "package": "jellyfin"
+   },
+   {
+    "kind": "container",
+    "app": "plex"
+   }
+  ]
+ },
+ {
+  "synology": "Audio Station",
+  "category": "Photos & media",
+  "options": [
+   {
+    "kind": "spk",
+    "package": "navidrome"
+   },
+   {
+    "kind": "spk",
+    "package": "jellyfin"
+   }
+  ]
+ },
+ {
+  "synology": "Surveillance Station",
+  "category": "Photos & media",
+  "options": [
+   {
+    "kind": "container",
+    "app": "frigate"
+   }
+  ]
+ },
+ {
+  "synology": "Synology Drive",
+  "category": "Files & sync",
+  "options": [
+   {
+    "kind": "container",
+    "app": "nextcloud"
+   },
+   {
+    "kind": "spk",
+    "package": "syncthing"
+   }
+  ]
+ },
+ {
+  "synology": "Cloud Sync",
+  "category": "Files & sync",
+  "options": [
+   {
+    "kind": "spk",
+    "package": "rclone"
+   }
+  ]
+ },
+ {
+  "synology": "Download Station",
+  "category": "Files & sync",
+  "options": [
+   {
+    "kind": "spk",
+    "package": "transmission"
+   },
+   {
+    "kind": "spk",
+    "package": "qbittorrent"
+   },
+   {
+    "kind": "spk",
+    "package": "sabnzbd"
+   }
+  ]
+ },
+ {
+  "synology": "Hyper Backup",
+  "category": "Backup",
+  "options": [
+   {
+    "kind": "builtin",
+    "open": "backup",
+    "name": "Backup",
+    "description": "Built in: versioned, encrypted backups to USB, another NAS (SFTP), S3 or restic REST."
+   },
+   {
+    "kind": "spk",
+    "package": "kopia"
+   }
+  ]
+ },
+ {
+  "synology": "Active Backup for Business",
+  "category": "Backup",
+  "options": [
+   {
+    "kind": "container",
+    "app": "urbackup"
+   }
+  ]
+ },
+ {
+  "synology": "Snapshot Replication",
+  "category": "Backup",
+  "options": [
+   {
+    "kind": "builtin",
+    "open": "snapshots",
+    "name": "Snapshots",
+    "description": "Built in: scheduled Btrfs snapshots, Previous Versions in Windows and replication to another Cynthology."
+   }
+  ]
+ },
+ {
+  "synology": "Web Station",
+  "category": "Web & development",
+  "options": [
+   {
+    "kind": "builtin",
+    "open": "webstation",
+    "name": "Web Station",
+    "description": "Built in: websites from the 'web' shared folder with nginx, virtual hosts, HTTPS and reverse proxy."
+   },
+   {
+    "kind": "container",
+    "app": "sentora"
+   }
+  ]
+ },
+ {
+  "synology": "PHP",
+  "category": "Web & development",
+  "options": [
+   {
+    "kind": "builtin",
+    "open": "webstation",
+    "name": "PHP (Web Station)",
+    "description": "Built in: PHP-FPM with common extensions, turned on per website in Web Station."
+   }
+  ]
+ },
+ {
+  "synology": "MariaDB 10",
+  "category": "Web & development",
+  "options": [
+   {
+    "kind": "container",
+    "app": "mariadb"
+   }
+  ]
+ },
+ {
+  "synology": "phpMyAdmin",
+  "category": "Web & development",
+  "options": [
+   {
+    "kind": "container",
+    "app": "phpmyadmin"
+   }
+  ]
+ },
+ {
+  "synology": "MailPlus Server",
+  "category": "Web & development",
+  "options": [
+   {
+    "kind": "container",
+    "app": "sentora"
+   }
+  ]
+ },
+ {
+  "synology": "Git Server",
+  "category": "Web & development",
+  "options": [
+   {
+    "kind": "spk",
+    "package": "gitea"
+   },
+   {
+    "kind": "spk",
+    "package": "forgejo"
+   }
+  ]
+ },
+ {
+  "synology": "Container Manager",
+  "category": "Web & development",
+  "options": [
+   {
+    "kind": "builtin",
+    "open": "containers",
+    "name": "Container Manager",
+    "description": "Built in: containers, images, Compose projects and registry search."
+   }
+  ]
+ },
+ {
+  "synology": "Synology Office",
+  "category": "Productivity",
+  "options": [
+   {
+    "kind": "container",
+    "app": "onlyoffice"
+   }
+  ]
+ },
+ {
+  "synology": "Synology Calendar / Contacts",
+  "category": "Productivity",
+  "options": [
+   {
+    "kind": "container",
+    "app": "radicale"
+   }
+  ]
+ },
+ {
+  "synology": "Note Station",
+  "category": "Productivity",
+  "options": [
+   {
+    "kind": "container",
+    "app": "joplin"
+   }
+  ]
+ },
+ {
+  "synology": "DNS Server",
+  "category": "Network",
+  "options": [
+   {
+    "kind": "container",
+    "app": "pihole"
+   },
+   {
+    "kind": "container",
+    "app": "adguardhome"
+   }
+  ]
+ },
+ {
+  "synology": "Active Insight",
+  "category": "Network",
+  "options": [
+   {
+    "kind": "spk",
+    "package": "uptime-kuma"
+   }
+  ]
+ },
+ {
+  "synology": "Home automation",
+  "category": "Network",
+  "options": [
+   {
+    "kind": "container",
+    "app": "homeassistant"
+   },
+   {
+    "kind": "spk",
+    "package": "homeassistant"
+   }
+  ]
+ }
+]

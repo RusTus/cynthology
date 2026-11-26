@@ -350,6 +350,8 @@ def save_project(body: Project, _=Depends(require_admin)):
     if not PROJECT_RE.match(body.name):
         raise HTTPException(400, "project name: lowercase letters, digits, '-' and '_'")
     d = os.path.join(projects_root(create=True), body.name)
+    if _holds_data(d):
+        raise HTTPException(400, f"{body.name} keeps its data inside its container; changing its compose.yaml would recreate it and erase everything.")
     os.makedirs(d, exist_ok=True)
     f = os.path.join(d, "compose.yaml")
     with open(f + ".new", "w") as fh:
@@ -364,6 +366,13 @@ def save_project(body: Project, _=Depends(require_admin)):
     return {"ok": True, "path": d, "job": job_id}
 
 
+def _holds_data(d: str) -> bool:
+    try:
+        return bool(json.load(open(os.path.join(d, ".cynthology-app.json"))).get("holds_data"))
+    except (OSError, ValueError):
+        return False
+
+
 @router.post("/projects/{name}/{action}")
 def project_action(name: str, action: str, _=Depends(require_admin)):
     d = _project_dir(name)
@@ -371,6 +380,11 @@ def project_action(name: str, action: str, _=Depends(require_admin)):
             "update": None}
     if action not in cmds:
         raise HTTPException(400, "unknown action")
+    if _holds_data(d):   # never remove/recreate a container that holds the app's data
+        if action == "update":
+            raise HTTPException(400, f"{name} keeps its data inside its container; recreating it would erase everything. "
+                                     "Update it from inside the app instead.")
+        cmds.update(down=["stop"], up=["up", "-d", "--no-recreate"])
     base = ["docker", "compose", "-p", name]
     if action == "update":   # pull newer images, then recreate what changed
         cmd = ["sh", "-c", f"{' '.join(base)} pull && {' '.join(base)} up -d --remove-orphans"]

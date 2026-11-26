@@ -1,0 +1,8 @@
+{
+  "id": "radicale",
+  "name": "Radicale",
+  "description": "Calendar (CalDAV) and contacts (CardDAV) server for phones, Thunderbird and Outlook.",
+  "port": 5232,
+  "notes": "Create users by adding them to ./config/users in the app's folder (docker/app-radicale); see the Radicale docs.",
+  "compose": "services:\n  radicale:\n    image: tomsquest/docker-radicale:latest\n    restart: unless-stopped\n    ports:\n      - \"5232:5232\"\n    volumes:\n      - ./data:/data\n"
+}
