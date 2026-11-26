@@ -256,6 +256,17 @@ const I18N_ROWS = [
   ["File", "Datei", "Fichier", "Archivo", "Bestand"],
   ["file", "Datei", "fichier", "archivo", "bestand"],
   ["Search settings", "Einstellungen durchsuchen", "Rechercher un paramètre", "Buscar ajustes", "Instellingen zoeken"],
+  // SAN Manager
+  ["SAN Manager", "SAN-Manager", "Gestionnaire SAN", "Administrador SAN", "SAN-beheer"],
+  ["iSCSI targets", "iSCSI-Ziele", "Cibles iSCSI", "Destinos iSCSI", "iSCSI-doelen"],
+  ["Create LUN", "LUN erstellen", "Créer un LUN", "Crear LUN", "LUN maken"],
+  ["Create iSCSI target", "iSCSI-Ziel erstellen", "Créer une cible iSCSI", "Crear destino iSCSI", "iSCSI-doel maken"],
+  ["Connect VMware ESXi", "VMware ESXi verbinden", "Connecter VMware ESXi", "Conectar VMware ESXi", "VMware ESXi verbinden"],
+  ["Thin provisioning", "Thin Provisioning", "Allocation dynamique", "Aprovisionamiento ligero", "Thin provisioning"],
+  ["Thick provisioning", "Thick Provisioning", "Allocation statique", "Aprovisionamiento grueso", "Thick provisioning"],
+  ["Clone", "Klonen", "Cloner", "Clonar", "Klonen"],
+  ["Used", "Belegt", "Utilisé", "Usado", "Gebruikt"],
+  ["Target", "Ziel", "Cible", "Destino", "Doel"],
 ];
 
 const I18N = {};

@@ -38,6 +38,7 @@ Already installed an older version? Run the same command again - it upgrades in 
 | 22 | SSD cache | VMware: add 2 small disks → Storage Manager → pool → Create SSD cache (read-only, mirrored) → copy files → reboot | Pool healthy after reboot, hit rate shown; Remove SSD cache frees the disks |
 | 23 | VLAN | Control Panel → Network → + Add VLAN (e.g. 10 on your 2nd port) → Apply | Interface `<port>.10` appears (needs a VLAN-capable switch/vSwitch to get an address) |
 | 24 | Language | Your name → Personal settings → Language → Deutsch | Menus, buttons and headings in German |
+| 25 | iSCSI + VAAI (ESXi) | SAN Manager → LUN → Create (thin, new target) → vSphere: iSCSI adapter → Dynamic Discovery → NAS:3260 → rescan → New Datastore (VMFS) | Datastore created; Hardware Acceleration = Supported |
 | 19 | Synology alternatives | Package Center → Synology alternatives → MariaDB → Install, then phpMyAdmin → Install → Open (server: NAS IP, user root, password from Info) | phpMyAdmin logs in |
 
 Logs if something breaks: `sudo journalctl -u cynthology-ui -n 100`

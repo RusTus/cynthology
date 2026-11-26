@@ -1,0 +1,16 @@
+#!/usr/bin/python3
+"""Wait (up to 4 minutes) until every Cynthology storage pool is mounted. Used before services
+whose data lives on the pools start (e.g. the iSCSI target)."""
+import json, os, time
+try:
+    mounts = [p["mount"] for p in json.load(open("/var/lib/cynthology/pools.json"))]
+except (OSError, ValueError):
+    mounts = []
+deadline = time.time() + 240
+while time.time() < deadline:
+    missing = [m for m in mounts if not os.path.ismount(m)]
+    if not missing:
+        break
+    time.sleep(2)
+else:
+    print("still not mounted:", " ".join(missing))
