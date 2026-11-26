@@ -33,7 +33,7 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q xorriso
-          pip install pytest fastapi psutil
+          pip install pytest fastapi psutil httpx qrcode
           cd backend && python -m pytest -q tests
 
       - name: Cache Debian netinst

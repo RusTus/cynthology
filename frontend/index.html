@@ -11,8 +11,15 @@
   <form id="login-form" class="login-card">
     <div class="logo"><span class="stones"><i></i><i></i><i></i></span> Cynthology</div>
     <div id="login-host" class="muted"></div>
-    <input id="login-user" placeholder="Username" autocomplete="username" required>
-    <input id="login-pass" type="password" placeholder="Password" autocomplete="current-password" required>
+    <div id="login-step1" style="display:contents">
+      <input id="login-user" placeholder="Username" autocomplete="username" required>
+      <input id="login-pass" type="password" placeholder="Password" autocomplete="current-password" required>
+    </div>
+    <div id="login-step2" class="hidden" style="display:grid;gap:8px">
+      <div>Enter the 6-digit code from your authenticator app.</div>
+      <input id="login-code" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" maxlength="9">
+      <div class="muted" style="font-size:12px">Lost your phone? Enter one of your backup codes instead (xxxx-xxxx).</div>
+    </div>
     <button type="submit">Sign in</button>
     <div id="login-err" class="err"></div>
   </form>
@@ -29,6 +36,7 @@
   </header>
   <div id="menu" class="menu hidden"></div>
   <div id="user-menu" class="menu menu-right hidden">
+    <button data-act="personal">Personal settings</button>
     <button data-act="reboot">Restart</button>
     <button data-act="shutdown">Shut down</button>
     <button data-act="logout">Sign out</button>
@@ -48,6 +56,7 @@
 <script src="/static/js/apps/snapshots.js"></script>
 <script src="/static/js/apps/backup.js"></script>
 <script src="/static/js/setup.js"></script>
+<script src="/static/js/apps/personal.js"></script>
 <script src="/static/js/desktop.js"></script>
 </body>
 </html>

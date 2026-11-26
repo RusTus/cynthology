@@ -47,6 +47,7 @@ Running the same command again upgrades Cynthology in place. Settings, shares an
 | Area | Status |
 |---|---|
 | Web desktop: login, taskbar, main menu, draggable windows, widgets | ✅ |
+| **2-step verification** (authenticator app TOTP + backup codes), optional requirement for all admins, sign-in lockout after 5 failed attempts | ✅ |
 | HTTPS on 5001 (self-signed or your own certificate), optional HTTP→HTTPS redirect | ✅ |
 | First-run setup wizard (server name, time zone/NTP, HTTPS, storage) | ✅ |
 | VM guest tools installed automatically (VMware, KVM/Proxmox, Hyper-V) | ✅ |
@@ -102,4 +103,4 @@ it, so the Download links above always point at the newest release.
 ## Roadmap
 
 Snapshot replication ·
-hot-spare and SSD cache · 2FA · i18n.
+hot-spare and SSD cache · i18n.

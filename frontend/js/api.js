@@ -7,7 +7,7 @@ const API = {
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.token}` },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
-    if (res.status === 401 && path !== "/api/auth/login") { location.reload(); throw new Error("signed out"); }
+    if (res.status === 401 && !path.startsWith("/api/auth/")) { location.reload(); throw new Error("signed out"); }
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail?.[0]?.msg || data.detail || res.statusText);
     return data;
@@ -55,8 +55,11 @@ function sectioned(sections, body) {
   const side = h("nav", { class: "side" });
   const show = (key) => {
     side.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.k === key));
-    pane.replaceChildren();
-    sections[key].render(pane);
+    // fresh container per visit: a slow, earlier section that finishes loading late
+    // writes into its own (now detached) box instead of the page being shown
+    const box = h("div");
+    pane.replaceChildren(box);
+    sections[key].render(box);
   };
   for (const [k, s] of Object.entries(sections)) side.append(h("button", { "data-k": k, onclick: () => show(k) }, s.label));
   body.append(side, pane);

@@ -14,15 +14,33 @@ async function boot() {
     try { const me = await API.get("/api/auth/me"); return startDesktop(me); } catch { /* fall through to login */ }
   }
   document.getElementById("login-host").textContent = location.hostname;
+  let ticket = null;
   document.getElementById("login-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const err = document.getElementById("login-err");
     err.textContent = "";
     try {
-      const r = await API.post("/api/auth/login", {
-        username: document.getElementById("login-user").value,
-        password: document.getElementById("login-pass").value,
-      });
+      let r;
+      if (!ticket) {
+        r = await API.post("/api/auth/login", {
+          username: document.getElementById("login-user").value,
+          password: document.getElementById("login-pass").value,
+        });
+        if (r.need_otp) {   // password OK - now the 2-step code
+          ticket = r.ticket;
+          document.getElementById("login-step1").classList.add("hidden");
+          document.getElementById("login-step2").classList.remove("hidden");
+          document.getElementById("login-code").focus();
+          return;
+        }
+      } else {
+        try { r = await API.post("/api/auth/otp", { ticket, code: document.getElementById("login-code").value }); }
+        catch (ex) {
+          if (/expired|Too many/.test(ex.message)) { ticket = null; document.getElementById("login-step2").classList.add("hidden"); document.getElementById("login-step1").classList.remove("hidden"); }
+          document.getElementById("login-code").value = "";
+          throw ex;
+        }
+      }
       API.token = r.token;
       sessionStorage.setItem("cyn-token", r.token);
       startDesktop(r);
@@ -38,6 +56,7 @@ function launcher(id) {
 
 function startDesktop(me) {
   document.getElementById("login").classList.add("hidden");
+  if (me.enroll_required) return requiredTwoFactor(me);
   document.getElementById("desktop").classList.remove("hidden");
   document.getElementById("user-btn").textContent = "👤 " + me.user;
   document.getElementById("icons").append(...DESKTOP_APPS.map(launcher));
@@ -49,7 +68,8 @@ function startDesktop(me) {
   document.addEventListener("click", () => document.querySelectorAll(".menu").forEach((m) => m.classList.add("hidden")));
   document.getElementById("user-menu").onclick = async (e) => {
     const a = e.target.dataset.act;
-    if (a === "logout") { await API.post("/api/auth/logout"); sessionStorage.removeItem("cyn-token"); location.reload(); }
+    if (a === "personal") WM.open("personal");
+    else if (a === "logout") { await API.post("/api/auth/logout"); sessionStorage.removeItem("cyn-token"); location.reload(); }
     else if (a && confirm(`Really ${a === "reboot" ? "restart" : "shut down"} the server?`)) act(() => API.post(`/api/system/power/${a}`), "Command sent");
   };
 

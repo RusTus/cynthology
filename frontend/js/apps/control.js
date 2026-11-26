@@ -51,13 +51,17 @@ function shareForm(p, pools, done) {
 }
 
 async function cpUsers(p) {
-  const users = await API.get("/api/users");
+  const [users, tfa] = await Promise.all([API.get("/api/users"), API.get("/api/2fa/users")]);
   const reload = () => { p.replaceChildren(); cpUsers(p); };
   const nu = { name: "", full_name: "", password: "", admin: false };
   p.append(h("h2", {}, "Users & Groups"),
-    h("table", {}, h("tr", {}, h("th", {}, "User"), h("th", {}, "Full name"), h("th", {}, "Groups"), h("th", {})),
+    h("table", {}, h("tr", {}, h("th", {}, "User"), h("th", {}, "Full name"), h("th", {}, "Groups"), h("th", {}, "2-step"), h("th", {})),
       users.map((u) => h("tr", {}, h("td", {}, h("b", {}, u.name)), h("td", {}, u.full_name), h("td", {}, u.groups.join(", ")),
-        h("td", {}, h("button", { class: "btn danger", onclick: async () => {
+        h("td", {}, tfa[u.name] ? h("span", { class: "pill ok" }, "On") : h("span", { class: "muted" }, "Off")),
+        h("td", {}, tfa[u.name] ? h("button", { class: "btn", title: "For a lost phone: the user signs in with just the password and can set it up again", onclick: async () => {
+          if (!confirm(`Reset 2-step verification for ${u.name}? They can then sign in with only their password.`)) return;
+          await act(() => API.del(`/api/2fa/users/${u.name}`), "2-step verification reset"); reload();
+        } }, "Reset 2-step") : null, " ", h("button", { class: "btn danger", onclick: async () => {
           if (!confirm(`Delete user ${u.name}?`)) return;
           await act(() => API.del(`/api/users/${u.name}`), "User deleted"); reload();
         } }, "Delete"))))),
@@ -107,7 +111,7 @@ async function cpGeneral(p) {
 }
 
 async function cpSecurity(p) {
-  const s = await API.get("/api/security");
+  const [s, tfa] = await Promise.all([API.get("/api/security"), API.get("/api/2fa/policy")]);
   const c = s.cert;
   const reload = () => { p.replaceChildren(); cpSecurity(p); };
   const row = (k, v) => h("tr", {}, h("th", {}, k), h("td", {}, v));
@@ -121,6 +125,13 @@ async function cpSecurity(p) {
         await act(() => API.put("/api/security", { https_redirect: e.target.checked }), e.target.checked ? "HTTP now redirects to HTTPS" : "Redirect off");
         if (e.target.checked && location.protocol === "http:") switchToHttps(false);
       } }), "Redirect HTTP connections to HTTPS")),
+    h("h3", { class: "pc-group", style: "margin-top:20px" }, "2-step verification"),
+    h("label", { class: "check" }, h("input", { type: "checkbox", checked: tfa.enforce_admins, onchange: async (e) => {
+      try { await act(() => API.put("/api/2fa/policy", { enforce_admins: e.target.checked }), e.target.checked ? "Administrators now need 2-step verification" : "Policy off"); }
+      catch { e.target.checked = !e.target.checked; }
+    } }), "Require 2-step verification for all administrators"),
+    h("div", { class: "muted" }, "Each user turns it on under their name (top right) → Personal settings. ",
+      "Failed sign-ins are limited: 5 wrong attempts in 15 minutes block that user and address for 15 minutes."),
     h("h3", { class: "pc-group", style: "margin-top:20px" }, "Certificate"),
     c.present ? h("table", {},
       row("Type", h("span", { class: "pill " + (c.kind === "uploaded" ? "ok" : "") }, c.kind)),

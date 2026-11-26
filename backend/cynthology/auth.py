@@ -5,7 +5,7 @@ import os
 import secrets
 import time
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 
 from .util import DEV, STATE_DIR
@@ -75,23 +75,95 @@ def _ensure_smb_password(user: str, pw: str) -> None:
         pass
 
 
+# ---------- brute-force protection ----------
+MAX_FAILS, FAIL_WINDOW, LOCK_TIME = 5, 15 * 60, 15 * 60
+FAILS: dict[str, list[float]] = {}
+PENDING: dict[str, dict] = {}      # password OK, waiting for the 2-step code
+
+
+def _check_lock(*keys: str) -> None:
+    now = time.time()
+    for k in keys:
+        recent = [t for t in FAILS.get(k, []) if now - t < FAIL_WINDOW]
+        FAILS[k] = recent
+        if len(recent) >= MAX_FAILS:
+            wait = int((recent[-1] + LOCK_TIME - now) // 60) + 1
+            if wait > 0:
+                raise HTTPException(429, f"Too many failed attempts. Try again in {wait} minute(s).")
+
+
+def _fail(*keys: str) -> None:
+    for k in keys:
+        FAILS.setdefault(k, []).append(time.time())
+    time.sleep(1)
+
+
+def _new_session(user: str) -> dict:
+    from . import twofa
+    token = secrets.token_urlsafe(32)
+    s = {"user": user, "admin": _is_admin(user), "exp": time.time() + SESSION_TTL}
+    if twofa.enforced_for(s) and not twofa.enabled(user):
+        s["enroll_required"] = True
+    SESSIONS[token] = s
+    _save_sessions()
+    return {"token": token, "user": user, "admin": s["admin"], "enroll_required": bool(s.get("enroll_required"))}
+
+
+def enrollment_done(user: str) -> None:
+    for s in SESSIONS.values():
+        if s["user"] == user:
+            s.pop("enroll_required", None)
+    _save_sessions()
+
+
 @router.post("/login")
-def login(body: Login):
+def login(body: Login, request: Request):
+    from . import twofa
+    keys = (f"u:{body.username.lower()}", f"ip:{request.client.host if request.client else '?'}")
+    _check_lock(*keys)
     if not _pam_ok(body.username, body.password):
-        time.sleep(1)
+        _fail(*keys)
         raise HTTPException(401, "Invalid username or password")
     _ensure_smb_password(body.username, body.password)
-    token = secrets.token_urlsafe(32)
-    SESSIONS[token] = {"user": body.username, "admin": _is_admin(body.username), "exp": time.time() + SESSION_TTL}
-    _save_sessions()
-    return {"token": token, "user": body.username, "admin": SESSIONS[token]["admin"]}
+    if twofa.enabled(body.username):
+        ticket = secrets.token_urlsafe(24)
+        PENDING[ticket] = {"user": body.username, "exp": time.time() + 300, "keys": keys}
+        return {"need_otp": True, "ticket": ticket}
+    for k in keys:
+        FAILS.pop(k, None)
+    return _new_session(body.username)
 
 
-def current_user(authorization: str = Header(default="")) -> dict:
+class Otp(BaseModel):
+    ticket: str
+    code: str
+
+
+@router.post("/otp")
+def otp(body: Otp):
+    from . import twofa
+    p = PENDING.get(body.ticket)
+    if not p or p["exp"] < time.time():
+        PENDING.pop(body.ticket, None)
+        raise HTTPException(401, "Sign-in expired - enter your password again")
+    _check_lock(*p["keys"])
+    if not twofa.verify(p["user"], body.code):
+        _fail(*p["keys"])
+        raise HTTPException(401, "Wrong verification code")
+    del PENDING[body.ticket]
+    for k in p["keys"]:
+        FAILS.pop(k, None)
+    return _new_session(p["user"])
+
+
+def current_user(request: Request, authorization: str = Header(default="")) -> dict:
     token = authorization.removeprefix("Bearer ").strip()
     s = SESSIONS.get(token)
     if not s or s["exp"] < time.time():
         raise HTTPException(401, "Not logged in")
+    # administrators must finish setting up 2-step verification before anything else
+    if s.get("enroll_required") and not request.url.path.startswith(("/api/auth/", "/api/2fa")):
+        raise HTTPException(403, "Set up 2-step verification first")
     return s
 
 
@@ -110,4 +182,4 @@ def logout(authorization: str = Header(default="")):
 
 @router.get("/me")
 def me(user: dict = Depends(current_user)):
-    return {"user": user["user"], "admin": user["admin"]}
+    return {"user": user["user"], "admin": user["admin"], "enroll_required": bool(user.get("enroll_required"))}
