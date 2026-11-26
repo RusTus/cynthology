@@ -49,8 +49,13 @@ echo "==> Configuring services"
 getent group cynthology-admin >/dev/null || groupadd cynthology-admin
 getent group synocommunity >/dev/null || groupadd -r synocommunity
 # the installing user (or, from the ISO, the first user created) becomes a Cynthology admin
-ADMIN_USER="${SUDO_USER:-$(getent passwd 1000 | cut -d: -f1)}"
-if [ -n "$ADMIN_USER" ] && [ "$ADMIN_USER" != root ]; then usermod -aG cynthology-admin,users,sudo "$ADMIN_USER"; fi
+# Who becomes the Cynthology administrator: the user who ran sudo - or, when the installer runs as root
+# (root password set during the Debian install, then `su`), the first regular account on the system.
+ADMIN_USER="${SUDO_USER:-}"
+if [ -z "$ADMIN_USER" ] || [ "$ADMIN_USER" = root ]; then
+  ADMIN_USER=$(awk -F: '$3>=1000 && $3<60000 && $7 !~ /(nologin|false)$/ {print $1; exit}' /etc/passwd)
+fi
+if [ -n "$ADMIN_USER" ]; then usermod -aG cynthology-admin,users,sudo "$ADMIN_USER"; fi
 # Samba: include the share file Cynthology manages
 touch /etc/samba/cyn-shares.conf
 # Global options go right after [global]; the include must be the LAST line, otherwise any
@@ -94,4 +99,8 @@ fi
 IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 echo
 echo "Cynthology installed.  Open  https://${IP:-<this-box>}:5001  (or http://${IP:-<this-box>}:5000)"
-echo "and sign in as ${ADMIN_USER:-root}. The browser warns once about the self-signed certificate - that is expected."
+if [ -n "$ADMIN_USER" ]; then
+  echo "Sign in as '$ADMIN_USER' (administrator). The browser warns once about the self-signed certificate - that is expected."
+else
+  echo "No regular user account found. Create one (adduser NAME), then: usermod -aG cynthology-admin NAME"
+fi

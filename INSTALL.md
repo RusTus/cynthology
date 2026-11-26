@@ -51,7 +51,9 @@ Boot the machine from the ISO and choose **Graphical install**. Answer the scree
 
 1. At the black login screen, sign in with the **username and password** from step 2.
    (Or, from another computer: `ssh nasadmin@<address>` - the address is shown on the screen or by `ip -br a`.)
-2. Type this command and press Enter (enter your password when asked):
+2. Type this command and press Enter (enter your password when asked).
+   **If you set a root password** in step 2, first type `su -` and the root password, then run the command
+   without `sudo`. Your user from step 2 is made the Cynthology administrator either way.
 
    ```bash
    wget -qO- https://raw.githubusercontent.com/RusTus/cynthology/main/get.sh | sudo bash
