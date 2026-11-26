@@ -24,7 +24,7 @@ async function storageOverview(p) {
 
 function poolCard(x) {
   const pct = x.total ? Math.round((x.used / x.total) * 100) : 0;
-  const cls = x.status === "healthy" ? "ok" : x.status.startsWith("rebuilding") ? "warn" : "bad";
+  const cls = statusClass(x.status);
   return h("div", { class: "card" },
     h("div", {}, h("b", {}, x.label), " ", h("span", { class: "pill " + cls }, x.status)),
     h("div", { class: "muted" }, `${x.mount} · ${RAID_LABEL[x.raid] || x.raid} · ${(x.fs || "btrfs").toUpperCase()}`),
@@ -66,7 +66,9 @@ async function storagePools(p) {
           x.failed?.length ? h("div", { class: "err" }, `Failed: ${x.failed.join(", ")} `,
             h("a", { href: "#", onclick: async (e) => { e.preventDefault(); await act(() => API.post(`/api/storage/pools/${x.id}/remove-failed`), "Failed drive detached - you can pull it now"); p.replaceChildren(); storagePools(p); } }, "Detach")) : null),
         h("td", {}, fmtBytes(x.total)),
-        h("td", {}, h("span", { class: "pill " + (x.status === "healthy" ? "ok" : x.status.startsWith("rebuilding") ? "warn" : "bad") }, x.status)),
+        h("td", {}, h("span", { class: "pill " + statusClass(x.status) }, x.status),
+          x.status.startsWith("optimizing") ? h("div", { class: "muted", style: "font-size:12px" }, "first sync - the pool is ready to use") : null,
+          x.status.startsWith("expanding") ? h("div", { class: "muted", style: "font-size:12px" }, "growing onto the new drive - usable meanwhile") : null),
         h("td", {},
           h("button", { class: "btn", onclick: () => addDiskDialog(p, x) }, x.status === "degraded" ? "Repair" : "Add drive"), " ",
           ["raid0", "basic"].includes(x.raid) ? null : h("button", { class: "btn", onclick: () => addDiskDialog(p, x, true) }, "Add hot spare"), " ",
@@ -138,8 +140,10 @@ async function createPoolWizard(p) {
         h("button", { class: "btn", onclick: () => { p.replaceChildren(); storagePools(p); } }, "Cancel"),
         h("button", { class: "btn primary", onclick: async () => {
           if (!confirm(`Erase ${[...state.disks].join(", ")} and create ${RAID_LABEL[state.raid]}?`)) return;
-          await act(() => API.post("/api/storage/pools", { raid: state.raid, disks: [...state.disks], label: state.label, fs: state.fs }), "Storage pool created");
-          p.replaceChildren(); storagePools(p);
+          let r;
+          try { r = await API.post("/api/storage/pools", { raid: state.raid, disks: [...state.disks], label: state.label, fs: state.fs }); }
+          catch (e) { return toast("Error: " + e.message); }
+          poolProgress(p, r.job, `${RAID_LABEL[state.raid]} on ${[...state.disks].join(", ")}`);
         } }, "Create"))));
   refresh();
 }
@@ -173,4 +177,41 @@ function openCreatePool() {
   const w = WM.wins.storage;
   w.show("volumes");
   createPoolWizard(w.show.pane);
+}
+
+// healthy = green, optimizing/expanding = normal background work, rebuilding = warning, else = problem
+function statusClass(s) {
+  if (s === "healthy") return "ok";
+  if (s.startsWith("optimizing") || s.startsWith("expanding")) return "info";
+  if (s.startsWith("rebuilding")) return "warn";
+  return "bad";
+}
+
+// Step-by-step progress while a pool is being built (it takes a few minutes).
+async function poolProgress(p, jobId, what) {
+  const list = h("div", { class: "steps" });
+  const note = h("div", { class: "muted" }, "This takes a few minutes. You can close this window - building continues.");
+  p.replaceChildren(h("h2", {}, "Creating storage pool"), h("div", { class: "muted", style: "margin-bottom:12px" }, what), list, note);
+  for (;;) {
+    let j;
+    try { j = await API.get(`/api/storage/jobs/${jobId}`); } catch { await new Promise((r) => setTimeout(r, 2000)); continue; }
+    const secs = Math.round((Date.now() / 1000) - j.started);
+    list.replaceChildren(...j.steps.map((s, i) => h("div", { class: "step " + (i < j.step ? "done" : i === j.step && j.state === "running" ? "now" : i === j.step && j.state === "failed" ? "fail" : "") },
+      h("span", { class: "dot" }, i < j.step ? "✓" : i === j.step && j.state === "failed" ? "✕" : ""), s,
+      i === j.step && j.state === "running" ? h("span", { class: "muted" }, `  ${secs}s`) : null)));
+    if (j.state === "done") {
+      note.replaceChildren(h("div", { class: "note" }, "✓ Storage pool created. It now runs a first background sync (“optimizing”) - you can already use it."),
+        h("div", { class: "toolbar", style: "margin-top:10px" },
+          h("button", { class: "btn primary", onclick: () => { p.replaceChildren(); storagePools(p); } }, "Show storage pools"),
+          h("button", { class: "btn", onclick: () => { WM.open("control"); } }, "Create a shared folder")));
+      toast("Storage pool created");
+      return;
+    }
+    if (j.state === "failed") {
+      note.replaceChildren(h("div", { class: "note warn" }, "Creating the pool failed: ", h("span", { class: "mono" }, j.error || "unknown error")),
+        h("div", { class: "toolbar", style: "margin-top:10px" }, h("button", { class: "btn", onclick: () => { p.replaceChildren(); storagePools(p); } }, "Back")));
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 1500));
+  }
 }

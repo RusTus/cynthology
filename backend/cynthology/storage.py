@@ -177,11 +177,13 @@ def pools(_=Depends(current_user)):
             md = read_only(["mdadm", "--detail", a["md"]])
             state = next((ln.split(":", 1)[1] for ln in md.splitlines() if ln.strip().startswith("State :")), "")
             if any(w in state for w in ("recovering", "resyncing", "reshaping")):
-                status = "rebuilding"
+                # resync = first sync after creation (pool usable) | recovery = drive replaced | reshape = growing
+                word = "rebuilding" if "recovering" in state else "expanding" if "reshaping" in state else "optimizing"
                 progress = next((ln.split(":", 1)[1].strip() for ln in md.splitlines()
                                  if "Rebuild Status" in ln or "Reshape Status" in ln or "Resync Status" in ln), "")
-                if progress:
-                    status = f"rebuilding ({progress.split()[0]})"
+                status = f"{word} ({progress.split()[0]})" if progress else word
+                if word == "rebuilding":
+                    break
             elif "degraded" in state or "FAILED" in state or "inactive" in state:
                 status = "degraded"
                 break
@@ -239,8 +241,14 @@ def plan_preview(body: PoolCreate, _=Depends(current_user)):
     return result
 
 
+POOL_JOBS: dict[str, dict] = {}
+CREATE_STEPS = ["Preparing drives", "Building RAID arrays", "Updating boot configuration",
+                "Creating the volume", "Creating the file system", "Mounting"]
+
+
 @router.post("/pools")
 def create_pool(body: PoolCreate, _=Depends(require_admin)):
+    """Validates, then builds the pool in the background (minutes); poll /api/storage/jobs/<id>."""
     if body.fs not in ("btrfs", "ext4"):
         raise HTTPException(400, "filesystem must be btrfs or ext4")
     disks = _free_disks(body.disks)
@@ -248,16 +256,52 @@ def create_pool(body: PoolCreate, _=Depends(require_admin)):
         p = raidplan.plan(body.raid, {n: d["size"] for n, d in disks.items()})
     except ValueError as e:
         raise HTTPException(400, str(e))
+    if any(j["state"] == "running" for j in POOL_JOBS.values()):
+        raise HTTPException(409, "another storage pool is being created - wait for it to finish")
+    import secrets
+    import threading
+    jid = secrets.token_hex(4)
+    job = {"id": jid, "state": "running", "steps": CREATE_STEPS, "step": 0, "error": None, "pool": None,
+           "started": time.time()}
+    POOL_JOBS[jid] = job
+
+    def work():
+        try:
+            job["pool"] = _build_pool(body, p, job)
+            job["state"] = "done"
+        except HTTPException as e:
+            job.update(state="failed", error=e.detail)
+        except Exception as e:
+            job.update(state="failed", error=str(e))
+        job["finished"] = time.time()
+
+    threading.Thread(target=work, daemon=True).start()
+    return {"job": jid}
+
+
+@router.get("/jobs/{jid}")
+def pool_job(jid: str, _=Depends(current_user)):
+    j = POOL_JOBS.get(jid)
+    if not j:
+        raise HTTPException(404, "no such job")
+    return j
+
+
+def _build_pool(body: "PoolCreate", p, job: dict) -> dict:
+    def step(i):
+        job["step"] = i
+        if DEV:
+            time.sleep(0.7)   # let the progress view be seen in dev mode
 
     pools = load_pools()
     n = max([x["id"] for x in pools], default=0) + 1
     mount, vg = f"/volume{n}", f"vg_cyn{n}"
 
     # 1. partition every disk: one GPT partition per tier it belongs to (type FD00 = Linux RAID)
+    step(0)
     for name in body.disks:
         dev = f"/dev/{name}"
-        run(["wipefs", "-a", dev])
-        run(["sgdisk", "--zap-all", dev])
+        _scrub_disk(dev)
         for i, t in enumerate(p.tiers, start=1):
             if name in t.members:
                 end = "0" if t.size_mib == 0 else f"{t.start_mib + t.size_mib - 1}M"
@@ -267,6 +311,7 @@ def create_pool(body: PoolCreate, _=Depends(require_admin)):
     run(["udevadm", "settle"], check=False)
 
     # 2. one md array per tier
+    step(1)
     arrays = []
     for i, t in enumerate(p.tiers, start=1):
         md = f"/dev/md/cyn{n}t{i}"
@@ -275,9 +320,11 @@ def create_pool(body: PoolCreate, _=Depends(require_admin)):
              f"--raid-devices={len(parts)}", *(["--bitmap=internal"] if t.level in ("1", "5", "6", "10") else []),
              f"--name=cyn{n}t{i}", *parts])
         arrays.append({"md": md, "level": t.level, "members": t.members, "part": i})
+    step(2)
     _save_mdadm_conf(initramfs=True)
 
     # 3. LVM joins the tier arrays into one volume (lets SHR volumes grow later)
+    step(3)
     mds = [a["md"] for a in arrays]
     run(["pvcreate", "-ff", "-y", *mds])
     run(["vgcreate", vg, *mds])
@@ -285,6 +332,7 @@ def create_pool(body: PoolCreate, _=Depends(require_admin)):
     lv = f"/dev/{vg}/data"
 
     # 4. filesystem
+    step(4)
     label = (body.label or f"volume{n}")[:15]
     if body.fs == "btrfs":
         run(["mkfs.btrfs", "-f", "-L", label, lv])
@@ -292,6 +340,7 @@ def create_pool(body: PoolCreate, _=Depends(require_admin)):
     else:
         run(["mkfs.ext4", "-F", "-L", label, lv])
         opts = "defaults,noatime"
+    step(5)
     run(["mkdir", "-p", mount])
     uuid = run(["blkid", "-s", "UUID", "-o", "value", lv]).strip()
     run(["sh", "-c", f"echo 'UUID={uuid} {mount} {body.fs} {opts},nofail 0 0' >> /etc/fstab"])
@@ -301,8 +350,10 @@ def create_pool(body: PoolCreate, _=Depends(require_admin)):
     pool = {"id": n, "label": body.label or f"Volume {n}", "raid": body.raid, "fs": body.fs,
             "disks": body.disks, "arrays": arrays, "vg": vg, "lv": lv, "mount": mount, "uuid": uuid,
             "tolerance": p.tolerance, "mock_total": p.usable_bytes}
+    pools = load_pools()
     pools.append(pool)
     save_pools(pools)
+    job["step"] = len(CREATE_STEPS)
     return pool
 
 

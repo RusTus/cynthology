@@ -3,7 +3,7 @@ const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const DEST_LABEL = { local: "USB drive / local folder", sftp: "Another NAS or server (SFTP)", s3: "Cloud storage (S3-compatible)", rest: "restic REST server" };
 
 WM.register("backup", {
-  name: "Backup", icon: "🛟", color: "#2e9d5b", w: 980, h: 640,
+  name: "Backup", icon: "💾", color: "#2e9d5b", w: 980, h: 640,
   open(body, win) {
     const pane = h("div", { class: "pane" });
     body.append(pane);
