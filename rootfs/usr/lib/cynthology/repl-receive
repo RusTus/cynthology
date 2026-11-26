@@ -1,0 +1,5 @@
+#!/bin/sh
+# Forced command for replication senders (see repl.py). Runs as root via a narrow sudo rule.
+# $1 = sender name (fixed per key in authorized_keys), $2 = requested operation.
+case "$1" in *[!a-z0-9-]*|"") echo "bad sender" >&2; exit 2 ;; esac
+cd /opt/cynthology/backend && CYN_STATE=/var/lib/cynthology exec /usr/bin/python3 -m cynthology.repl serve "$1" "$2"

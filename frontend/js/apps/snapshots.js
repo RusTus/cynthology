@@ -1,9 +1,18 @@
 // Snapshots: schedules, retention and on-demand snapshots of shared folders (Btrfs).
 WM.register("snapshots", {
-  name: "Snapshots", icon: "🕒", color: "#3a7bd5", w: 900, h: 560,
+  name: "Snapshots", icon: "🕒", color: "#3a7bd5", w: 980, h: 620,
   open(body) {
-    const pane = h("div", { class: "pane" });
-    body.append(pane);
+    sectioned({
+      local: { label: "Snapshots", render: snapshotsLocal },
+      send: { label: "Replication", render: replicationSend },
+      recv: { label: "Receive replicas", render: replicationReceive },
+    }, body);
+  },
+});
+
+const snapWhen = (n) => n ? new Date(n.replace(/^@GMT-(\d+)\.(\d+)\.(\d+)-(\d+)\.(\d+)\.(\d+)$/, "$1-$2-$3T$4:$5:$6Z")).toLocaleString() : "never";
+
+function snapshotsLocal(pane) {
     const when = (n) => n ? new Date(n.replace(/^@GMT-(\d+)\.(\d+)\.(\d+)-(\d+)\.(\d+)\.(\d+)$/, "$1-$2-$3T$4:$5:$6Z")).toLocaleString() : "never";
 
     async function render() {
@@ -26,7 +35,7 @@ WM.register("snapshots", {
               h("td", {}, h("input", { type: "number", min: 0, max: 1000, value: r.keep, style: "width:80px", title: "0 = keep all",
                 onchange: (e) => { pol.keep = +e.target.value; save().then(render); } })),
               h("td", {}, h("a", { href: "#", onclick: (e) => { e.preventDefault(); showList(r.share); } }, String(r.count))),
-              h("td", { class: "muted" }, when(r.latest)),
+              h("td", { class: "muted" }, snapWhen(r.latest)),
               h("td", {}, h("button", { class: "btn", onclick: async () => { await act(() => API.post(`/api/snapshots/${r.share}`), "Snapshot taken"); render(); } }, "Take snapshot")));
           }))
           : h("p", { class: "muted" }, "No shared folders yet."));
@@ -45,5 +54,99 @@ WM.register("snapshots", {
           : h("p", { class: "muted" }, "No snapshots yet."));
     }
     render();
-  },
-});
+}
+
+// ---------- replication: this NAS sends ----------
+async function replicationSend(pane) {
+  const [tasks, shares] = await Promise.all([API.get("/api/replication/tasks"), API.get("/api/snapshots")]);
+  const redraw = () => { pane.replaceChildren(); replicationSend(pane); };
+  const label = { success: ["ok", "Up to date"], failed: ["bad", "Failed"], running: ["warn", "Replicating…"], never: ["", "Never run"] };
+  pane.append(h("h2", {}, "Snapshot replication"),
+    h("div", { class: "note" }, "Keeps a copy of a shared folder on another Cynthology NAS, updated on a schedule. ",
+      "After the first full copy only changes are sent. If this NAS fails, the other one can turn the replica into a normal shared folder."),
+    h("div", { class: "toolbar", style: "margin-top:12px" }, h("button", { class: "btn primary", onclick: () => replicationEditor(pane, null, shares, redraw) }, "+ Replicate a shared folder")),
+    tasks.length ? h("table", {},
+      h("tr", {}, h("th", {}, "Shared folder"), h("th", {}, "To"), h("th", {}, "Schedule"), h("th", {}, "Status"), h("th", {})),
+      tasks.map((t) => {
+        const [cls, txt] = label[t.status.state] || ["", t.status.state];
+        return h("tr", {},
+          h("td", {}, h("b", {}, t.share)), h("td", { class: "mono" }, t.host),
+          h("td", {}, t.schedule, t.keep ? h("div", { class: "muted" }, `keep ${t.keep}`) : null),
+          h("td", {}, h("span", { class: "pill " + cls }, txt),
+            t.status.finished ? h("div", { class: "muted" }, new Date(t.status.finished * 1000).toLocaleString() + (t.status.state === "success" ? (t.status.incremental ? " · changes only" : " · full copy") : "")) : null,
+            t.status.error ? h("div", { class: "err" }, t.status.error) : null),
+          h("td", {},
+            h("button", { class: "btn primary", disabled: t.status.state === "running", onclick: async () => { await act(() => API.post(`/api/replication/tasks/${t.id}/run`), "Replication started"); setTimeout(redraw, 1500); } }, "Sync now"), " ",
+            h("button", { class: "btn", onclick: () => replicationEditor(pane, t, shares, redraw) }, "Edit"), " ",
+            h("button", { class: "btn danger", onclick: async () => {
+              if (!confirm(`Stop replicating ${t.share}? Replicas already on ${t.host} are kept.`)) return;
+              await act(() => API.del(`/api/replication/tasks/${t.id}`), "Removed"); redraw();
+            } }, "Remove")));
+      }))
+      : h("p", { class: "muted" }, "Nothing is replicated yet."));
+}
+
+async function replicationEditor(pane, t, shares, done) {
+  const key = await API.get("/api/replication/key");
+  const f = t ? { ...t } : { share: shares.find((s) => s.supported)?.share || "", host: "", port: 22, schedule: "daily", keep: 30 };
+  const out = h("div");
+  pane.replaceChildren(h("h2", {}, t ? `Edit replication of ${t.share}` : "Replicate a shared folder"),
+    h("div", { class: "form" },
+      h("div", { class: "note" }, h("b", {}, "Step 1 - on the other NAS: "), "Snapshots → Receive replicas → Allow a NAS, name it ",
+        h("b", { class: "mono" }, key.hostname.toLowerCase().replace(/[^a-z0-9-]/g, "-")), " and paste this key:",
+        h("textarea", { readonly: true, style: "width:100%;min-height:58px;margin-top:6px", onclick: (e) => e.target.select() }, key.public_key)),
+      h("label", {}, "Shared folder", h("select", { onchange: (e) => (f.share = e.target.value) },
+        shares.map((s) => h("option", { value: s.share, selected: s.share === f.share, disabled: !s.supported }, s.share + (s.supported ? "" : " (not on Btrfs)"))))),
+      h("label", {}, "Other NAS (name or IP address)", h("input", { value: f.host, placeholder: "192.168.1.60", oninput: (e) => (f.host = e.target.value.trim()) })),
+      h("label", {}, "SSH port", h("input", { type: "number", value: f.port, style: "width:100px", oninput: (e) => (f.port = +e.target.value) })),
+      h("div", { class: "toolbar" }, h("button", { class: "btn", onclick: async () => {
+        out.replaceChildren(h("span", { class: "muted" }, "Connecting…"));
+        try { const r = await API.post("/api/replication/test", { host: f.host, port: f.port }); out.replaceChildren(h("div", { class: "note" }, "✓ " + r.message)); }
+        catch (e) { out.replaceChildren(h("div", { class: "note warn" }, e.message)); }
+      } }, "Test connection")), out,
+      h("label", {}, "Schedule", h("select", { onchange: (e) => (f.schedule = e.target.value) },
+        [["hourly", "Every hour"], ["daily", "Every day"], ["weekly", "Every week"], ["manual", "Only when I click Sync now"]].map(([v, l]) => h("option", { value: v, selected: f.schedule === v }, l)))),
+      h("label", {}, "Replicas to keep on the other NAS (0 = all)", h("input", { type: "number", min: 0, value: f.keep, style: "width:100px", oninput: (e) => (f.keep = +e.target.value) })),
+      h("div", { class: "toolbar" }, h("button", { class: "btn", onclick: done }, "Cancel"),
+        h("button", { class: "btn primary", onclick: async () => {
+          await act(() => (t ? API.put(`/api/replication/tasks/${t.id}`, f) : API.post("/api/replication/tasks", f)), "Saved"); done();
+        } }, t ? "Save" : "Create"))));
+}
+
+// ---------- replication: this NAS receives ----------
+async function replicationReceive(pane) {
+  const [senders, received] = await Promise.all([API.get("/api/replication/senders"), API.get("/api/replication/received")]);
+  const redraw = () => { pane.replaceChildren(); replicationReceive(pane); };
+  const nf = { source: "", public_key: "" };
+  pane.append(h("h2", {}, "Receive replicas"),
+    h("h3", { class: "pc-group" }, "NAS devices allowed to send replicas here"),
+    senders.length ? h("table", {}, senders.map((s) => h("tr", {}, h("td", {}, h("b", {}, s.source)), h("td", { class: "muted mono" }, s.comment || "…" + s.fingerprint),
+      h("td", {}, h("button", { class: "btn danger", onclick: async () => {
+        if (!confirm(`Stop accepting replicas from ${s.source}? Replicas already here are kept.`)) return;
+        await act(() => API.del(`/api/replication/senders/${s.source}`), "Removed"); redraw();
+      } }, "Remove")))))
+      : h("p", { class: "muted" }, "None yet."),
+    h("details", { open: !senders.length }, h("summary", {}, "Allow a NAS"),
+      h("div", { class: "form", style: "margin-top:8px" },
+        h("label", {}, "Name for the sending NAS", h("input", { placeholder: "nas1", oninput: (e) => (nf.source = e.target.value) })),
+        h("label", {}, "Its replication key (Snapshots → Replication → + Replicate on that NAS)", h("textarea", { placeholder: "ssh-ed25519 AAAA… cynthology-replication@nas1", oninput: (e) => (nf.public_key = e.target.value) })),
+        h("div", {}, h("button", { class: "btn primary", onclick: async () => { await act(() => API.post("/api/replication/senders", nf), "NAS allowed"); redraw(); } }, "Allow")),
+        h("div", { class: "muted" }, "The key can only deliver replicas: no login, no shell, nothing outside the replica area."))),
+    h("h3", { class: "pc-group", style: "margin-top:20px" }, "Replicas stored on this NAS"),
+    received.length ? h("table", {},
+      h("tr", {}, h("th", {}, "From"), h("th", {}, "Shared folder"), h("th", {}, "Versions"), h("th", {}, "Latest"), h("th", {})),
+      received.map((r) => {
+        const pick = h("select", {}, r.snapshots.map((n) => h("option", { value: n }, snapWhen(n))));
+        return h("tr", {}, h("td", {}, r.source), h("td", {}, h("b", {}, r.share)), h("td", {}, String(r.count)), h("td", { class: "muted" }, snapWhen(r.latest)),
+          h("td", {}, r.count ? h("div", { style: "display:flex;gap:6px;flex-wrap:wrap" }, pick,
+            h("button", { class: "btn primary", title: "Make this version available as a normal, writable shared folder", onclick: async () => {
+              const name = prompt("Name of the new shared folder:", `${r.share}-${r.source}`); if (!name) return;
+              await act(() => API.post("/api/replication/failover", { source: r.source, share: r.share, snapshot: pick.value, new_name: name }), `Shared folder ${name} created`);
+            } }, "Use as shared folder"),
+            h("button", { class: "btn danger", onclick: async () => {
+              if (!confirm(`Delete all ${r.count} replica(s) of ${r.share} from ${r.source}?`)) return;
+              await act(() => API.post("/api/replication/received/delete", { source: r.source, share: r.share }), "Deleted"); redraw();
+            } }, "Delete")) : null));
+      }))
+      : h("p", { class: "muted" }, "No replicas received yet."));
+}

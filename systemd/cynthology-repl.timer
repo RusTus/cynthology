@@ -1,0 +1,9 @@
+[Unit]
+Description=Check for due Cynthology snapshot replications every 10 minutes
+
+[Timer]
+OnCalendar=*:0/10
+Persistent=true
+
+[Install]
+WantedBy=timers.target

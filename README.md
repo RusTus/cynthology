@@ -55,6 +55,7 @@ Running the same command again upgrades Cynthology in place. Settings, shares an
 | SHR expand (add drive, RAID1 tier → RAID5 automatically) / repair (replace failed drive), Btrfs scrub | ✅ |
 | Shared folders (Btrfs subvolumes), SMB + NFS export, recycle bin | ✅ |
 | Snapshots: on demand or hourly/daily/weekly with retention; Windows **Previous Versions** | ✅ |
+| **Snapshot replication** to another Cynthology NAS (btrfs send/receive over SSH, incremental), one-click failover of a replica to a writable shared folder | ✅ |
 | File Station: browse, upload (drag & drop), download, new folder, rename, copy/move, delete to recycle bin, per-user share permissions | ✅ |
 | Users & groups (Linux + Samba passwords in sync), admin = `cynthology-admin`/`sudo` group | ✅ |
 | Services: SMB, NFS, SSH, WS-Discovery, Bonjour, Docker, rsync | ✅ |
