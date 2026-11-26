@@ -1,0 +1,10 @@
+#!/bin/sh
+# Re-apply /etc/network/interfaces: everything down (bonds deleted so membership changes apply), then up.
+# Bring up both "auto" and "allow-hotplug" interfaces - Debian's installer uses allow-hotplug, and
+# plain `ifup -a` skips those (that would leave the NAS unreachable).
+ifdown -a --exclude=lo --force >/dev/null 2>&1
+for b in $(ip -o link show type bond 2>/dev/null | awk -F': ' '{print $2}' | cut -d@ -f1); do ip link delete "$b" 2>/dev/null; done
+ifup -a --exclude=lo
+ifup -a --exclude=lo --allow=hotplug
+/usr/lib/cynthology/update-issue
+exit 0

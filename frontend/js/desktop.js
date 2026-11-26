@@ -9,6 +9,7 @@ async function boot() {
     sessionStorage.setItem("cyn-token", API.token);
     history.replaceState(null, "", location.pathname);
     if (frag.get("open") === "create-pool") boot.after = () => openCreatePool();
+    if (frag.get("net-confirm")) boot.after = () => act(() => API.post("/api/network/confirm"), "Network settings saved - you are on the new address");
   }
   if (API.token) {
     try { const me = await API.get("/api/auth/me"); return startDesktop(me); } catch { /* fall through to login */ }

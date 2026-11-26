@@ -4,6 +4,7 @@ WM.register("control", {
   open(body) {
     sectioned({
       general: { label: "General", render: cpGeneral },
+      network: { label: "Network", render: cpNetwork },
       security: { label: "Security", render: cpSecurity },
       notify: { label: "Notifications", render: cpNotify },
       ups: { label: "UPS", render: cpUps },
@@ -288,4 +289,98 @@ function usbFormat(p, d, done) {
           p.replaceChildren(h("p", { class: "muted" }, "Formatting…"));
           try { await act(() => API.post(`/api/usb/${d.name}/format`, f), "Formatted and mounted"); } finally { done(); }
         } }, "Erase and format"))));
+}
+
+async function cpNetwork(p) {
+  const data = await API.get("/api/network");
+  const st = data.status;
+  const cfg = JSON.parse(JSON.stringify(data.config));
+  const reload = () => { p.replaceChildren(); cpNetwork(p); };
+  const box = h("div");
+  const speed = (s) => (s ? (s >= 1000 ? `${s / 1000} Gbps` : `${s} Mbps`) : "");
+
+  const ipEditor = (ip, label) => h("div", { class: "form", style: "gap:8px" },
+    h("label", {}, label, h("select", { onchange: (e) => { ip.mode = e.target.value; draw(); } },
+      [["dhcp", "Get an address automatically (DHCP)"], ["static", "Use a fixed address"], ["off", "No IPv4 address"]].map(([v, l]) => h("option", { value: v, selected: ip.mode === v }, l)))),
+    ip.mode === "static" ? h("div", { style: "display:flex;gap:8px;flex-wrap:wrap" },
+      h("label", {}, "Address / subnet", h("input", { value: ip.address, placeholder: "192.168.1.50/24", oninput: (e) => (ip.address = e.target.value.trim()) })),
+      h("label", {}, "Gateway (router)", h("input", { value: ip.gateway, placeholder: "192.168.1.1", oninput: (e) => (ip.gateway = e.target.value.trim()) }))) : null);
+  const mtuSel = (o) => h("label", {}, "MTU", h("select", { onchange: (e) => (o.mtu = +e.target.value) },
+    [[1500, "1500 (standard)"], [9000, "9000 (jumbo frames - every device on the path must support it)"]].concat(o.mtu !== 1500 && o.mtu !== 9000 ? [[o.mtu, String(o.mtu)]] : [])
+      .map(([v, l]) => h("option", { value: v, selected: o.mtu === v }, l))));
+
+  function draw() {
+    const inBond = new Set(cfg.bonds.flatMap((b) => b.members));
+    box.replaceChildren(
+      ...cfg.bonds.map((b, bi) => h("div", { class: "card", style: "margin-bottom:12px" },
+        h("div", {}, h("b", {}, `${b.name} - link aggregation`), " ", h("span", { class: "muted" }, b.members.join(" + ")),
+          h("button", { class: "btn danger", style: "float:right", onclick: () => { cfg.bonds.splice(bi, 1); draw(); } }, "Remove bond")),
+        h("label", {}, "Mode", h("select", { onchange: (e) => (b.mode = e.target.value) },
+          Object.entries(data.bond_modes).map(([v, l]) => h("option", { value: v, selected: b.mode === v }, l)))),
+        ipEditor(b.ipv4, "IPv4"), mtuSel(b))),
+      ...cfg.nics.filter((n) => !inBond.has(n.name)).map((n) => {
+        const live = st.interfaces.find((i) => i.name === n.name) || {};
+        return h("div", { class: "card", style: "margin-bottom:12px" },
+          h("div", {}, h("b", {}, n.name), " ",
+            h("span", { class: "pill " + (live.carrier ? "ok" : "") }, live.carrier ? `connected ${speed(live.speed)}` : "no cable"),
+            h("span", { class: "muted mono", style: "margin-left:8px;font-size:12px" }, live.mac || ""),
+            h("span", { class: "muted", style: "margin-left:8px" }, (live.ipv4 || []).join(", "))),
+          h("label", { class: "check" }, h("input", { type: "checkbox", checked: n.enabled, onchange: (e) => { n.enabled = e.target.checked; draw(); } }), "Enabled"),
+          n.enabled ? [ipEditor(n.ipv4, "IPv4"), mtuSel(n)] : null);
+      }),
+      cfg.nics.length - inBond.size >= 2 ? h("button", { class: "btn", onclick: () => {
+        const free = cfg.nics.filter((n) => !inBond.has(n.name)).map((n) => n.name);
+        const pick = prompt(`Ports to combine (comma-separated, at least two):\n${free.join(", ")}`, free.slice(0, 2).join(", "));
+        if (!pick) return;
+        const members = pick.split(",").map((x) => x.trim()).filter(Boolean);
+        const first = cfg.nics.find((n) => n.name === members[0]);
+        cfg.bonds.push({ name: `bond${cfg.bonds.length}`, mode: "balance-alb", members, mtu: 1500, ipv4: first ? { ...first.ipv4 } : { mode: "dhcp", address: "", gateway: "" } });
+        draw();
+      } }, "+ Create link aggregation (bond)") : null,
+      h("h3", { class: "pc-group", style: "margin-top:16px" }, "DNS servers"),
+      h("input", { value: cfg.dns.join(", "), placeholder: "empty = from DHCP, e.g. 1.1.1.1, 9.9.9.9", style: "width:100%;max-width:520px",
+        oninput: (e) => (cfg.dns = e.target.value.split(/[ ,]+/).filter(Boolean)) }),
+      h("div", { class: "toolbar", style: "margin-top:16px" }, h("button", { class: "btn primary", onclick: applyNet }, "Apply"),
+        h("button", { class: "btn", onclick: reload }, "Cancel")));
+  }
+
+  async function applyNet() {
+    const statics = [...cfg.nics.filter((n) => n.enabled), ...cfg.bonds].filter((x) => x.ipv4.mode === "static").map((x) => x.ipv4.address.split("/")[0]);
+    const host = location.hostname;
+    const hostIsIp = /^\d+\.\d+\.\d+\.\d+$/.test(host);
+    const currentIps = st.interfaces.flatMap((i) => i.ipv4.map((a) => a.split("/")[0]));
+    // where will the browser find the NAS afterwards?
+    let target = host;
+    if (hostIsIp && currentIps.includes(host) && !statics.includes(host)) {
+      const stays = cfg.nics.some((n) => n.enabled && n.ipv4.mode === "dhcp" && (st.interfaces.find((i) => i.name === n.name)?.ipv4 || []).some((a) => a.startsWith(host + "/")));
+      if (!stays) target = statics[0] || host;
+    }
+    const msg = target !== host
+      ? `The NAS will move to ${target}. Your browser follows automatically.`
+      : "The network restarts briefly.";
+    if (!confirm(`${msg}\n\nIf the NAS can't be reached from this browser within ${data.rollback_seconds} seconds, the previous settings are restored automatically.\n\nApply?`)) return;
+    try { await API.put("/api/network", cfg); } catch (e) { return toast("Error: " + e.message); }
+    const overlay = h("div", { class: "wiz" }, h("div", { class: "wiz-card" }, h("h2", {}, "Applying network settings…"),
+      h("p", { class: "muted" }, target !== host ? `Moving to ${target}…` : "Waiting for the NAS to come back…")));
+    document.body.append(overlay);
+    await new Promise((r) => setTimeout(r, 8000));
+    if (target !== host) {
+      location.href = `${location.protocol}//${target}:${location.port || (location.protocol === "https:" ? 443 : 80)}/#token=${encodeURIComponent(API.token)}&net-confirm=1`;
+      return;
+    }
+    for (let i = 0; i < 30; i++) {
+      try { await API.post("/api/network/confirm"); overlay.remove(); toast("Network settings saved"); return reload(); }
+      catch (e) { if (/nothing to confirm/.test(e.message)) { overlay.remove(); toast("The change was rolled back"); return reload(); } }
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    overlay.remove(); toast("Could not reach the NAS - it will restore the previous settings by itself"); 
+  }
+
+  p.append(h("h2", {}, "Network"),
+    st.manager ? h("div", { class: "note warn" }, `Networking on this system is managed by ${st.manager}. Change it with ${st.manager}'s tools; the settings below are read-only.`) : null,
+    st.pending ? h("div", { class: "note warn" }, "A network change is waiting for confirmation. ",
+      h("button", { class: "btn primary", onclick: async () => { await act(() => API.post("/api/network/confirm"), "Confirmed"); reload(); } }, "Keep these settings")) : null,
+    h("div", { class: "muted", style: "margin-bottom:12px" }, `Default gateway ${st.gateway || "-"} · DNS ${st.dns.join(", ") || "-"}`),
+    box);
+  draw();
 }

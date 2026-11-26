@@ -47,6 +47,7 @@ Running the same command again upgrades Cynthology in place. Settings, shares an
 | Area | Status |
 |---|---|
 | Web desktop: login, taskbar, main menu, draggable windows, widgets | ✅ |
+| **Network settings**: DHCP/static IPv4, MTU (jumbo frames), DNS, **link aggregation** (adaptive load balancing, active-backup, LACP); every change is rolled back automatically unless confirmed from the browser within 90 s | ✅ tested incl. failover and a deliberate lock-out |
 | **2-step verification** (authenticator app TOTP + backup codes), optional requirement for all admins, sign-in lockout after 5 failed attempts | ✅ |
 | HTTPS on 5001 (self-signed or your own certificate), optional HTTP→HTTPS redirect | ✅ |
 | First-run setup wizard (server name, time zone/NTP, HTTPS, storage) | ✅ |

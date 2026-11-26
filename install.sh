@@ -19,7 +19,7 @@ echo "==> Installing packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
 apt-get install -y -q --no-install-recommends \
-  python3 python3-fastapi python3-uvicorn python3-psutil python3-qrcode libpam0g ca-certificates curl sudo rsync util-linux acl openssl restic openssh-client openssh-server exfatprogs ntfs-3g dosfstools psmisc nut-client nut-server \
+  python3 python3-fastapi python3-uvicorn python3-psutil python3-qrcode libpam0g ca-certificates curl sudo rsync util-linux acl openssl restic openssh-client openssh-server exfatprogs ntfs-3g dosfstools psmisc ifenslave nut-client nut-server \
   mdadm lvm2 btrfs-progs e2fsprogs gdisk parted smartmontools \
   samba smbclient nfs-kernel-server avahi-daemon \
   docker.io initramfs-tools
@@ -74,23 +74,18 @@ touch /var/lib/cynrepl/.ssh/authorized_keys && chown cynrepl:cynrepl /var/lib/cy
 printf 'cynrepl ALL=(root) NOPASSWD: /usr/lib/cynthology/repl-receive\n' > /etc/sudoers.d/cynthology-repl
 chmod 440 /etc/sudoers.d/cynthology-repl
 visudo -cqf /etc/sudoers.d/cynthology-repl || rm -f /etc/sudoers.d/cynthology-repl
-# /etc/issue shows the web address on the console
-cat > /etc/issue <<'ISSUE'
-Cynthology alpha \n  (\l)
-
-  Web management:  https://\4:5001   (or http://\4:5000)
-
-ISSUE
+# /etc/issue shows the web address(es) on the console (refreshed at boot and after network changes)
+/usr/lib/cynthology/update-issue || true
 cp "$SRC"/systemd/cynthology-* "$SRC"/systemd/cyn-usb* /etc/systemd/system/
 cat "$SRC/VERSION" 2>/dev/null > /etc/cynthology-release || echo "Cynthology dev" > /etc/cynthology-release
 
 udevadm control --reload-rules 2>/dev/null || true
 if [ "$CHROOT" = 1 ]; then
-  systemctl enable cynthology-ui cynthology-snapshots.timer cynthology-health.timer cynthology-backup.timer cynthology-pkgupdate.timer cynthology-repl.timer ssh smbd avahi-daemon docker
+  systemctl enable cynthology-ui cynthology-snapshots.timer cynthology-health.timer cynthology-backup.timer cynthology-pkgupdate.timer cynthology-repl.timer cynthology-issue ssh smbd avahi-daemon docker
   systemctl enable wsdd2 2>/dev/null || systemctl enable wsdd 2>/dev/null || true
 elif [ "$NOSYSTEMD" != 1 ]; then
   systemctl daemon-reload
-  systemctl enable --now cynthology-ui cynthology-snapshots.timer cynthology-health.timer cynthology-backup.timer cynthology-pkgupdate.timer cynthology-repl.timer ssh smbd avahi-daemon docker
+  systemctl enable --now cynthology-ui cynthology-snapshots.timer cynthology-health.timer cynthology-backup.timer cynthology-pkgupdate.timer cynthology-repl.timer cynthology-issue ssh smbd avahi-daemon docker
   systemctl restart cynthology-ui   # pick up new code when upgrading
   systemctl enable --now wsdd2 2>/dev/null || systemctl enable --now wsdd 2>/dev/null || true
 fi

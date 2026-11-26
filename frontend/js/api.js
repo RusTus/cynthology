@@ -1,3 +1,10 @@
+// DOM append()/replaceChildren() turn null/false into the text "null"/"false". Every page here builds
+// children with `cond ? el : null`, so skip empty values (and flatten arrays) globally.
+for (const m of ["append", "prepend", "replaceChildren"]) {
+  const orig = Element.prototype[m];
+  Element.prototype[m] = function (...kids) { return orig.apply(this, kids.flat(Infinity).filter((k) => k != null && k !== false)); };
+}
+
 // Tiny API client + DOM helpers shared by every app.
 const API = {
   token: sessionStorage.getItem("cyn-token") || "",

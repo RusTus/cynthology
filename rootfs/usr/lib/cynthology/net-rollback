@@ -1,0 +1,3 @@
+#!/bin/sh
+# Restores the previous network settings if a change was not confirmed in time (see network.py).
+cd /opt/cynthology/backend && CYN_STATE=/var/lib/cynthology exec /usr/bin/python3 -m cynthology.network rollback

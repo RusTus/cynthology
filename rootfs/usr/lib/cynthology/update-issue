@@ -1,0 +1,15 @@
+#!/bin/sh
+# Console login banner with the NAS's real addresses (Docker/virtual interfaces skipped).
+ADDRS=$(ip -4 -o addr show scope global 2>/dev/null | awk '{print $2, $4}' | grep -vE '^(docker|br-|veth|virbr|tun|tap|wg)' | awk '{split($2,a,"/"); print a[1]}')
+{
+  echo "Cynthology \\n  (\\l)"
+  echo
+  if [ -n "$ADDRS" ]; then
+    for a in $ADDRS; do echo "  Web management:  https://$a:5001   (or http://$a:5000)"; done
+  else
+    echo "  No network address yet - check the cable / DHCP."
+  fi
+  echo
+} > /etc/issue.new && mv /etc/issue.new /etc/issue
+command -v agetty >/dev/null && pkill -HUP -x agetty 2>/dev/null
+exit 0

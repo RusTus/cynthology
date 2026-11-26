@@ -1,0 +1,11 @@
+[Unit]
+Description=Cynthology: show the web address on the console
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/cynthology/update-issue
+
+[Install]
+WantedBy=multi-user.target
