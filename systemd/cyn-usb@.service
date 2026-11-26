@@ -1,0 +1,10 @@
+[Unit]
+Description=Cynthology: mount USB drive %I
+BindsTo=dev-%i.device
+After=dev-%i.device
+
+[Service]
+Type=oneshot
+Environment=CYN_STATE=/var/lib/cynthology
+WorkingDirectory=/opt/cynthology/backend
+ExecStart=/usr/bin/python3 -m cynthology.usb add %I

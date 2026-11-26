@@ -76,6 +76,8 @@ function startDesktop(me) {
   const clock = () => (document.getElementById("clock").textContent = new Date().toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" }));
   clock(); setInterval(clock, 15000);
   widgets(); setInterval(widgets, 5000);
+  usbIndicator(); setInterval(usbIndicator, 5000);
+  document.getElementById("usb-btn").onclick = toggle("usb-menu");
   if (boot.after) boot.after();
   else if (me.admin) API.get("/api/setup/status").then((s) => s.needs_setup && runSetupWizard());
 }
@@ -96,3 +98,20 @@ async function widgets() {
 }
 
 boot();
+
+// Taskbar eject button: visible while external drives are connected.
+async function usbIndicator() {
+  let disks = [];
+  try { disks = await API.get("/api/usb"); } catch { return; }
+  const btn = document.getElementById("usb-btn"), menu = document.getElementById("usb-menu");
+  btn.classList.toggle("hidden", !disks.length);
+  if (!disks.length) menu.classList.add("hidden");
+  menu.replaceChildren(h("div", { class: "muted", style: "padding:6px 12px;font-size:12px" }, "External devices"),
+    ...disks.map((dk) => h("div", { style: "display:flex;align-items:center;gap:8px;padding:6px 12px" },
+      h("div", { style: "flex:1" }, h("div", {}, dk.model || dk.name), h("div", { class: "muted", style: "font-size:12px" },
+        dk.volumes.filter((v) => v.share).map((v) => v.share).join(", ") || "not mounted")),
+      dk.volumes.some((v) => v.share) ? h("button", { class: "btn", onclick: async (e) => {
+        e.stopPropagation();
+        await act(() => API.post(`/api/usb/${dk.name}/eject`), "Ejected - safe to unplug"); usbIndicator();
+      } }, "Eject") : null)));
+}

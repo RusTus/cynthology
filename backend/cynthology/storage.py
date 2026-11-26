@@ -120,12 +120,14 @@ def list_disks() -> list[dict]:
     if DEV:
         used = {d for p in load_pools() for d in p["disks"]}
         return [{**d, "in_use": d["in_use"] or d["name"] in used} for d in MOCK_DISKS]
-    out = read_only(["lsblk", "-J", "-b", "-o", "NAME,PATH,SIZE,MODEL,SERIAL,ROTA,TYPE,MOUNTPOINT,FSTYPE"])
+    out = read_only(["lsblk", "-J", "-b", "-o", "NAME,PATH,SIZE,MODEL,SERIAL,ROTA,TYPE,MOUNTPOINT,FSTYPE,TRAN,HOTPLUG"])
     disks = []
     for d in json.loads(out or '{"blockdevices":[]}')["blockdevices"]:
         test_loop = os.environ.get("CYN_TEST_LOOP") == "1" and d.get("type") == "loop"
         if not test_loop and (d.get("type") != "disk" or d["name"].startswith(("loop", "zram", "sr"))):
             continue
+        if d.get("tran") == "usb":
+            continue   # external drives are handled by External Devices, never offered for pools
         children = d.get("children") or []
         mounts = _mounts(d)
         disks.append({

@@ -1,0 +1,3 @@
+# Cynthology: mount external USB drives as shared folders (usbshareN) when they are plugged in.
+ACTION=="add", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", ENV{ID_BUS}=="usb", TAG+="systemd", ENV{SYSTEMD_WANTS}+="cyn-usb@%k.service"
+ACTION=="remove", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", ENV{ID_BUS}=="usb", RUN+="/bin/systemctl --no-block start cyn-usb-removed.service"

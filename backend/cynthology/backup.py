@@ -115,6 +115,10 @@ def usb_drives() -> list[dict]:
 def _mount_usb(uuid: str) -> str:
     if not re.fullmatch(r"[A-Za-z0-9-]+", uuid):
         raise RuntimeError("bad drive id")
+    # already mounted (e.g. as usbshareN by External Devices)? use that mount
+    cur = subprocess.run(["findmnt", "-rno", "TARGET", f"UUID={uuid}"], capture_output=True, text=True).stdout.split()
+    if cur:
+        return cur[0]
     mp = os.path.join(MEDIA, f"cyn-{uuid}")
     if DEV:
         os.makedirs(mp, exist_ok=True)

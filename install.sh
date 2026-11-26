@@ -19,7 +19,7 @@ echo "==> Installing packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
 apt-get install -y -q --no-install-recommends \
-  python3 python3-fastapi python3-uvicorn python3-psutil python3-qrcode libpam0g ca-certificates curl sudo rsync util-linux acl openssl restic openssh-client openssh-server nut-client nut-server \
+  python3 python3-fastapi python3-uvicorn python3-psutil python3-qrcode libpam0g ca-certificates curl sudo rsync util-linux acl openssl restic openssh-client openssh-server exfatprogs ntfs-3g dosfstools psmisc nut-client nut-server \
   mdadm lvm2 btrfs-progs e2fsprogs gdisk parted smartmontools \
   samba smbclient nfs-kernel-server avahi-daemon \
   docker.io initramfs-tools
@@ -81,9 +81,10 @@ Cynthology alpha \n  (\l)
   Web management:  https://\4:5001   (or http://\4:5000)
 
 ISSUE
-cp "$SRC"/systemd/cynthology-* /etc/systemd/system/
+cp "$SRC"/systemd/cynthology-* "$SRC"/systemd/cyn-usb* /etc/systemd/system/
 cat "$SRC/VERSION" 2>/dev/null > /etc/cynthology-release || echo "Cynthology dev" > /etc/cynthology-release
 
+udevadm control --reload-rules 2>/dev/null || true
 if [ "$CHROOT" = 1 ]; then
   systemctl enable cynthology-ui cynthology-snapshots.timer cynthology-health.timer cynthology-backup.timer cynthology-pkgupdate.timer cynthology-repl.timer ssh smbd avahi-daemon docker
   systemctl enable wsdd2 2>/dev/null || systemctl enable wsdd 2>/dev/null || true

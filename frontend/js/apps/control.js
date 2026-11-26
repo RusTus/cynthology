@@ -7,6 +7,7 @@ WM.register("control", {
       security: { label: "Security", render: cpSecurity },
       notify: { label: "Notifications", render: cpNotify },
       ups: { label: "UPS", render: cpUps },
+      usb: { label: "External Devices", render: cpUsb },
       shares: { label: "Shared Folders", render: cpShares },
       users: { label: "Users & Groups", render: cpUsers },
       services: { label: "File Services", render: cpServices },
@@ -28,7 +29,7 @@ async function cpShares(p) {
         h("td", {}, s.smb ? h("span", { class: "pill" }, "SMB") : null, " ", s.nfs ? h("span", { class: "pill" }, "NFS") : null,
           s.recycle_bin ? h("span", { class: "pill" }, "Recycle bin") : null),
         h("td", {},
-          h("button", { class: "btn", onclick: () => act(() => API.post(`/api/snapshots/${s.name}`), "Snapshot taken") }, "Snapshot"), " ",
+          s.usb ? h("span", { class: "pill" }, "USB") : h("button", { class: "btn", onclick: () => act(() => API.post(`/api/snapshots/${s.name}`), "Snapshot taken") }, "Snapshot"), " ",
           h("button", { class: "btn danger", onclick: async () => {
             if (!confirm(`Remove share ${s.name}? (data is kept)`)) return;
             await act(() => API.del(`/api/shares/${s.name}`), "Share removed"); reload();
@@ -249,4 +250,42 @@ async function cpUps(p) {
   }
   p.append(h("h2", {}, "UPS"), statusCard, box);
   draw();
+}
+
+async function cpUsb(p) {
+  const disks = await API.get("/api/usb");
+  const reload = () => { p.replaceChildren(); cpUsb(p); };
+  const fsName = { vfat: "FAT32", exfat: "exFAT", ntfs: "NTFS", ntfs3: "NTFS", ext4: "ext4", btrfs: "Btrfs", xfs: "XFS", hfsplus: "HFS+ (read-only)" };
+  p.append(h("h2", {}, "External Devices"),
+    h("p", { class: "muted" }, "USB drives are mounted automatically when plugged in and appear as shared folders usbshare1, usbshare2… in File Station and on the network."),
+    disks.length ? h("div", { class: "cards" }, disks.map((d) => h("div", { class: "card" },
+      h("div", {}, h("b", {}, d.model || d.name), " ", h("span", { class: "muted" }, `${fmtBytes(d.size)} · /dev/${d.name}`)),
+      d.volumes.length ? d.volumes.map((v) => h("div", { style: "border-top:1px solid var(--line);padding-top:8px" },
+          h("div", {}, h("b", {}, v.label || "(no label)"), " ", h("span", { class: "pill" }, fsName[v.fstype] || v.fstype), " ", h("span", { class: "muted" }, fmtBytes(v.size))),
+          v.share ? h("div", {}, "Shared folder ", h("b", {}, v.share), h("span", { class: "muted mono" }, "  " + v.mountpoint))
+            : v.supported ? h("div", { class: "muted" }, "Not mounted") : h("div", { class: "err" }, `Unsupported filesystem (${v.fstype})`)))
+        : h("div", { class: "muted" }, "No filesystem - format it to use it."),
+      h("div", { class: "toolbar", style: "margin:4px 0 0" },
+        d.volumes.some((v) => v.share)
+          ? h("button", { class: "btn primary", onclick: async () => { await act(() => API.post(`/api/usb/${d.name}/eject`), "Ejected - you can unplug the drive now"); reload(); } }, "⏏ Eject")
+          : d.volumes.some((v) => v.supported) ? h("button", { class: "btn", onclick: async () => { await act(() => API.post(`/api/usb/${d.name}/mount`), "Mounted"); reload(); } }, "Mount") : null,
+        h("button", { class: "btn danger", onclick: () => usbFormat(p, d, reload) }, "Format…")))))
+      : h("p", { class: "muted" }, "No external drives connected."),
+    h("div", { class: "toolbar", style: "margin-top:12px" }, h("button", { class: "btn", onclick: reload }, "⟳ Refresh")));
+}
+
+function usbFormat(p, d, done) {
+  const f = { fs: "exfat", label: "USB" };
+  p.replaceChildren(h("h2", {}, `Format ${d.model || d.name}`),
+    h("div", { class: "form" },
+      h("div", { class: "note warn" }, `Everything on this ${fmtBytes(d.size)} drive will be erased.`),
+      h("label", {}, "Format as", h("select", { onchange: (e) => (f.fs = e.target.value) },
+        [["exfat", "exFAT - works on Windows, macOS and Linux (recommended)"], ["ntfs", "NTFS - Windows"], ["ext4", "ext4 - Linux only, fastest on the NAS"]].map(([v, l]) => h("option", { value: v }, l)))),
+      h("label", {}, "Label (max 11 characters)", h("input", { value: f.label, maxlength: 11, oninput: (e) => (f.label = e.target.value) })),
+      h("div", { class: "toolbar" }, h("button", { class: "btn", onclick: done }, "Cancel"),
+        h("button", { class: "btn danger", onclick: async () => {
+          if (!confirm(`Erase ${d.model || d.name} and format it as ${f.fs}?`)) return;
+          p.replaceChildren(h("p", { class: "muted" }, "Formatting…"));
+          try { await act(() => API.post(`/api/usb/${d.name}/format`, f), "Formatted and mounted"); } finally { done(); }
+        } }, "Erase and format"))));
 }
