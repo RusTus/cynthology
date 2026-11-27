@@ -4,6 +4,10 @@
   "category": "Photos & media",
   "options": [
    {
+    "kind": "container",
+    "app": "immich"
+   },
+   {
     "kind": "spk",
     "package": "immich"
    },

@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from . import shares as shares_mod
 from .auth import require_admin
 from .storage import load_pools
-from .util import DEV, run
+from .util import DEV, STATE_DIR, run
 
 router = APIRouter(prefix="/api/containers", tags=["containers"])
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}\Z")
@@ -53,34 +53,72 @@ def jlines(out: str) -> list[dict]:
 # ---------- background jobs (pull, compose up, ...) ----------
 
 JOBS: dict[str, dict] = {}
+JOB_DIR = os.path.join(STATE_DIR, "jobs")
 
 
 def start_job(title: str, cmd: list[str], cwd: str | None = None) -> str:
+    """Run a long job (image pull, compose up, app install...) in its own systemd unit, so it keeps
+    going when the web interface restarts (e.g. during a Cynthology update). Output goes to a log
+    file the page follows; the job can be found again after a restart."""
     jid = secrets.token_hex(4)
-    job = {"id": jid, "title": title, "state": "running", "log": [], "started": time.time()}
-    JOBS[jid] = job
-
-    def work():
-        try:
-            p = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-            for line in p.stdout:
-                job["log"].append(line.rstrip())
-                del job["log"][:-400]
-            job["state"] = "done" if p.wait() == 0 else "failed"
-        except Exception as e:
-            job["log"].append(str(e))
-            job["state"] = "failed"
-        job["finished"] = time.time()
-
-    threading.Thread(target=work, daemon=True).start()
-    for k in [k for k, j in JOBS.items() if j.get("finished", time.time()) < time.time() - 3600]:
-        del JOBS[k]
+    os.makedirs(JOB_DIR, mode=0o700, exist_ok=True)
+    log = os.path.join(JOB_DIR, f"{jid}.log")
+    meta = {"id": jid, "title": title, "started": time.time()}
+    with open(os.path.join(JOB_DIR, f"{jid}.json"), "w") as f:
+        json.dump(meta, f)
+    open(log, "w").close()
+    if DEV:
+        def work():
+            with open(log, "a") as lf:
+                rc = subprocess.run(cmd, cwd=cwd, stdout=lf, stderr=subprocess.STDOUT).returncode
+            with open(log + ".rc", "w") as f:
+                f.write(str(rc))
+        threading.Thread(target=work, daemon=True).start()
+    else:
+        # the unit writes the exit code next to the log, so the result survives too
+        script = 'cd "$1" && shift; "$@" >> "$LOG" 2>&1; echo $? > "$LOG.rc"'
+        run(["systemd-run", f"--unit=cyn-job-{jid}", "--collect", f"--setenv=LOG={log}", "--description", f"Cynthology: {title}",
+             "sh", "-c", script, "sh", cwd or "/", *cmd])
+    _clean_jobs()
     return jid
+
+
+def _clean_jobs() -> None:
+    try:
+        for fn in os.listdir(JOB_DIR):
+            p = os.path.join(JOB_DIR, fn)
+            if time.time() - os.path.getmtime(p) > 7 * 86400:
+                os.remove(p)
+    except OSError:
+        pass
+
+
+def job_state(jid: str) -> dict | None:
+    if not re.fullmatch(r"[0-9a-f]{8}", jid):
+        return None
+    try:
+        meta = json.load(open(os.path.join(JOB_DIR, f"{jid}.json")))
+    except (OSError, ValueError):
+        return None
+    log = os.path.join(JOB_DIR, f"{jid}.log")
+    try:
+        lines = open(log, errors="replace").read().splitlines()[-400:]
+    except OSError:
+        lines = []
+    try:
+        rc = int(open(log + ".rc").read().strip())
+        state = "done" if rc == 0 else "failed"
+        finished = os.path.getmtime(log + ".rc")
+    except (OSError, ValueError):
+        rc, finished = None, None
+        alive = DEV or subprocess.run(["systemctl", "is-active", "--quiet", f"cyn-job-{jid}"]).returncode == 0
+        state = "running" if alive or time.time() - meta["started"] < 5 else "failed"
+    return {**meta, "state": state, "log": [ln.rstrip() for ln in lines], **({"finished": finished} if finished else {})}
 
 
 @router.get("/jobs/{jid}")
 def job(jid: str, _=Depends(require_admin)):
-    j = JOBS.get(jid)
+    j = job_state(jid)
     if not j:
         raise HTTPException(404, "no such job")
     return j
