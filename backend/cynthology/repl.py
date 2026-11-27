@@ -1,5 +1,6 @@
-"""Snapshot replication: copy shared-folder snapshots to another Cynthology NAS with
-btrfs send/receive over SSH (incremental after the first run).
+"""Snapshot replication: copy shared-folder (or iSCSI LUN) snapshots to another Cynthology NAS
+with btrfs send/receive over SSH (incremental after the first run). LUN replicas are stored on
+the receiver as "lun.<name>" and can be turned into a LUN there (SAN Manager).
 
 Sender  (this NAS has the share): a task takes a snapshot, asks the receiver which snapshots it
         already has, streams `btrfs send [-p <newest common>] <new>` over SSH, then prunes.
@@ -163,7 +164,8 @@ def received(_=Depends(require_admin)):
             d = os.path.join(root, src, share)
             snaps = sorted(n for n in os.listdir(d) if snapshots.NAME_RE.match(n))
             out.append({"source": src, "share": share, "count": len(snaps), "snapshots": list(reversed(snaps)),
-                        "latest": snaps[-1] if snaps else None})
+                        "latest": snaps[-1] if snaps else None,
+                        "lun": share[4:] if share.startswith("lun.") else None})
     return out
 
 
@@ -297,31 +299,41 @@ def do_replicate(tid: str) -> None:
     write_status(tid, state="running", started=int(started), error=None)
     log = open(_log_file(tid), "w")
     try:
-        share = next((s for s in shares_mod.load() if s["name"] == t["share"]), None)
-        if not share:
-            raise RuntimeError(f"shared folder {t['share']} no longer exists")
-        new = snapshots.take(share)
-        local = snapshots.list_snaps(share)
-        have = json.loads(remote(t, f"list {t['share']}") or "[]")
+        if t.get("lun"):
+            from . import san
+            lun = next((l for l in san.load()["luns"] if l["name"] == t["lun"]), None)
+            if not lun:
+                raise RuntimeError(f"LUN {t['lun']} no longer exists")
+            new = san.take_lun_snapshot(lun)
+            local = san.list_lun_snaps(lun)
+            snapdir, rname = san.snap_dir(lun), f"lun.{t['lun']}"
+        else:
+            share = next((s for s in shares_mod.load() if s["name"] == t["share"]), None)
+            if not share:
+                raise RuntimeError(f"shared folder {t['share']} no longer exists")
+            new = snapshots.take(share)
+            local = snapshots.list_snaps(share)
+            snapdir, rname = os.path.join(share["path"], snapshots.SNAPDIR), t["share"]
+        have = json.loads(remote(t, f"list {rname}") or "[]")
         common = [n for n in local if n in have and n != new]
         parent = common[-1] if common else None
-        snapdir = os.path.join(share["path"], snapshots.SNAPDIR)
         send = ["btrfs", "send", *(["-p", os.path.join(snapdir, parent)] if parent else []), os.path.join(snapdir, new)]
-        log.write(f"$ {shlex.join(send)} | ssh {t['host']} receive {t['share']}\n")
+        log.write(f"$ {shlex.join(send)} | ssh {t['host']} receive {rname}\n")
         log.flush()
         sender = subprocess.Popen(send, stdout=subprocess.PIPE, stderr=log)
-        recv = subprocess.run(ssh_cmd(t, f"receive {t['share']}"), stdin=sender.stdout, stdout=log, stderr=log, timeout=7 * 24 * 3600)
+        recv = subprocess.run(ssh_cmd(t, f"receive {rname}"), stdin=sender.stdout, stdout=log, stderr=log, timeout=7 * 24 * 3600)
         sender.stdout.close()
         if sender.wait() != 0 or recv.returncode != 0:
             raise RuntimeError(_last_error(tid) or "send/receive failed")
         if int(t.get("keep") or 0) > 0:
-            remote(t, f"prune {t['share']} {int(t['keep'])}")
+            remote(t, f"prune {rname} {int(t['keep'])}")
         write_status(tid, state="success", finished=int(time.time()), last_snapshot=new,
                      incremental=bool(parent), duration=round(time.time() - started))
     except Exception as e:
         write_status(tid, state="failed", finished=int(time.time()), error=str(e))
         from .backup import _alert
-        _alert({"name": t["share"]}, "critical", f"Replication of '{t['share']}' to {t['host']} failed", str(e))
+        what = f"LUN {t['lun']}" if t.get("lun") else t["share"]
+        _alert({"name": what}, "critical", f"Replication of '{what}' to {t['host']} failed", str(e))
     finally:
         log.close()
 
@@ -359,7 +371,8 @@ def due(now: float | None = None) -> list[str]:
 
 
 class Task(BaseModel):
-    share: str
+    share: str = ""              # a shared folder ...
+    lun: str = ""                # ... or an iSCSI LUN
     host: str
     port: int = 22
     schedule: str = "daily"      # manual | hourly | daily | weekly
@@ -367,13 +380,21 @@ class Task(BaseModel):
 
 
 def _validate(body: Task) -> None:
-    if not any(s["name"] == body.share for s in shares_mod.load()):
+    if body.lun:
+        from . import san
+        lun = next((l for l in san.load()["luns"] if l["name"] == body.lun), None)
+        if not lun:
+            raise HTTPException(400, "unknown LUN")
+        if not san.snaps_supported(lun):
+            raise HTTPException(400, "replication needs the LUN to be on a Btrfs pool")
+        body.share = ""
+    elif not any(s["name"] == body.share for s in shares_mod.load()):
         raise HTTPException(400, "unknown shared folder")
     if not re.fullmatch(r"[A-Za-z0-9.:-]+", body.host):
         raise HTTPException(400, "enter the other NAS's name or IP address")
     if body.schedule not in ("manual", *INTERVAL_H):
         raise HTTPException(400, "bad schedule")
-    if not snapshots.supported(next(s for s in shares_mod.load() if s["name"] == body.share)):
+    if not body.lun and not snapshots.supported(next(s for s in shares_mod.load() if s["name"] == body.share)):
         raise HTTPException(400, "replication needs the shared folder to be on a Btrfs volume")
 
 

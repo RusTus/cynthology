@@ -19,3 +19,14 @@ def test_target_validation():
 
 def test_iqn_prefix_is_valid():
     assert san.IQN_RE.match(san.iqn_prefix() + ".esx")
+
+
+def test_custom_iqn(tmp_path, monkeypatch):
+    monkeypatch.setattr(san, "STATE", str(tmp_path / "san.json"))
+    r = san.create_target(san.TargetBody(name="esx", iqn="iqn.2020-05.com.example:vmware.datastores"))
+    assert r["iqn"] == "iqn.2020-05.com.example:vmware.datastores"
+    assert san.create_target(san.TargetBody(name="b"))["iqn"] == san.iqn_prefix() + ".b"
+    with pytest.raises(HTTPException):
+        san.create_target(san.TargetBody(name="c", iqn="iqn.2020-05.com.example:vmware.datastores"))   # duplicate
+    with pytest.raises(HTTPException):
+        san.create_target(san.TargetBody(name="d", iqn="Not An IQN"))

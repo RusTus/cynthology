@@ -66,45 +66,52 @@ function snapshotsLocal(pane) {
 
 // ---------- replication: this NAS sends ----------
 async function replicationSend(pane) {
-  const [tasks, shares] = await Promise.all([API.get("/api/replication/tasks"), API.get("/api/snapshots")]);
+  const [tasks, shares, san] = await Promise.all([API.get("/api/replication/tasks"), API.get("/api/snapshots"), API.get("/api/san").catch(() => ({ luns: [] }))]);
+  const luns = san.luns || [];
+  const what = (t) => (t.lun ? `LUN ${t.lun}` : t.share);
   const redraw = () => { pane.replaceChildren(); replicationSend(pane); };
   const label = { success: ["ok", "Up to date"], failed: ["bad", "Failed"], running: ["warn", "Replicating…"], never: ["", "Never run"] };
   pane.append(h("h2", {}, "Snapshot replication"),
-    h("div", { class: "note" }, "Keeps a copy of a shared folder on another Cynthology NAS, updated on a schedule. ",
-      "After the first full copy only changes are sent. If this NAS fails, the other one can turn the replica into a normal shared folder."),
-    h("div", { class: "toolbar", style: "margin-top:12px" }, h("button", { class: "btn primary", onclick: () => replicationEditor(pane, null, shares, redraw) }, "+ Replicate a shared folder")),
+    h("div", { class: "note" }, "Keeps a copy of a shared folder or iSCSI LUN on another Cynthology NAS, updated on a schedule. ",
+      "After the first full copy only changes are sent. If this NAS fails, the other one can turn the replica into a normal shared folder or LUN."),
+    h("div", { class: "toolbar", style: "margin-top:12px" }, h("button", { class: "btn primary", onclick: () => replicationEditor(pane, null, shares, redraw, luns) }, "+ Replicate a shared folder or LUN")),
     tasks.length ? h("table", {},
-      h("tr", {}, h("th", {}, "Shared folder"), h("th", {}, "To"), h("th", {}, "Schedule"), h("th", {}, "Status"), h("th", {})),
+      h("tr", {}, h("th", {}, "What"), h("th", {}, "To"), h("th", {}, "Schedule"), h("th", {}, "Status"), h("th", {})),
       tasks.map((t) => {
         const [cls, txt] = label[t.status.state] || ["", t.status.state];
         return h("tr", {},
-          h("td", {}, h("b", {}, t.share)), h("td", { class: "mono" }, t.host),
+          h("td", {}, h("b", {}, what(t))), h("td", { class: "mono" }, t.host),
           h("td", {}, t.schedule, t.keep ? h("div", { class: "muted" }, `keep ${t.keep}`) : null),
           h("td", {}, h("span", { class: "pill " + cls }, txt),
             t.status.finished ? h("div", { class: "muted" }, new Date(t.status.finished * 1000).toLocaleString() + (t.status.state === "success" ? (t.status.incremental ? " · changes only" : " · full copy") : "")) : null,
             t.status.error ? h("div", { class: "err" }, t.status.error) : null),
           h("td", {},
             h("button", { class: "btn primary", disabled: t.status.state === "running", onclick: async () => { await act(() => API.post(`/api/replication/tasks/${t.id}/run`), "Replication started"); setTimeout(redraw, 1500); } }, "Sync now"), " ",
-            h("button", { class: "btn", onclick: () => replicationEditor(pane, t, shares, redraw) }, "Edit"), " ",
+            h("button", { class: "btn", onclick: () => replicationEditor(pane, t, shares, redraw, luns) }, "Edit"), " ",
             h("button", { class: "btn danger", onclick: async () => {
-              if (!confirm(`Stop replicating ${t.share}? Replicas already on ${t.host} are kept.`)) return;
+              if (!confirm(`Stop replicating ${what(t)}? Replicas already on ${t.host} are kept.`)) return;
               await act(() => API.del(`/api/replication/tasks/${t.id}`), "Removed"); redraw();
             } }, "Remove")));
       }))
       : h("p", { class: "muted" }, "Nothing is replicated yet."));
 }
 
-async function replicationEditor(pane, t, shares, done) {
+async function replicationEditor(pane, t, shares, done, luns = []) {
   const key = await API.get("/api/replication/key");
-  const f = t ? { ...t } : { share: shares.find((s) => s.supported)?.share || "", host: "", port: 22, schedule: "daily", keep: 30 };
+  const f = t ? { lun: "", ...t } : { share: shares.find((s) => s.supported)?.share || "", lun: "", host: "", port: 22, schedule: "daily", keep: 30 };
+  const cur = f.lun ? `lun:${f.lun}` : `share:${f.share}`;
   const out = h("div");
-  pane.replaceChildren(h("h2", {}, t ? `Edit replication of ${t.share}` : "Replicate a shared folder"),
+  pane.replaceChildren(h("h2", {}, t ? `Edit replication of ${t.lun ? "LUN " + t.lun : t.share}` : "Replicate a shared folder or LUN"),
     h("div", { class: "form" },
       h("div", { class: "note" }, h("b", {}, "Step 1 - on the other NAS: "), "Snapshots → Receive replicas → Allow a NAS, name it ",
         h("b", { class: "mono" }, key.hostname.toLowerCase().replace(/[^a-z0-9-]/g, "-")), " and paste this key:",
         h("textarea", { readonly: true, style: "width:100%;min-height:58px;margin-top:6px", onclick: (e) => e.target.select() }, key.public_key)),
-      h("label", {}, "Shared folder", h("select", { onchange: (e) => (f.share = e.target.value) },
-        shares.map((s) => h("option", { value: s.share, selected: s.share === f.share, disabled: !s.supported }, s.share + (s.supported ? "" : " (not on Btrfs)"))))),
+      h("label", {}, "What to replicate", h("select", { onchange: (e) => {
+          const [kind, name] = e.target.value.split(/:(.*)/s);
+          f.share = kind === "share" ? name : ""; f.lun = kind === "lun" ? name : "";
+        } },
+        h("optgroup", { label: t ? "Shared folders" : "Shared folders" }, shares.map((s) => h("option", { value: `share:${s.share}`, selected: cur === `share:${s.share}`, disabled: !s.supported, translate: "no" }, s.share + (s.supported ? "" : " (not on Btrfs)")))),
+        luns.length ? h("optgroup", { label: "iSCSI LUNs" }, luns.map((l) => h("option", { value: `lun:${l.name}`, selected: cur === `lun:${l.name}`, translate: "no" }, `LUN ${l.name}`))) : null)),
       h("label", {}, "Other NAS (name or IP address)", h("input", { value: f.host, placeholder: "192.168.1.60", oninput: (e) => (f.host = e.target.value.trim()) })),
       h("label", {}, "SSH port", h("input", { type: "number", value: f.port, style: "width:100px", oninput: (e) => (f.port = +e.target.value) })),
       h("div", { class: "toolbar" }, h("button", { class: "btn", onclick: async () => {
@@ -142,17 +149,21 @@ async function replicationReceive(pane) {
         h("div", { class: "muted" }, "The key can only deliver replicas: no login, no shell, nothing outside the replica area."))),
     h("h3", { class: "pc-group", style: "margin-top:20px" }, "Replicas stored on this NAS"),
     received.length ? h("table", {},
-      h("tr", {}, h("th", {}, "From"), h("th", {}, "Shared folder"), h("th", {}, "Versions"), h("th", {}, "Latest"), h("th", {})),
+      h("tr", {}, h("th", {}, "From"), h("th", {}, "What"), h("th", {}, "Versions"), h("th", {}, "Latest"), h("th", {})),
       received.map((r) => {
         const pick = h("select", {}, r.snapshots.map((n) => h("option", { value: n }, snapWhen(n))));
-        return h("tr", {}, h("td", {}, r.source), h("td", {}, h("b", {}, r.share)), h("td", {}, String(r.count)), h("td", { class: "muted" }, snapWhen(r.latest)),
+        return h("tr", {}, h("td", {}, r.source), h("td", {}, h("b", {}, r.lun ? `LUN ${r.lun}` : r.share)), h("td", {}, String(r.count)), h("td", { class: "muted" }, snapWhen(r.latest)),
           h("td", {}, r.count ? h("div", { style: "display:flex;gap:6px;flex-wrap:wrap" }, pick,
-            h("button", { class: "btn primary", title: "Make this version available as a normal, writable shared folder", onclick: async () => {
+            r.lun ? h("button", { class: "btn primary", title: "Make this version available as a writable iSCSI LUN (SAN Manager)", onclick: async () => {
+              const name = prompt("Name of the new LUN (lowercase letters, digits, -):", `${r.lun}-${r.source}`.toLowerCase().replace(/[^a-z0-9-]/g, "-").slice(0, 31)); if (!name) return;
+              await act(() => API.post("/api/san/luns/from-replica", { source: r.source, lun: r.lun, snapshot: pick.value, new_name: name }), `LUN ${name} created - map it to a target in SAN Manager`);
+            } }, "Use as LUN")
+            : h("button", { class: "btn primary", title: "Make this version available as a normal, writable shared folder", onclick: async () => {
               const name = prompt("Name of the new shared folder:", `${r.share}-${r.source}`); if (!name) return;
               await act(() => API.post("/api/replication/failover", { source: r.source, share: r.share, snapshot: pick.value, new_name: name }), `Shared folder ${name} created`);
             } }, "Use as shared folder"),
             h("button", { class: "btn danger", onclick: async () => {
-              if (!confirm(`Delete all ${r.count} replica(s) of ${r.share} from ${r.source}?`)) return;
+              if (!confirm(`Delete all ${r.count} replica(s) of ${r.lun ? "LUN " + r.lun : r.share} from ${r.source}?`)) return;
               await act(() => API.post("/api/replication/received/delete", { source: r.source, share: r.share }), "Deleted"); redraw();
             } }, "Delete")) : null));
       }))

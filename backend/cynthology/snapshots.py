@@ -244,4 +244,9 @@ def revert(share: str, name: str, _=Depends(require_admin)):
 
 if __name__ == "__main__":
     taken = run_due()
+    try:
+        from . import san
+        taken += san.snap_due()
+    except Exception as e:      # LUN snapshots must never stop shared-folder ones
+        print("LUN snapshots failed:", e)
     print("snapshots taken:", ", ".join(taken) or "none")

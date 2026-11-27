@@ -194,6 +194,7 @@ def overview(_=Depends(current_user)):
         p = pools.get(lun["pool_id"])
         lun["pool"] = p["label"] if p else "?"
         lun["used"] = lun["size"] // 3 if DEV else _used(lun["path"])
+        lun["snapshots"] = len(list_lun_snaps(lun)) if p and snaps_supported(lun) else 0
     from .sysinfo import lan_ips
     return {**st, "available": available() is None, "why": available(), "running": DEV or os.path.isdir("/sys/kernel/config/target/iscsi"),
             "portals": [f"{ip}:3260" for ip in (lan_ips() if not DEV else ["192.168.1.20"])], "iqn_prefix": iqn_prefix()}
@@ -201,6 +202,7 @@ def overview(_=Depends(current_user)):
 
 class TargetBody(BaseModel):
     name: str
+    iqn: str = ""                       # custom target IQN (new targets only); default <prefix>.<name>
     initiators: list[str] = []          # empty = any initiator may connect
     chap_user: str = ""
     chap_password: str = ""             # 12-16 characters (iSCSI CHAP rule); empty keeps the old one when editing
@@ -227,7 +229,12 @@ def create_target(body: TargetBody, _=Depends(require_admin)):
         raise HTTPException(409, "a target with that name exists")
     if body.chap_user and not body.chap_password:
         raise HTTPException(400, "enter a CHAP secret")
-    tgt = {"name": body.name, "iqn": f"{iqn_prefix()}.{body.name}", "initiators": [i.strip() for i in body.initiators],
+    iqn = body.iqn.strip() or f"{iqn_prefix()}.{body.name}"
+    if not re.match(r"^iqn\.\d{4}-\d{2}\.[a-z0-9.-]+(:[a-z0-9._:-]+)?$", iqn) or len(iqn) > 223:
+        raise HTTPException(400, "target IQN must look like iqn.2000-01.org.example:storage.name (lowercase, max 223 characters)")
+    if any(t["iqn"] == iqn for t in st["targets"]):
+        raise HTTPException(409, "another target already uses that IQN")
+    tgt = {"name": body.name, "iqn": iqn, "initiators": [i.strip() for i in body.initiators],
            "chap": {"user": body.chap_user, "password": body.chap_password} if body.chap_user else None}
     if not DEV:
         tpg = _tpg(tgt["iqn"], create=True)
@@ -342,7 +349,7 @@ def create_lun(body: LunBody, _=Depends(require_admin)):
         try:
             if src:
                 # instant copy on Btrfs; a plain copy elsewhere (for consistency, clone while the LUN isn't in use)
-                run(["cp", "--reflink=auto", "--sparse=always", src["path"], path])
+                run(["cp", "--reflink=auto", src["path"], path])
             else:
                 with open(path, "wb") as f:
                     f.truncate(size)
@@ -410,6 +417,10 @@ def delete_lun(name: str, _=Depends(require_admin)):
         _persist()
         if os.path.exists(lun["path"]):
             os.remove(lun["path"])
+        for n in list_lun_snaps(lun):
+            run(["btrfs", "subvolume", "delete", os.path.join(snap_dir(lun), n)], check=False)
+        if os.path.isdir(snap_dir(lun)):
+            os.rmdir(snap_dir(lun))
     st["luns"] = [l for l in st["luns"] if l["name"] != name]
     save(st)
     return {"ok": True}
@@ -423,3 +434,233 @@ def vaai_status(name: str, _=Depends(require_admin)):
     so = _so(name)
     a = lambda k: so.get_attribute(k) == "1"
     return {"ats": a("emulate_caw"), "xcopy": a("emulate_3pc"), "write_same": a("emulate_tpws"), "unmap": a("emulate_tpu")}
+
+
+# ---------- LUN snapshots ----------
+# Each snapshot is a read-only Btrfs subvolume <pool>/@iSCSI/.snapshots/<lun>/@GMT-... holding a
+# reflink copy of the LUN image: instant, shares unchanged blocks with the live LUN, and point in
+# time (the clone locks the file, so concurrent writes land either before or after it). Being
+# subvolumes, they can be replicated with btrfs send like shared-folder snapshots.
+
+SNAP_FMT = "@GMT-%Y.%m.%d-%H.%M.%S"
+SNAP_RE = re.compile(r"^@GMT-\d{4}\.\d{2}\.\d{2}-\d{2}\.\d{2}\.\d{2}$")
+INTERVAL_H = {"hourly": 1, "daily": 24, "weekly": 24 * 7}
+_dev_snaps: dict[str, list[str]] = {}
+
+
+def _lun(st: dict, name: str) -> dict:
+    lun = next((l for l in st["luns"] if l["name"] == name), None)
+    if not lun:
+        raise HTTPException(404, "no such LUN")
+    return lun
+
+
+def _pool_of(lun: dict) -> dict:
+    pool = next((p for p in load_pools() if p["id"] == lun["pool_id"]), None)
+    if not pool:
+        raise HTTPException(400, "the LUN's storage pool is missing")
+    return pool
+
+
+def snap_dir(lun: dict) -> str:
+    return os.path.join(os.path.dirname(lun["path"]), ".snapshots", lun["name"])
+
+
+def snaps_supported(lun: dict) -> bool:
+    return DEV or _pool_of(lun).get("fs", "btrfs") == "btrfs"
+
+
+def list_lun_snaps(lun: dict) -> list[str]:
+    if DEV:
+        return sorted(_dev_snaps.get(lun["name"], []))
+    d = snap_dir(lun)
+    return sorted(n for n in os.listdir(d) if SNAP_RE.match(n)) if os.path.isdir(d) else []
+
+
+def take_lun_snapshot(lun: dict) -> str:
+    import datetime
+    name = datetime.datetime.now(datetime.timezone.utc).strftime(SNAP_FMT)
+    if DEV:
+        _dev_snaps.setdefault(lun["name"], []).append(name)
+        return name
+    if not snaps_supported(lun):
+        raise HTTPException(400, "LUN snapshots need a Btrfs storage pool")
+    d = snap_dir(lun)
+    os.makedirs(d, mode=0o700, exist_ok=True)
+    target = os.path.join(d, name)
+    if os.path.exists(target):
+        raise HTTPException(409, "a snapshot was taken this second - try again")
+    run(["btrfs", "subvolume", "create", target])
+    try:
+        run(["chattr", "+C", target], check=False)      # same No-CoW flag as the LUN, or the reflink is refused
+        run(["cp", "--reflink=always", lun["path"], os.path.join(target, "lun.img")])
+        run(["btrfs", "property", "set", "-ts", target, "ro", "true"])
+    except HTTPException:
+        run(["btrfs", "subvolume", "delete", target], check=False)
+        raise
+    return name
+
+
+def delete_lun_snapshot(lun: dict, name: str) -> None:
+    if not SNAP_RE.match(name):
+        raise HTTPException(400, "bad snapshot name")
+    if DEV:
+        _dev_snaps[lun["name"]] = [n for n in _dev_snaps.get(lun["name"], []) if n != name]
+        return
+    target = os.path.join(snap_dir(lun), name)
+    if not os.path.isdir(target):
+        raise HTTPException(404, "no such snapshot")
+    run(["btrfs", "subvolume", "delete", target])
+
+
+def prune_lun(lun: dict) -> int:
+    keep = int((lun.get("snap") or {}).get("keep") or 0)
+    snaps = list_lun_snaps(lun)
+    gone = snaps[:-keep] if keep > 0 else []
+    for n in gone:
+        delete_lun_snapshot(lun, n)
+    return len(gone)
+
+
+def snap_due() -> list[str]:
+    """Scheduled LUN snapshots (called by the hourly snapshot timer)."""
+    import datetime
+    now = datetime.datetime.now(datetime.timezone.utc)
+    done = []
+    for lun in load()["luns"]:
+        hours = INTERVAL_H.get((lun.get("snap") or {}).get("schedule") or "off")
+        if not hours or not snaps_supported(lun) or not os.path.exists(lun["path"]):
+            continue
+        snaps = list_lun_snaps(lun)
+        last = datetime.datetime.strptime(snaps[-1], SNAP_FMT).replace(tzinfo=datetime.timezone.utc) if snaps else None
+        if not last or now - last >= datetime.timedelta(hours=hours, minutes=-5):
+            take_lun_snapshot(lun)
+            done.append(f"LUN {lun['name']}")
+        prune_lun(lun)
+    return done
+
+
+def _snap_info(lun: dict, name: str) -> dict:
+    import datetime
+    t = datetime.datetime.strptime(name, SNAP_FMT).replace(tzinfo=datetime.timezone.utc)
+    return {"name": name, "time": t.isoformat()}
+
+
+@router.get("/luns/{name}/snapshots")
+def get_lun_snaps(name: str, _=Depends(current_user)):
+    lun = _lun(load(), name)
+    return {"supported": snaps_supported(lun), "policy": lun.get("snap") or {"schedule": "off", "keep": 24},
+            "snapshots": [_snap_info(lun, n) for n in reversed(list_lun_snaps(lun))]}
+
+
+@router.post("/luns/{name}/snapshots")
+def lun_snapshot_now(name: str, _=Depends(require_admin)):
+    lun = _lun(load(), name)
+    return {"ok": True, "name": take_lun_snapshot(lun)}
+
+
+class SnapPolicy(BaseModel):
+    schedule: str = "off"       # off | hourly | daily | weekly
+    keep: int = 24
+
+
+@router.put("/luns/{name}/snapshots/policy")
+def set_lun_policy(name: str, body: SnapPolicy, _=Depends(require_admin)):
+    if body.schedule not in ("off", *INTERVAL_H) or not 0 <= body.keep <= 1024:
+        raise HTTPException(400, "bad schedule or count")
+    st = load()
+    lun = _lun(st, name)
+    if body.schedule != "off" and not snaps_supported(lun):
+        raise HTTPException(400, "LUN snapshots need a Btrfs storage pool")
+    lun["snap"] = body.model_dump()
+    save(st)
+    return {"ok": True}
+
+
+@router.delete("/luns/{name}/snapshots/{snap}")
+def delete_lun_snap(name: str, snap: str, _=Depends(require_admin)):
+    delete_lun_snapshot(_lun(load(), name), snap)
+    return {"ok": True}
+
+
+@router.post("/luns/{name}/snapshots/{snap}/revert")
+def revert_lun(name: str, snap: str, _=Depends(require_admin)):
+    """Put the whole LUN back to the snapshot. Hosts must be disconnected (their caches would be stale)."""
+    st = load()
+    lun = _lun(st, name)
+    if not SNAP_RE.match(snap) or snap not in list_lun_snaps(lun):
+        raise HTTPException(404, "no such snapshot")
+    if DEV:
+        return {"ok": True, "safety": None}
+    tgt = next((t for t in st["targets"] if t["name"] == lun.get("target")), None)
+    if tgt and _sessions(tgt["iqn"]):
+        raise HTTPException(409, f"hosts are connected to target {tgt['name']} - unmount the datastore and disconnect "
+                                 "them first, or use “Clone as new LUN” to get at the data while it stays in use")
+    safety = take_lun_snapshot(lun)      # so the revert can be undone
+    # cloning onto the open image swaps its contents in place; the target keeps using the same file
+    run(["cp", "--reflink=always", os.path.join(snap_dir(lun), snap, "lun.img"), lun["path"]])
+    return {"ok": True, "safety": safety}
+
+
+class SnapClone(BaseModel):
+    new_name: str
+
+
+@router.post("/luns/{name}/snapshots/{snap}/clone")
+def clone_lun_snapshot(name: str, snap: str, body: SnapClone, _=Depends(require_admin)):
+    """New, writable LUN from a snapshot (instant); safe while the original is in use."""
+    st = load()
+    lun = _lun(st, name)
+    if not SNAP_RE.match(snap) or snap not in list_lun_snaps(lun):
+        raise HTTPException(404, "no such snapshot")
+    return _new_lun_from_image(st, body.new_name, _pool_of(lun) if not DEV else {"id": lun["pool_id"], "mount": "/volume1"},
+                               os.path.join(snap_dir(lun), snap, "lun.img"), lun["size"], lun["thin"])
+
+
+def _new_lun_from_image(st: dict, new_name: str, pool: dict, image: str, size: int, thin: bool) -> dict:
+    if not NAME_RE.match(new_name):
+        raise HTTPException(400, "LUN name: lowercase letters, digits and '-' (max 31)")
+    if any(l["name"] == new_name for l in st["luns"]):
+        raise HTTPException(409, "a LUN with that name exists")
+    path = lun_path(pool, new_name)
+    lun = {"name": new_name, "pool_id": pool["id"], "path": path, "size": size, "thin": thin, "target": "",
+           "created": int(time.time())}
+    if not DEV:
+        d = os.path.dirname(path)
+        if not os.path.isdir(d):
+            os.makedirs(d, mode=0o700)
+            if pool.get("fs", "btrfs") == "btrfs":
+                run(["chattr", "+C", d], check=False)
+        run(["cp", "--reflink=auto", image, path])
+        os.chmod(path, 0o600)
+        from rtslib_fb import FileIOStorageObject
+        so = FileIOStorageObject(new_name, path, size=size, write_back=False)
+        _vaai(so)
+        _persist()
+    st["luns"].append(lun)
+    save(st)
+    return {"ok": True, "name": new_name}
+
+
+class FromReplica(BaseModel):
+    source: str
+    lun: str                    # replicated LUN name (stored as "lun.<name>" on this NAS)
+    snapshot: str
+    new_name: str
+
+
+@router.post("/luns/from-replica")
+def lun_from_replica(body: FromReplica, _=Depends(require_admin)):
+    """Failover: a writable LUN from a replica received from another NAS."""
+    _need()
+    from . import repl
+    try:
+        d = repl._rdir(body.source, f"lun.{body.lun}")
+    except RuntimeError as e:
+        raise HTTPException(400, str(e))
+    image = os.path.join(d, body.snapshot, "lun.img")
+    if not SNAP_RE.match(body.snapshot) or (not DEV and not os.path.isfile(image)):
+        raise HTTPException(404, "no such replica")
+    pool = load_pools()[0]           # replicas are received on the first pool
+    size = os.path.getsize(image) if not DEV else 10 ** 10
+    return _new_lun_from_image(load(), body.new_name, pool, image, size, True)
