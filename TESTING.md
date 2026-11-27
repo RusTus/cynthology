@@ -42,6 +42,9 @@ Already installed an older version? Run the same command again - it upgrades in 
 | 26 | LUN snapshots | SAN Manager → LUN → Snapshots → Take snapshot; change a file in a VM; Clone as new LUN → map it, mount in ESXi (resignature) | Clone shows the old state |
 | 27 | LUN replication | Snapshots → Replication → + Replicate → choose "LUN …" → Sync now (twice) | Second run "changes only"; on the other NAS: Receive replicas → Use as LUN |
 | 28 | Expand LUN | SAN Manager → LUN → Expand (bigger size) → vSphere: rescan adapter → datastore → Increase Datastore Capacity | Datastore grows; VMs keep running (LUNs from v0.20/0.21: unmount first, one time) |
+| 29 | Firewall | Control Panel → Firewall → On, default Deny, + Allow everything from my network → Apply | Still connected; from another subnet the NAS is unreachable |
+| 30 | Auto-block | Sign in with a wrong password 10× from a phone on mobile data / another PC | That address is blocked (Firewall → Blocked now → Unblock) |
+| 31 | DDNS + Let's Encrypt | External Access → + Add (e.g. DuckDNS) · router: forward port 80 → NAS · Security → Get certificate | Name resolves to your public IP; browser trusts https://name:5001 |
 | 19 | Synology alternatives | Package Center → Synology alternatives → MariaDB → Install, then phpMyAdmin → Install → Open (server: NAS IP, user root, password from Info) | phpMyAdmin logs in |
 
 Logs if something breaks: `sudo journalctl -u cynthology-ui -n 100`

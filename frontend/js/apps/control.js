@@ -4,7 +4,9 @@ const CP_SECTIONS = {
   services: { label: "File Services", group: "File Sharing", icon: "cp_services", desc: "SMB, NFS, Time Machine, SSH", render: (p) => cpServices(p) },
   users: { label: "Users & Groups", group: "File Sharing", icon: "cp_users", desc: "Accounts and 2-step status", render: (p) => cpUsers(p) },
   network: { label: "Network", group: "Connectivity", icon: "cp_network", desc: "IP address, DNS, link aggregation", render: (p) => cpNetwork(p) },
-  security: { label: "Security", group: "Connectivity", icon: "cp_security", desc: "HTTPS certificate, 2-step policy", render: (p) => cpSecurity(p) },
+  security: { label: "Security", group: "Connectivity", icon: "cp_security", desc: "HTTPS certificate, Let's Encrypt, 2-step policy", render: (p) => cpSecurity(p) },
+  firewall: { label: "Firewall", group: "Connectivity", icon: "cp_firewall", desc: "Allow or block services and addresses, auto-block", render: (p) => cpFirewall(p) },
+  external: { label: "External Access", group: "Connectivity", icon: "cp_external", desc: "DDNS host name for reaching the NAS from the internet", render: (p) => cpExternal(p) },
   general: { label: "General", group: "System", icon: "cp_general", desc: "Server name, time zone", render: (p) => cpGeneral(p) },
   info: { label: "Info Center", group: "System", icon: "cp_info", desc: "Hardware and system details", render: (p) => cpInfo(p) },
   notify: { label: "Notifications", group: "System", icon: "cp_notify", desc: "Email alerts", render: (p) => cpNotify(p) },
@@ -193,6 +195,8 @@ async function cpSecurity(p) {
         await act(() => API.post("/api/security/cert/self-signed"), "New certificate - reconnecting…");
         await waitForServer(); reload();
       } }, "Create new self-signed certificate")),
+    h("h3", { class: "pc-group", style: "margin-top:20px" }, "Free certificate from Let's Encrypt"),
+    leBox(reload),
     h("h3", { class: "pc-group", style: "margin-top:20px" }, "Use your own certificate"),
     h("div", { class: "form", style: "max-width:720px" },
       h("div", { class: "muted" }, "Paste PEM text, e.g. from Let's Encrypt (fullchain.pem + privkey.pem)."),
@@ -516,4 +520,151 @@ async function cpUpdate(p) {
           }
         } }, "Install Debian updates"), debLog)
       : h("div", {}, "✓ All Debian packages are up to date."));
+}
+
+// Let's Encrypt: a trusted certificate for a public name (renews by itself).
+function leBox(reload) {
+  const f = { domains: "", email: "" };
+  const out = h("div");
+  API.get("/api/ddns").then((d) => { if (!f.domains && d.entries[0]) { f.domains = d.entries[0].hostname; dom.value = f.domains; } }).catch(() => {});
+  const dom = h("input", { placeholder: "mynas.duckdns.org  nas.example.com", oninput: (e) => (f.domains = e.target.value) });
+  return h("div", { class: "form", style: "max-width:720px" },
+    h("div", { class: "muted" }, "Browsers trust it without warnings. Needs a public name pointing at your internet address (see External Access → DDNS) ",
+      "and your router forwarding ", h("b", {}, "port 80"), " to this NAS while the certificate is issued or renewed (automatic, every ~60 days)."),
+    h("label", {}, "Name(s), separated by spaces", dom),
+    h("label", {}, "Email for expiry warnings (optional)", h("input", { type: "email", oninput: (e) => (f.email = e.target.value.trim()) })),
+    h("div", {}, h("button", { class: "btn primary", onclick: async (e) => {
+      e.target.disabled = true;
+      try {
+        const r = await API.post("/api/security/cert/letsencrypt", { domains: f.domains.split(/[\s,]+/).filter(Boolean), email: f.email });
+        if (r.job && await ctJob(out, r.job)) {
+          out.append(h("div", { class: "note" }, "✓ Certificate installed. The web interface restarts in a few seconds - reconnecting…"));
+          await new Promise((res) => setTimeout(res, 4000)); await waitForServer(); reload();
+        }
+      } catch (ex) { toast("Error: " + ex.message); }
+      e.target.disabled = false;
+    } }, "Get certificate")), out);
+}
+
+// ---------- Firewall ----------
+async function cpFirewall(p) {
+  const d = await API.get("/api/firewall");
+  const cfg = { enabled: d.enabled, default: d.default, rules: d.rules.map((r) => ({ ...r })), autoblock: { ...d.autoblock, trusted: [...d.autoblock.trusted] } };
+  const reload = () => { p.replaceChildren(); cpFirewall(p); };
+  const box = h("div");
+  const myNet = /^\d+\.\d+\.\d+\.\d+$/.test(d.your_ip) ? d.your_ip.split(".").slice(0, 3).join(".") + ".0/24" : d.your_ip;
+  const svcPick = (r) => h("div", { style: "display:flex;flex-wrap:wrap;gap:4px 12px" },
+    Object.entries(d.services).map(([k, label]) => h("label", { class: "check", style: "font-size:13px" },
+      h("input", { type: "checkbox", checked: r.services.includes(k), onchange: (e) => { r.services = e.target.checked ? [...r.services, k] : r.services.filter((x) => x !== k); } }), label)));
+  function draw() {
+    box.replaceChildren(
+      h("label", { class: "check" }, h("input", { type: "checkbox", checked: cfg.enabled, onchange: (e) => { cfg.enabled = e.target.checked; draw(); } }), h("b", {}, "Turn on the firewall")),
+      cfg.enabled ? h("div", { class: "form", style: "margin-top:10px" },
+        h("label", {}, "Traffic that no rule matches", h("select", { onchange: (e) => { cfg.default = e.target.value; draw(); } },
+          h("option", { value: "allow", selected: cfg.default === "allow" }, "Allow (only the deny rules block anything)"),
+          h("option", { value: "deny", selected: cfg.default === "deny" }, "Deny (only what the rules allow gets through - most secure)"))),
+        h("h3", { class: "pc-group" }, "Rules (checked from top to bottom; the first match decides)"),
+        ...cfg.rules.map((r, i) => h("div", { class: "card", style: "margin-bottom:10px" },
+          h("div", { class: "toolbar", style: "margin:0" },
+            h("label", { class: "check" }, h("input", { type: "checkbox", checked: r.enabled, onchange: (e) => (r.enabled = e.target.checked) }), "On"),
+            h("select", { onchange: (e) => (r.action = e.target.value) }, h("option", { value: "allow", selected: r.action === "allow" }, "Allow"), h("option", { value: "deny", selected: r.action === "deny" }, "Deny")),
+            h("input", { value: r.source, placeholder: "from: anyone (or IP / subnet, e.g. 192.168.1.0/24)", style: "flex:1;min-width:220px", oninput: (e) => (r.source = e.target.value.trim()) }),
+            h("button", { class: "btn", disabled: i === 0, title: "Move up", onclick: () => { cfg.rules.splice(i - 1, 0, cfg.rules.splice(i, 1)[0]); draw(); } }, "↑"),
+            h("button", { class: "btn danger", onclick: () => { cfg.rules.splice(i, 1); draw(); } }, "Remove")),
+          svcPick(r),
+          h("div", { class: "toolbar", style: "margin:6px 0 0" },
+            h("input", { value: r.ports, placeholder: "other ports, e.g. 8080, 9000-9100", style: "flex:1", oninput: (e) => (r.ports = e.target.value) }),
+            h("select", { onchange: (e) => (r.protocol = e.target.value) }, [["tcp", "TCP"], ["udp", "UDP"], ["both", "TCP + UDP"]].map(([v, l]) => h("option", { value: v, selected: r.protocol === v }, l))),
+            h("input", { value: r.note || "", placeholder: "note", style: "width:160px", oninput: (e) => (r.note = e.target.value) })),
+          !r.services.length && !r.ports ? h("div", { class: "muted", style: "font-size:12px" }, "No service or port selected: this rule matches all traffic from the source.") : null)),
+        h("div", { class: "toolbar" },
+          h("button", { class: "btn", onclick: () => { cfg.rules.push({ enabled: true, action: "allow", services: [], ports: "", protocol: "tcp", source: "", note: "" }); draw(); } }, "+ Add rule"),
+          h("button", { class: "btn", onclick: () => { cfg.rules.unshift({ enabled: true, action: "allow", services: [], ports: "", protocol: "tcp", source: myNet, note: "my local network" }); draw(); } }, `+ Allow everything from my network (${myNet})`))) : null,
+      h("h3", { class: "pc-group", style: "margin-top:18px" }, "Auto-block"),
+      h("div", { class: "form" },
+        h("label", { class: "check" }, h("input", { type: "checkbox", checked: cfg.autoblock.enabled, onchange: (e) => (cfg.autoblock.enabled = e.target.checked) }),
+          "Block an address completely after repeated failed sign-ins (works even with the firewall off)"),
+        h("div", { class: "toolbar", style: "margin:0" },
+          h("label", {}, "Failed sign-ins ", h("input", { type: "number", min: 2, value: cfg.autoblock.attempts, style: "width:70px", oninput: (e) => (cfg.autoblock.attempts = +e.target.value) })),
+          h("label", {}, "within (minutes) ", h("input", { type: "number", min: 1, value: cfg.autoblock.within_minutes, style: "width:80px", oninput: (e) => (cfg.autoblock.within_minutes = +e.target.value) })),
+          h("label", {}, "block for (minutes, 0 = until removed) ", h("input", { type: "number", min: 0, value: cfg.autoblock.block_minutes, style: "width:90px", oninput: (e) => (cfg.autoblock.block_minutes = +e.target.value) }))),
+        h("label", {}, "Never block (addresses or subnets, separated by spaces)", h("input", { value: cfg.autoblock.trusted.join(" "), placeholder: myNet,
+          oninput: (e) => (cfg.autoblock.trusted = e.target.value.split(/[\s,]+/).filter(Boolean)) })),
+        d.blocked.length ? h("div", {}, h("div", { class: "muted" }, "Blocked now:"),
+          h("table", {}, d.blocked.map((b) => h("tr", {}, h("td", { class: "mono" }, b.ip), h("td", { class: "muted" }, b.expires_in ? `${Math.round(b.expires_in / 60)} min left` : "until removed"),
+            h("td", {}, h("button", { class: "btn", onclick: async () => { await act(() => API.post("/api/firewall/unblock", { ip: b.ip }), "Unblocked"); reload(); } }, "Unblock")))))) : null),
+      h("div", { class: "toolbar", style: "margin-top:16px" }, h("button", { class: "btn primary", onclick: applyFw }, "Apply"), h("button", { class: "btn", onclick: reload }, "Cancel")));
+  }
+  async function applyFw() {
+    try { await API.put("/api/firewall", cfg); } catch (e) { return toast("Error: " + e.message); }
+    const overlay = h("div", { class: "wiz" }, h("div", { class: "wiz-card" }, h("h2", {}, "Applying firewall rules…"),
+      h("p", { class: "muted" }, "Checking that this browser can still reach the NAS. If it can't, the previous rules come back in 90 seconds by themselves.")));
+    document.body.append(overlay);
+    await new Promise((r) => setTimeout(r, 3000));
+    for (let i = 0; i < 20; i++) {
+      try { await API.post("/api/firewall/confirm"); overlay.remove(); toast("Firewall rules saved"); return reload(); }
+      catch (e) { if (/nothing to confirm/.test(e.message)) { overlay.remove(); toast("The change was rolled back"); return reload(); } }
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    overlay.remove(); toast("Could not reach the NAS - it will restore the previous rules by itself");
+  }
+  p.append(h("h2", {}, "Firewall"),
+    !d.available ? h("div", { class: "note warn" }, "nftables isn't installed yet - update Cynthology (Control Panel → Update).") : null,
+    d.pending ? h("div", { class: "note warn" }, "A firewall change is waiting for confirmation. ",
+      h("button", { class: "btn primary", onclick: async () => { await act(() => API.post("/api/firewall/confirm"), "Confirmed"); reload(); } }, "Keep these rules")) : null,
+    h("div", { class: "muted", style: "margin-bottom:12px" }, `You are connecting from ${d.your_ip}. Rules that would block you from this page are refused. `,
+      "Container ports published by Docker are not covered by these rules."),
+    box);
+  draw();
+}
+
+// ---------- External Access: DDNS ----------
+async function cpExternal(p) {
+  const d = await API.get("/api/ddns");
+  const reload = () => { p.replaceChildren(); cpExternal(p); };
+  const when = (t) => (t ? new Date(t * 1000).toLocaleString() : "-");
+  p.append(h("h2", {}, "External Access"),
+    h("div", { class: "note" }, "DDNS gives this NAS a fixed name (e.g. mynas.duckdns.org) that follows your internet connection's changing address. ",
+      "To reach the NAS from outside, also forward ports on your router - only what you need (e.g. 5001 for this interface, 80 for Let's Encrypt) - and use the Firewall. ",
+      "A VPN (e.g. WireGuard on your router) is safer than opening ports."),
+    h("h3", { class: "pc-group", style: "margin-top:16px" }, "DDNS"),
+    d.entries.length ? h("table", {},
+      h("tr", {}, h("th", {}, "Host name"), h("th", {}, "Provider"), h("th", {}, "Address"), h("th", {}, "Status"), h("th", {})),
+      d.entries.map((e) => h("tr", {}, h("td", {}, h("b", { translate: "no" }, e.hostname)), h("td", {}, d.providers[e.provider]),
+        h("td", { class: "mono" }, e.ip || "-"),
+        h("td", {}, e.last_error ? h("span", { class: "err" }, e.last_error) : h("span", { class: "pill ok" }, "Normal"),
+          h("div", { class: "muted", style: "font-size:12px" }, `checked ${when(e.last_check)}`)),
+        h("td", { style: "white-space:nowrap" }, h("button", { class: "btn", onclick: () => ddnsDialog(d, e, reload) }, "Edit"), " ",
+          h("button", { class: "btn danger", onclick: async () => { if (!confirm(`Remove ${e.hostname}?`)) return; await act(() => API.del(`/api/ddns/${e.id}`), "Removed"); reload(); } }, "Remove")))))
+      : h("p", { class: "muted" }, "No DDNS host name yet."),
+    h("div", { class: "toolbar" }, h("button", { class: "btn primary", onclick: () => ddnsDialog(d, null, reload) }, "+ Add"),
+      d.entries.length ? h("button", { class: "btn", onclick: async () => { await act(() => API.post("/api/ddns/refresh"), "Updated"); reload(); } }, "Update now") : null));
+}
+
+function ddnsDialog(d, e, done) {
+  const f = e ? { ...e, token: "", password: "" } : { provider: "duckdns", hostname: "", username: "", password: "", token: "", server: "", enabled: true };
+  const err = h("div", { class: "err" });
+  const fields = h("div", { class: "form", style: "padding:0" });
+  const inp = (label, k, attrs = {}) => h("label", {}, label, h("input", { value: f[k] || "", oninput: (ev) => (f[k] = ev.target.value.trim()), ...attrs }));
+  const draw = () => fields.replaceChildren(
+    inp("Host name", "hostname", { placeholder: f.provider === "duckdns" ? "mynas.duckdns.org" : "nas.example.com" }),
+    f.provider === "custom" ? inp("Update server", "server", { placeholder: "members.dyndns.org" }) : null,
+    ["duckdns", "cloudflare"].includes(f.provider)
+      ? inp(f.provider === "duckdns" ? "Token (from duckdns.org)" : "API token (Cloudflare: My Profile → API Tokens → Edit zone DNS)", "token",
+          { type: "password", autocomplete: "off", placeholder: e?.has_token ? "(unchanged)" : "" })
+      : [inp("Username", "username", { autocomplete: "off" }), inp("Password", "password", { type: "password", autocomplete: "new-password", placeholder: e?.has_password ? "(unchanged)" : "" })]);
+  draw();
+  const close = modal(e ? `Edit ${e.hostname}` : "Add DDNS host name", h("div", { class: "form", style: "padding:0" },
+    h("label", {}, "Provider", h("select", { onchange: (ev) => { f.provider = ev.target.value; draw(); } },
+      Object.entries(d.providers).map(([k, l]) => h("option", { value: k, selected: f.provider === k }, l)))),
+    fields, err), [
+    ["Cancel", () => close()],
+    ["Save", async (ev) => {
+      err.textContent = ""; ev.target.disabled = true;
+      try {
+        const r = await API.post("/api/ddns", f);
+        if (r.last_error) { err.textContent = r.last_error; ev.target.disabled = false; done(); return; }
+        close(); toast(`${r.hostname} → ${r.ip}`); done();
+      } catch (ex) { err.textContent = ex.message; ev.target.disabled = false; }
+    }, "primary"]]);
 }

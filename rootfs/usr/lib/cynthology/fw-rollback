@@ -1,0 +1,3 @@
+#!/bin/sh
+# Restore the previous firewall rules when a change wasn't confirmed in time (see firewall.py).
+cd /opt/cynthology/backend && CYN_STATE=/var/lib/cynthology exec /usr/bin/python3 -m cynthology.firewall rollback

@@ -1,0 +1,16 @@
+[Unit]
+Description=Cynthology firewall rules (nftables)
+DefaultDependencies=no
+Before=network-pre.target cynthology-ui.service
+Wants=network-pre.target
+After=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/cynthology/backend
+Environment=CYN_STATE=/var/lib/cynthology
+ExecStart=/usr/bin/python3 -m cynthology.firewall
+
+[Install]
+WantedBy=multi-user.target

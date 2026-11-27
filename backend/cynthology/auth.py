@@ -95,6 +95,18 @@ def _check_lock(*keys: str) -> None:
 def _fail(*keys: str) -> None:
     for k in keys:
         FAILS.setdefault(k, []).append(time.time())
+    # firewall auto-block: an address that keeps failing is shut out completely for a while
+    try:
+        from . import firewall
+        a = firewall.load()["autoblock"]
+        for k in keys:
+            if k.startswith("ip:") and a["enabled"]:
+                recent = [t for t in FAILS[k] if time.time() - t < a["within_minutes"] * 60]
+                if len(recent) >= a["attempts"]:
+                    firewall.block_ip(k[3:], "web sign-in")
+                    FAILS[k] = []
+    except Exception:
+        pass
     time.sleep(1)
 
 

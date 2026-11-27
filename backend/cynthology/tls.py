@@ -19,7 +19,7 @@ router = APIRouter(prefix="/api/security", tags=["security"])
 TLS_DIR = os.path.join(STATE_DIR, "tls") if DEV else "/etc/cynthology/tls"
 CERT = os.path.join(TLS_DIR, "cert.pem")
 KEY = os.path.join(TLS_DIR, "key.pem")
-KIND = os.path.join(TLS_DIR, "kind")  # "self-signed" | "uploaded"
+KIND = os.path.join(TLS_DIR, "kind")  # "self-signed" | "uploaded" | "letsencrypt"
 
 
 def local_ips() -> list[str]:
@@ -150,3 +150,63 @@ def upload(body: Upload, _=Depends(require_admin)):
         _install(crt, key, "uploaded")
     restart_soon()
     return {"ok": True, "cert": cert_info(), "note": "The web server restarts in a few seconds."}
+
+
+# ---------- Let's Encrypt (certbot) ----------
+# HTTP-01 validation: Let's Encrypt connects to http://<name>/.well-known/acme-challenge/ on
+# port 80, so the router must forward port 80 to this NAS. If Web Station runs, its nginx serves
+# the challenge files (webroot); otherwise certbot briefly listens on port 80 itself (standalone).
+# Renewal: Debian's certbot.timer; the deploy hook installs each new certificate.
+
+ACME_WEBROOT = os.path.join(STATE_DIR, "acme") if DEV else "/var/lib/cynthology/acme"
+LE_NAME = "cynthology"
+
+
+class LetsEncrypt(BaseModel):
+    domains: list[str]
+    email: str = ""
+
+
+def _port_listener(port: int) -> str | None:
+    for c in psutil.net_connections(kind="tcp"):
+        if c.status == "LISTEN" and c.laddr and c.laddr.port == port:
+            try:
+                return psutil.Process(c.pid).name() if c.pid else "another program"
+            except psutil.Error:
+                return "another program"
+    return None
+
+
+@router.post("/cert/letsencrypt")
+def letsencrypt(body: LetsEncrypt, _=Depends(require_admin)):
+    import re
+    import shutil
+    from . import containers
+    doms = [d.strip().lower() for d in body.domains if d.strip()]
+    if not doms or len(doms) > 20:
+        raise HTTPException(400, "enter the name(s) the certificate is for, e.g. mynas.duckdns.org")
+    for d in doms:
+        if not re.match(r"^(?=.{1,253}$)(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$", d) or d.startswith("*."):
+            raise HTTPException(400, f"{d}: enter a public DNS name (no IP addresses or wildcards)")
+        if d.endswith((".local", ".lan", ".home", ".internal")):
+            raise HTTPException(400, f"{d} is a local name - Let's Encrypt can only certify names in public DNS")
+    if body.email and not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", body.email):
+        raise HTTPException(400, "bad email address")
+    if DEV:
+        return {"job": None}
+    if not shutil.which("certbot"):
+        raise HTTPException(400, "certbot isn't installed - update Cynthology (Control Panel > Update)")
+    holder = _port_listener(80)
+    if holder and holder != "nginx":
+        raise HTTPException(400, f"port 80 is used by {holder}; Let's Encrypt needs it to check the name")
+    cmd = ["certbot", "certonly", "--non-interactive", "--agree-tos", "--cert-name", LE_NAME, "--keep-until-expiring",
+           "--expand", "--deploy-hook", "/usr/lib/cynthology/le-deploy"]
+    cmd += ["-m", body.email] if body.email else ["--register-unsafely-without-email"]
+    if holder == "nginx":
+        os.makedirs(os.path.join(ACME_WEBROOT, ".well-known", "acme-challenge"), exist_ok=True)
+        cmd += ["--webroot", "-w", ACME_WEBROOT]
+    else:
+        cmd += ["--standalone", "--preferred-challenges", "http"]
+    for d in doms:
+        cmd += ["-d", d]
+    return {"job": containers.start_job("Let's Encrypt certificate", cmd)}

@@ -1,0 +1,10 @@
+[Unit]
+Description=Cynthology DDNS update
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/cynthology/backend
+Environment=CYN_STATE=/var/lib/cynthology
+ExecStart=/usr/bin/python3 -m cynthology.ddns

@@ -171,6 +171,8 @@ def render(st: dict, root: str, php_ver: str | None, ipv6: bool | None = None) -
                 listen.append(f"    listen [::]:{port}{' ssl' if ssl else ''}{dflt};")
         name = s["hostname"] if s["type"] == "name" else "_"
         body = [f"server {{  # {s['name']}", *listen, f"    server_name {name};", f"    client_max_body_size {upload};"]
+        # Let's Encrypt validation files for the NAS's certificate (Control Panel > Security)
+        body += ["    location ^~ /.well-known/acme-challenge/ { root /var/lib/cynthology/acme; default_type text/plain; }"]
         if s.get("https_port"):
             body += [f"    ssl_certificate {TLS_CERT};", f"    ssl_certificate_key {TLS_KEY};",
                      "    ssl_protocols TLSv1.2 TLSv1.3;"]

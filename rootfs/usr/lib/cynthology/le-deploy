@@ -1,0 +1,13 @@
+#!/bin/sh
+# certbot deploy hook (first issue and every renewal): install the Let's Encrypt certificate for
+# the Cynthology web interface (and Web Station), then restart/reload them.
+set -e
+LIVE=${RENEWED_LINEAGE:-/etc/letsencrypt/live/cynthology}
+install -d -m 700 /etc/cynthology/tls
+install -m 644 "$LIVE/fullchain.pem" /etc/cynthology/tls/cert.pem.new
+install -m 600 "$LIVE/privkey.pem" /etc/cynthology/tls/key.pem.new
+mv /etc/cynthology/tls/cert.pem.new /etc/cynthology/tls/cert.pem
+mv /etc/cynthology/tls/key.pem.new /etc/cynthology/tls/key.pem
+echo letsencrypt > /etc/cynthology/tls/kind
+systemctl is-active --quiet nginx && systemctl reload nginx || true
+systemd-run --on-active=3 --unit=cynthology-ui-restart-le --collect systemctl restart cynthology-ui || systemctl restart cynthology-ui

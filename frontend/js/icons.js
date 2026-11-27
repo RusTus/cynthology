@@ -16,6 +16,8 @@ const ICONS = {
   cp_services: '<path d="M5 8.5h12.5M14.5 5.5l3 3-3 3"/><path d="M19 15.5H6.5M9.5 12.5l-3 3 3 3"/>',
   cp_users: '<circle cx="9" cy="8.5" r="3.2"/><path d="M3.5 19.5a5.5 5.5 0 0 1 11 0"/><circle cx="16.5" cy="9.5" r="2.5"/><path d="M15.5 14.2a4.5 4.5 0 0 1 5 5.3"/>',
   cp_network: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.4 2.3 3.6 5.1 3.6 8.5s-1.2 6.2-3.6 8.5c-2.4-2.3-3.6-5.1-3.6-8.5S9.6 5.8 12 3.5z"/>',
+  cp_firewall: '<rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M3.5 9.7h17M3.5 14.3h17M9 5v4.7M15 9.7v4.6M9 14.3V19"/>',
+  cp_external: '<circle cx="11" cy="12" r="7.5"/><path d="M3.5 12h15M11 4.5c2 2 3 4.5 3 7.5s-1 5.5-3 7.5c-2-2-3-4.5-3-7.5s1-5.5 3-7.5z"/><path d="M16.5 4.5h4v4M20.5 4.5l-5 5"/>',
   cp_security: '<path d="M12 3.5l7 2.8v5.2c0 4.3-2.9 7.6-7 9-4.1-1.4-7-4.7-7-9V6.3z"/><path d="M8.8 12l2.2 2.2 4.2-4.4"/>',
   cp_general: '<path d="M5 7h8M17 7h2M5 12h2M11 12h8M5 17h10"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="17" r="2"/>',
   cp_info: '<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5M12 7.8h.01"/>',
@@ -44,7 +46,7 @@ const ICON_GRADIENTS = {
   monitor: ["#c58cff", "#7c3aed"],
   personal: ["#94a3b8", "#475569"],
   cp_shares: ["#fbbf24", "#f59e0b"], cp_services: ["#4fa8ff", "#2563eb"], cp_users: ["#2dd4bf", "#0d9488"],
-  cp_network: ["#60a5fa", "#4f46e5"], cp_security: ["#34d399", "#059669"], cp_general: ["#8393ad", "#4a5a73"],
+  cp_network: ["#60a5fa", "#4f46e5"], cp_security: ["#34d399", "#059669"], cp_firewall: ["#fb7185", "#e11d48"], cp_external: ["#38bdf8", "#7c3aed"], cp_general: ["#8393ad", "#4a5a73"],
   cp_info: ["#38bdf8", "#0284c7"], cp_notify: ["#fb923c", "#ea580c"], cp_ups: ["#facc15", "#ca8a04"],
   cp_usb: ["#22c3d1", "#1b7f99"], cp_update: ["#34d399", "#0e9f6e"],
 };

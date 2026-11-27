@@ -304,7 +304,7 @@ def apply(body: NetConfig, _=Depends(require_admin)):
         shutil.copy2(RESOLV, RESOLV_BACKUP)
     # 1. arm the rollback BEFORE touching anything
     if not DEV:
-        run(["systemd-run", f"--on-active={ROLLBACK_SECONDS}", "--unit=cyn-net-rollback", "--collect",
+        run(["systemd-run", f"--on-active={ROLLBACK_SECONDS}", "--timer-property=AccuracySec=1s", "--unit=cyn-net-rollback", "--collect",
              "/usr/lib/cynthology/net-rollback"])
     with open(os.path.join(STATE_DIR, "network-pending.json"), "w") as f:
         json.dump({"deadline": time.time() + ROLLBACK_SECONDS, "config": body.model_dump()}, f)
