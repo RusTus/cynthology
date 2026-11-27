@@ -406,11 +406,51 @@ async function cpHardware(p) {
 }
 
 async function cpInfo(p) {
-  const i = await API.get("/api/system/info");
-  const row = (k, v) => h("tr", {}, h("th", {}, k), h("td", {}, v));
-  p.append(h("h2", {}, "Info Center"), h("table", {},
-    row("Server name", i.hostname), row("OS", i.os), row("Kernel", i.kernel), row("CPU", `${i.cpu} (${i.cores} threads)`),
-    row("Memory", fmtBytes(i.memory_total)), row("Uptime", fmtUptime(i.uptime))));
+  const wait = h("div", { class: "muted" }, t("Loading…"));
+  p.append(wait);
+  const d = await API.get("/api/system/details").finally(() => wait.remove());
+  const g = d.general, n = d.network, hw = d.hardware;
+  const row = (k, ...v) => h("tr", {}, h("th", { style: "width:200px" }, k), h("td", { translate: "no" }, ...v));
+  const sect = (title, ...rows) => [h("h3", { class: "section-title" }, title), h("table", { class: "kv" }, ...rows.flat().filter(Boolean))];
+  const port = location.protocol === "https:" ? n.https_port : n.http_port;
+  const link = (ip) => h("a", { href: `${location.protocol}//${ip.includes(":") ? `[${ip}]` : ip}:${port}/`, target: "_blank", rel: "noopener" }, ip);
+  const pub = h("span", {}, h("button", { class: "btn", onclick: async (e) => {
+    e.target.disabled = true;
+    try { const r = await API.get("/api/system/public-ip"); pub.replaceChildren(r.ip); }
+    catch (err) { pub.replaceChildren(h("span", { class: "muted" }, err.message)); }
+  } }, t("Show")), " ", h("span", { class: "muted", style: "font-size:12px" }, t("(asks an internet service)")));
+  const pct = (u, tot) => tot ? ` (${Math.round(100 * u / tot)}%)` : "";
+  p.append(h("h2", {}, "Info Center"),
+    ...sect("General",
+      row("Server name", g.hostname),
+      g.fqdn ? row("Full domain name", g.fqdn) : null,
+      row("Cynthology", `${g.version}  `, g.update_available ? h("span", { class: "pill info" }, `${t("update available")}: ${g.latest}`) : h("span", { class: "pill ok" }, t("up to date"))),
+      row("Debian", g.debian), row("Kernel", g.kernel),
+      row("Time", new Date(g.time * 1000).toLocaleString(), `  ·  ${g.timezone}  `, g.ntp ? h("span", { class: "pill ok" }, t("synchronised")) : h("span", { class: "pill warn" }, t("not synchronised"))),
+      row("Uptime", fmtUptime(g.uptime), h("span", { class: "muted" }, `  ·  ${t("since")} ${new Date(g.boot * 1000).toLocaleString()}`))),
+    ...sect("Network",
+      n.nics.map((x) => row(x.name, ...(x.ipv4.length ? x.ipv4.flatMap((ip, i) => [i ? ", " : "", link(ip)]) : [h("span", { class: "muted" }, t("no address"))]),
+        h("div", { class: "muted", style: "font-size:12px" }, [x.mac, x.up ? (x.speed ? `${x.speed >= 1000 ? x.speed / 1000 + " Gbit/s" : x.speed + " Mbit/s"}` : t("connected")) : t("not connected"),
+          x.mtu !== 1500 ? `MTU ${x.mtu}` : "", ...x.ipv6].filter(Boolean).join("  ·  ")))),
+      row("Public IP", pub),
+      n.ddns.length ? row("Internet name (DDNS)", ...n.ddns.flatMap((x, i) => [i ? ", " : "", h("a", { href: `https://${x}${n.https_port === 443 ? "" : ":" + n.https_port}/`, target: "_blank", rel: "noopener" }, x)])) : null,
+      row("Gateway", n.gateway || "-"), row("DNS servers", n.dns.join(", ") || "-"),
+      row("Web interface ports", `HTTP ${n.http_port} · HTTPS ${n.https_port}`)),
+    ...sect("Hardware",
+      hw.vendor || hw.model ? row("Model", [hw.vendor, hw.model].filter(Boolean).join(" ")) : null,
+      hw.board ? row("Mainboard", hw.board) : null, hw.bios ? row("BIOS", hw.bios) : null,
+      row("CPU", `${hw.cpu} · ${hw.cores || "?"} ${t("cores")} / ${hw.threads} ${t("threads")}`),
+      row("Memory", `${fmtBytes(hw.memory_used)} ${t("of")} ${fmtBytes(hw.memory_total)} ${t("in use")}${pct(hw.memory_used, hw.memory_total)}`),
+      hw.swap_total ? row("Swap", `${fmtBytes(hw.swap_used)} ${t("of")} ${fmtBytes(hw.swap_total)}`) : null,
+      row("Load average", hw.load.join("  ")),
+      hw.temp != null ? row("Temperature", `${Math.round(hw.temp)} °C`) : null),
+    ...sect("Storage",
+      d.storage.pools.length ? d.storage.pools.map((x) => row(x.label, `${fmtBytes(x.used)} ${t("of")} ${fmtBytes(x.total)}${pct(x.used, x.total)} · ${x.raid.toUpperCase()} · ${x.mount}  `,
+        h("span", { class: "pill " + (x.status === "healthy" ? "ok" : x.status === "degraded" ? "bad" : "info") }, x.status))) : row("Storage pools", t("none yet")),
+      row("Data drives", String(d.storage.drives)), d.storage.system_drive ? row("System drive", d.storage.system_drive) : null),
+    ...sect("Services",
+      row("Running", Object.entries(d.services).filter(([, on]) => on).map(([k]) => k).join(", ") || "-"),
+      Object.keys(d.versions).length ? row("Versions", Object.entries(d.versions).map(([k, v]) => `${k} ${v}`).join("  ·  ")) : null));
 }
 
 async function cpGeneral(p) {
