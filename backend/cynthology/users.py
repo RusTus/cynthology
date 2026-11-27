@@ -62,6 +62,16 @@ def apply_password(name: str, pw: str) -> None:
     end_sessions(name)
 
 
+def _refresh_privileges() -> None:
+    """'Only these users' rules are written out as names for Samba/sshd: refresh after user changes."""
+    try:
+        from .privileges import apply, load
+        if load():
+            apply()
+    except Exception as e:
+        print("privileges:", e)
+
+
 @router.post("")
 def create_user(body: UserCreate, _=Depends(require_admin)):
     valid_name(body.name, "username")
@@ -102,6 +112,7 @@ def delete_user(name: str, _=Depends(require_admin)):
     remove_user(name)
     from . import sharelinks
     sharelinks.remove_user(name)
+    _refresh_privileges()
     if DEV:
         _DEV_USERS[:] = [u for u in _DEV_USERS if u["name"] != name]
     return {"ok": True}

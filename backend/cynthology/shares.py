@@ -74,6 +74,15 @@ def smb_block(s: dict) -> str:
              f"   valid users = {' '.join(_smb_names(s['read_users'] + s['write_users']))}",
              f"   write list = {' '.join(_smb_names(s['write_users']))}",
              "   vfs objects = " + " ".join(vfs), *FRUIT, "   hide dot files = yes"]
+    try:                                # Control Panel > Application Privileges
+        from .privileges import smb_hosts_allow, smb_invalid_users
+        invalid, hosts = smb_invalid_users(), smb_hosts_allow()
+    except Exception:
+        invalid, hosts = [], []
+    if invalid:
+        block.append("   invalid users = " + " ".join(invalid))
+    if hosts:
+        block.append("   hosts allow = " + " ".join(hosts))
     if snaps:
         # snapshots (see snapshots.py) appear as Windows "Previous Versions"
         block += ["   shadow:snapdir = .snapshots", "   shadow:sort = desc", "   shadow:format = @GMT-%Y.%m.%d-%H.%M.%S"]

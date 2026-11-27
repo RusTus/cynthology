@@ -120,8 +120,14 @@ def write_rsyncd() -> None:
 
 # ---------- SFTP ----------
 
-def render_sshd(users_sftp: bool, start_dir: str) -> str:
+def render_sshd(users_sftp: bool, start_dir: str, deny: list[str] | None = None, networks: list[str] | None = None) -> str:
     lines = ["# Managed by Cynthology (Control Panel > File Services > SFTP)"]
+    if users_sftp and deny:              # Control Panel > Application Privileges (never administrators)
+        lines.append("DenyUsers " + " ".join(deny))
+    if users_sftp and networks:
+        # from anywhere else, users (not administrators) get a session that ends at once
+        lines += ["Match Group users,!cynthology-admin Address *,!" + ",!".join(networks),
+                  "    ForceCommand /bin/false", "    AllowTcpForwarding no", "    PermitTTY no", "    X11Forwarding no"]
     if users_sftp:
         # (internal-sftp runs inside sshd, so it works although users' login shell is nologin)
         lines += ["Match Group users,!cynthology-admin",
@@ -138,7 +144,8 @@ def apply_sshd(users_sftp: bool) -> None:
         start = "/"
     old = open(SSHD_DROPIN).read() if os.path.exists(SSHD_DROPIN) else None
     with open(SSHD_DROPIN, "w") as f:
-        f.write(render_sshd(users_sftp, start))
+        from .privileges import denied_people, rule
+        f.write(render_sshd(users_sftp, start, denied_people("sftp"), rule("sftp")["networks"]))
     if DEV:
         return
     r = subprocess.run(["sshd", "-t"], capture_output=True, text=True)

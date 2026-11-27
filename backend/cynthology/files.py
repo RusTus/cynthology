@@ -18,9 +18,11 @@ from pydantic import BaseModel
 
 from . import shares as shares_mod
 from .auth import current_user
+from .privileges import require_app
 from .util import DEV
 
 router = APIRouter(prefix="/api/files", tags=["files"])
+FILES_USER = require_app("files")       # (Control Panel > Application Privileges)
 
 
 def _in_group(user: str, group: str) -> bool:
@@ -114,7 +116,7 @@ def _entry(full: str, name: str) -> dict | None:
 
 
 @router.get("/shares")
-def my_shares(user=Depends(current_user)):
+def my_shares(user=Depends(FILES_USER)):
     out = []
     if shares_mod.homes_share():
         try:
@@ -135,7 +137,7 @@ def _hidden(name: str) -> bool:
 
 
 @router.get("/list")
-def list_dir(path: str, hidden: bool = False, dirs_only: bool = False, user=Depends(current_user)):
+def list_dir(path: str, hidden: bool = False, dirs_only: bool = False, user=Depends(FILES_USER)):
     share, full = resolve(user, path)
     if not os.path.isdir(full):
         raise HTTPException(404, "not a folder")
@@ -164,7 +166,7 @@ def _check_name(name: str) -> str:
 
 
 @router.post("/mkdir")
-def mkdir(body: NameOp, user=Depends(current_user)):
+def mkdir(body: NameOp, user=Depends(FILES_USER)):
     share, full = resolve(user, body.path, write=True)
     target = os.path.join(_confine(full, os.path.realpath(share["path"])), _check_name(body.name))
     try:
@@ -181,7 +183,7 @@ class Rename(BaseModel):
 
 
 @router.post("/rename")
-def rename(body: Rename, user=Depends(current_user)):
+def rename(body: Rename, user=Depends(FILES_USER)):
     share, full = resolve(user, body.path, write=True)
     if full == os.path.realpath(share["path"]):
         raise HTTPException(400, "rename shared folders in Control Panel")
@@ -197,7 +199,7 @@ class Paths(BaseModel):
 
 
 @router.post("/delete")
-def delete(body: Paths, user=Depends(current_user)):
+def delete(body: Paths, user=Depends(FILES_USER)):
     """Moves to the share's #recycle (keeping the folder structure) when its recycle bin is on."""
     for p in body.paths:
         share, full = resolve(user, p, write=True)
@@ -231,7 +233,7 @@ class Transfer(BaseModel):
 
 
 @router.post("/transfer")
-def transfer(body: Transfer, user=Depends(current_user)):
+def transfer(body: Transfer, user=Depends(FILES_USER)):
     dshare, dest = resolve(user, body.dest, write=True)
     droot = os.path.realpath(dshare["path"])
     if not os.path.isdir(dest):
@@ -257,7 +259,7 @@ def transfer(body: Transfer, user=Depends(current_user)):
 
 
 @router.post("/upload")
-async def upload(request: Request, path: str, name: str, overwrite: bool = False, user=Depends(current_user)):
+async def upload(request: Request, path: str, name: str, overwrite: bool = False, user=Depends(FILES_USER)):
     """Raw file bytes in the body (streamed, so large files are fine)."""
     ushare, folder = resolve(user, path, write=True)
     folder = _confine(folder, os.path.realpath(ushare["path"]))
@@ -290,7 +292,7 @@ class Ticket(BaseModel):
 
 
 @router.post("/ticket")
-def ticket(body: Ticket, user=Depends(current_user)):
+def ticket(body: Ticket, user=Depends(FILES_USER)):
     """Single-use, 60 s download link (a plain <a href> can't send the Authorization header)."""
     import secrets
     paths = body.paths or ([body.path] if body.path else [])
@@ -391,7 +393,7 @@ def download(ticket: str, inline: bool = False):
 
 
 @router.get("/search")
-def search(path: str, q: str, hidden: bool = False, user=Depends(current_user)):
+def search(path: str, q: str, hidden: bool = False, user=Depends(FILES_USER)):
     """Find files and folders whose name contains q, below path (or in every share when path is empty)."""
     q = q.strip().lower()
     if len(q) < 2:
@@ -417,7 +419,7 @@ def search(path: str, q: str, hidden: bool = False, user=Depends(current_user)):
 
 
 @router.get("/usage")
-def usage(path: str, user=Depends(current_user)):
+def usage(path: str, user=Depends(FILES_USER)):
     _, full = resolve(user, path)
     total, count = 0, 0
     for dirpath, _dirs, files in os.walk(full):

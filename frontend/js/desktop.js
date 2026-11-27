@@ -63,7 +63,7 @@ async function boot() {
 
 function launcher(id) {
   const a = WM.apps[id];
-  return h("button", { class: "launch", onclick: () => { document.getElementById("menu").classList.add("hidden"); WM.open(id); } },
+  return h("button", { class: "launch", "data-app": id, onclick: () => { document.getElementById("menu").classList.add("hidden"); WM.open(id); } },
     appTile(id, 48), a.name);
 }
 
@@ -93,6 +93,9 @@ function startDesktop(me) {
   widgets(); setInterval(widgets, 5000);
   usbIndicator(); setInterval(usbIndicator, 5000);
   document.getElementById("usb-btn").onclick = toggle("usb-menu");
+  if (!me.admin) API.get("/api/privileges/mine").then((m) => {      // (Control Panel > Application Privileges)
+    if (!m.files) document.querySelectorAll('.launch[data-app="files"]').forEach((b) => b.remove());
+  }).catch(() => {});
   API.get("/api/account").then(async (a) => { await applyPrefs(a.prefs); if (!boot.after) reopenWindows(); }).catch(() => {});
   if (boot.after) boot.after();
   else if (me.admin) API.get("/api/setup/status").then((s) => s.needs_setup && runSetupWizard());

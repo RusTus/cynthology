@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 1050 entries.
+// Generated from the English UI strings (see i18n.js). 1068 entries.
 i18nAdd("es", {
 "Settings and data are kept.": "Se conservan la configuración y los datos.",
 "Also installs required package(s): ": "También instala los paquetes necesarios: ",
@@ -1049,5 +1049,23 @@ i18nAdd("es", {
 "deleted": "borrados",
 "e.g. Photos to Google Drive": "p. ej. Fotos a Google Drive",
 "mirror (deletions too)": "espejo (también borrados)",
-"unlimited (e.g. 2M = 2 MB/s)": "sin límite (p. ej. 2M = 2 MB/s)"
+"unlimited (e.g. 2M = 2 MB/s)": "sin límite (p. ej. 2M = 2 MB/s)",
+"Application Privileges": "Privilegios de aplicaciones",
+"Who may use File Station, SMB, WebDAV, SFTP and sharing links - and from where": "Quién puede usar File Station, SMB, WebDAV, SFTP y los enlaces compartidos, y desde dónde",
+"Choose who may use each file service, and from which networks. Administrators always keep access, ": "Elija quién puede usar cada servicio de archivos y desde qué redes. Los administradores siempre conservan el acceso, ",
+"so you can't lock yourself out. Shared-folder permissions still apply on top of this.": "para que no pueda quedarse fuera. Los permisos de las carpetas compartidas se aplican además.",
+"Sharing links": "Enlaces compartidos",
+"SMB (Windows / Mac file sharing)": "SMB (uso compartido de Windows / Mac)",
+"Everyone": "Todos",
+"Only": "Solo",
+"Everyone except": "Todos excepto",
+"nobody": "nadie",
+"group": "grupo",
+"from": "desde",
+"Only the users and groups below": "Solo los usuarios y grupos de abajo",
+"Everyone except the users and groups below": "Todos excepto los usuarios y grupos de abajo",
+"Only from these networks (one per line; empty = from anywhere)": "Solo desde estas redes (una por línea; vacío = desde cualquier lugar)",
+"For SMB, a network limit applies to every account, administrators included - keep your own network in the list.": "En SMB, un límite de red se aplica a todas las cuentas, administradores incluidos: mantenga su propia red en la lista.",
+"SFTP rules apply when SFTP for users is on (Control Panel > File Services).": "Las reglas SFTP se aplican cuando SFTP para usuarios está activado (Panel de control > Servicios de archivos).",
+"Groups": "Grupos"
 });

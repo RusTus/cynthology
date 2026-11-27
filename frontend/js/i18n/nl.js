@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 1028 entries.
+// Generated from the English UI strings (see i18n.js). 1046 entries.
 i18nAdd("nl", {
 "Error: ": "Fout: ",
 "Settings and data are kept.": "Instellingen en gegevens blijven behouden.",
@@ -1027,5 +1027,23 @@ i18nAdd("nl", {
 "deleted": "verwijderd",
 "e.g. Photos to Google Drive": "bijv. Foto's naar Google Drive",
 "mirror (deletions too)": "spiegel (ook verwijderingen)",
-"unlimited (e.g. 2M = 2 MB/s)": "onbeperkt (bijv. 2M = 2 MB/s)"
+"unlimited (e.g. 2M = 2 MB/s)": "onbeperkt (bijv. 2M = 2 MB/s)",
+"Application Privileges": "Toepassingsrechten",
+"Who may use File Station, SMB, WebDAV, SFTP and sharing links - and from where": "Wie File Station, SMB, WebDAV, SFTP en deellinks mag gebruiken - en vanaf waar",
+"Choose who may use each file service, and from which networks. Administrators always keep access, ": "Kies wie elke bestandsdienst mag gebruiken, en vanaf welke netwerken. Beheerders houden altijd toegang, ",
+"so you can't lock yourself out. Shared-folder permissions still apply on top of this.": "zodat u zichzelf niet kunt buitensluiten. De rechten van gedeelde mappen gelden daarbovenop.",
+"Sharing links": "Deellinks",
+"SMB (Windows / Mac file sharing)": "SMB (bestandsdeling Windows / Mac)",
+"Everyone": "Iedereen",
+"Only": "Alleen",
+"Everyone except": "Iedereen behalve",
+"nobody": "niemand",
+"group": "groep",
+"from": "vanaf",
+"Only the users and groups below": "Alleen de gebruikers en groepen hieronder",
+"Everyone except the users and groups below": "Iedereen behalve de gebruikers en groepen hieronder",
+"Only from these networks (one per line; empty = from anywhere)": "Alleen vanaf deze netwerken (één per regel; leeg = overal vandaan)",
+"For SMB, a network limit applies to every account, administrators included - keep your own network in the list.": "Voor SMB geldt een netwerkbeperking voor elk account, ook beheerders - houd uw eigen netwerk in de lijst.",
+"SFTP rules apply when SFTP for users is on (Control Panel > File Services).": "SFTP-regels gelden als SFTP voor gebruikers aan staat (Configuratiescherm > Bestandsdiensten).",
+"Groups": "Groepen"
 });

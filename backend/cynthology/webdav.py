@@ -363,6 +363,9 @@ async def dav(request: Request) -> Response:
     if not user:
         return Response("Sign in with your Cynthology user name and password.", status_code=401,
                         headers={"WWW-Authenticate": f'Basic realm="{REALM}", charset="UTF-8"'})
+    from .privileges import allowed
+    if not allowed("webdav", user["user"], ip, user.get("admin")):
+        return Response("You don't have permission to use WebDAV (Control Panel > Application Privileges).", status_code=403)
     path = _dav_path(request)
     if "\x00" in path or any(p in ("..", ".") for p in path.split("/")):
         return Response(status_code=400)

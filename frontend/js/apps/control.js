@@ -3,6 +3,7 @@ const CP_SECTIONS = {
   shares: { label: "Shared Folders", group: "File Sharing", icon: "cp_shares", desc: "Folders on your storage pools", render: (p) => cpShares(p) },
   services: { label: "File Services", group: "File Sharing", icon: "cp_services", desc: "SMB, NFS, Time Machine, SSH", render: (p) => cpServices(p) },
   users: { label: "Users & Groups", group: "File Sharing", icon: "cp_users", desc: "Accounts and 2-step status", render: (p) => cpUsers(p) },
+  privileges: { label: "Application Privileges", group: "File Sharing", icon: "cp_privileges", desc: "Who may use File Station, SMB, WebDAV, SFTP and sharing links - and from where", render: (p) => cpPrivileges(p) },
   domain: { label: "Domain/LDAP", group: "File Sharing", icon: "cp_domain", desc: "Join an Active Directory domain", render: (p) => cpDomain(p) },
   network: { label: "Network", group: "Connectivity", icon: "cp_network", desc: "IP address, DNS, link aggregation", render: (p) => cpNetwork(p) },
   security: { label: "Security", group: "Connectivity", icon: "cp_security", desc: "HTTPS certificate, Let's Encrypt, 2-step policy", render: (p) => cpSecurity(p) },
@@ -1361,3 +1362,47 @@ async function vpnConfigDialog(id) {
     } }, "Download .conf")),
     h("div", { class: "note warn" }, "This contains the device's private key - anyone with it can connect. Don't share it.")), [["Done", null, "primary"]]);
 }
+
+// Application Privileges: one rule per file service (everyone / only these / everyone except), plus networks.
+async function cpPrivileges(p) {
+  const [d, users, groups] = await Promise.all([API.get("/api/privileges"), API.get("/api/users"), API.get("/api/users/groups")]);
+  const summary = (r) => {
+    const who = [...r.users, ...r.groups.map((g) => t("group") + " " + g)].join(", ") || t("nobody");
+    const base = r.mode === "all" ? t("Everyone") : r.mode === "allow" ? `${t("Only")}: ${who}` : `${t("Everyone except")}: ${who}`;
+    return r.networks.length ? `${base} · ${t("from")} ${r.networks.join(", ")}` : base;
+  };
+  p.append(h("h2", {}, "Application Privileges"),
+    h("p", { class: "muted" }, "Choose who may use each file service, and from which networks. Administrators always keep access, ",
+      "so you can't lock yourself out. Shared-folder permissions still apply on top of this."),
+    h("table", {}, Object.entries(d.apps).map(([k, label]) => h("tr", {},
+      h("td", {}, h("b", {}, label), h("div", { class: "muted", style: "font-size:12px", translate: "no" }, summary(d.rules[k]))),
+      h("td", { style: "text-align:right" }, h("button", { class: "btn", onclick: () => edit(k, label, d.rules[k]) }, "Edit"))))));
+
+  function edit(app, label, r0) {
+    const r = { ...r0, users: [...r0.users], groups: [...r0.groups] };
+    const box = h("div", { class: "form" });
+    const nets = h("textarea", { rows: 3, placeholder: "192.168.1.0/24\n10.8.0.0/24" }, r.networks.join("\n"));
+    const pickList = (items, key) => h("div", { style: "display:flex;flex-wrap:wrap;gap:4px 14px;max-height:140px;overflow:auto" },
+      items.map((n) => h("label", { class: "check", style: "font-size:13px", translate: "no" },
+        h("input", { type: "checkbox", checked: r[key].includes(n), onchange: (e) => { r[key] = e.target.checked ? [...r[key], n] : r[key].filter((x) => x !== n); } }), n)));
+    const draw = () => box.replaceChildren(
+      h("div", { class: "disk-pick" }, [["all", "Everyone"], ["allow", "Only the users and groups below"], ["deny", "Everyone except the users and groups below"]].map(([v, l]) =>
+        h("label", {}, h("input", { type: "radio", name: "privmode", checked: r.mode === v, onchange: () => { r.mode = v; draw(); } }), l))),
+      r.mode !== "all" ? h("div", {}, h("div", { style: "font-size:13px;color:var(--muted);margin:4px 0" }, t("Users")),
+        pickList(users.filter((u) => !u.groups.includes("cynthology-admin")).map((u) => u.name), "users")) : null,
+      r.mode !== "all" ? h("div", {}, h("div", { style: "font-size:13px;color:var(--muted);margin:4px 0" }, t("Groups")),
+        pickList(groups.map((g) => g.name).filter((g) => g !== "cynthology-admin" && !users.some((u) => u.name === g)), "groups")) : null,
+      h("label", {}, "Only from these networks (one per line; empty = from anywhere)", nets),
+      app === "smb" ? h("div", { class: "note warn" }, "For SMB, a network limit applies to every account, administrators included - keep your own network in the list.") : null,
+      app === "sftp" ? h("div", { class: "muted", style: "font-size:12px" }, "SFTP rules apply when SFTP for users is on (Control Panel > File Services).") : null);
+    draw();
+    const err = h("div", { class: "err" });
+    const close = modal(`${label}`, h("div", {}, box, err), [["Cancel", null], ["Save", async () => {
+      try {
+        await API.put(`/api/privileges/${app}`, { mode: r.mode, users: r.users, groups: r.groups, networks: nets.value.split(/[\s,]+/).filter(Boolean) });
+        close(); toast(t("Saved")); p.replaceChildren(); cpPrivileges(p);
+      } catch (e) { err.textContent = e.message; }
+    }, "primary"]]);
+  }
+}
+

@@ -24,9 +24,11 @@ from pydantic import BaseModel
 
 from . import files
 from .auth import current_user
+from .privileges import require_app
 from .util import DEV, STATE_DIR
 
 router = APIRouter(prefix="/api/preview", tags=["preview"])
+FILES_USER = require_app("files")       # (Control Panel > Application Privileges)
 CACHE = os.path.join(STATE_DIR, "thumbs")
 CACHE_MAX = 1 << 30
 SIZES = (256, 1600)
@@ -129,7 +131,7 @@ def _trim_cache() -> None:
 # ---------- API ----------
 
 @router.get("/thumb")
-def thumb(path: str, size: int = 256, user=Depends(current_user)):
+def thumb(path: str, size: int = 256, user=Depends(FILES_USER)):
     _, full = files.resolve(user, path)
     if not os.path.isfile(full):
         raise HTTPException(404, "not a file")
@@ -142,7 +144,7 @@ class StreamReq(BaseModel):
 
 
 @router.post("/stream")
-def stream_link(body: StreamReq, user=Depends(current_user)):
+def stream_link(body: StreamReq, user=Depends(FILES_USER)):
     """A link the browser's player can use directly (6 hours, this one file, many range requests)."""
     _, full = files.resolve(user, body.path)
     if not os.path.isfile(full) or kind_of(full) not in ("video", "audio", "pdf", "image"):
@@ -169,7 +171,7 @@ def stream(tok: str, name: str):
 
 
 @router.get("/text")
-def text(path: str, user=Depends(current_user)):
+def text(path: str, user=Depends(FILES_USER)):
     share, full = files.resolve(user, path)
     if not os.path.isfile(full):
         raise HTTPException(404, "not a file")

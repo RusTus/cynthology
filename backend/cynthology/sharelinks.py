@@ -112,8 +112,12 @@ def _get(lid: str) -> dict:
 
 def _target(link: dict, rel: str = "") -> tuple[str, str]:
     """(real path of the shared item, real path of rel inside it). Checks the owner's access now."""
+    from .privileges import user_allowed
+    owner = _owner(link)
+    if not user_allowed("sharelinks", owner["user"], owner.get("admin")):
+        raise HTTPException(404, "this link is no longer available")   # (its owner may no longer share links)
     try:
-        share, root = files.resolve(_owner(link), link["path"])
+        share, root = files.resolve(owner, link["path"])
     except HTTPException:
         raise HTTPException(404, "this link is no longer available")
     if not os.path.exists(root):
@@ -178,7 +182,11 @@ def addresses(_=Depends(current_user)):
 
 
 @router.post("")
-def create(body: NewLink, user=Depends(current_user)):
+def create(body: NewLink, request: Request, user=Depends(current_user)):
+    from .privileges import allowed
+    if not allowed("sharelinks", user["user"], request.client.host if request.client else None, user.get("admin")):
+        raise HTTPException(403, "You don't have permission to create sharing links. Ask an administrator "
+                                 "(Control Panel > Application Privileges).")
     _, full = files.resolve(user, body.path)            # (you can only share what you can read)
     if not os.path.exists(full):
         raise HTTPException(404, "no such file or folder")
