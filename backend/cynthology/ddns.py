@@ -49,9 +49,9 @@ def load() -> list[dict]:
 
 
 def save(items: list[dict]) -> None:
-    with open(CFG + ".new", "w") as f:
+    fd = os.open(CFG + ".new", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)   # secrets: never readable by others
+    with os.fdopen(fd, "w") as f:
         json.dump(items, f, indent=1)
-    os.chmod(CFG + ".new", 0o600)
     os.replace(CFG + ".new", CFG)
 
 

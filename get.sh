@@ -40,9 +40,9 @@ else
 fi
 
 echo "==> Downloading $URL"
-curl -fL --retry 3 -o "$TMP/cyn.tar.gz" "$URL"
+curl -fL --proto =https --proto-redir =https --retry 3 -o "$TMP/cyn.tar.gz" "$URL"
 if [ "${CYN_CHANNEL:-}" != main ]; then
-  curl -fsL --retry 3 -o "$TMP/cyn.tar.gz.sha256" "$URL.sha256" \
+  curl -fsL --proto =https --proto-redir =https --retry 3 -o "$TMP/cyn.tar.gz.sha256" "$URL.sha256" \
     && (cd "$TMP" && sed 's/cynthology-install.tar.gz/cyn.tar.gz/' cyn.tar.gz.sha256 | sha256sum -c --quiet -) \
     || die "checksum verification failed"
 fi

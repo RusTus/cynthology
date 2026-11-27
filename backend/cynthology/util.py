@@ -42,6 +42,26 @@ def valid_name(name: str, kind: str = "name") -> str:
     return name
 
 
+def one_line(text: str, limit: int = 200) -> str:
+    """Free text that ends up inside a config file (descriptions, labels): one line, no control
+    characters, so it can never start a new option or section."""
+    import re
+    return re.sub(r"[\x00-\x1f\x7f]+", " ", str(text or ""))[:limit].strip()
+
+
+NFS_CLIENT_RE = r"(\*|[A-Za-z0-9][A-Za-z0-9.-]{0,252}|[0-9a-fA-F:.]{2,45})(/[0-9]{1,3})?"
+
+
+def valid_nfs_clients(text: str) -> str:
+    """Space-separated hosts / IP addresses / subnets (no export options, no wildcard-everything)."""
+    import re
+    parts = (text or "").split()
+    for p in parts:
+        if p == "*" or not re.fullmatch(NFS_CLIENT_RE, p):
+            raise HTTPException(400, f"NFS clients: {p!r} is not a host, IP address or subnet (e.g. 192.168.1.0/24)")
+    return " ".join(parts)
+
+
 def valid_principal(entry: str) -> str:
     """A user or @group for share permissions: local (alice, @users) or domain (CORP\\alice,
     @CORP\\Domain Users). No quotes, % or other characters Samba would interpret."""

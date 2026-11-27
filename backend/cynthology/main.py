@@ -18,6 +18,26 @@ for r in (auth.router, sysinfo.router, storage.router, shares.router, users.rout
     app.include_router(r)
 
 
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",                       # no clickjacking of the admin UI
+    "Referrer-Policy": "same-origin",
+    "Content-Security-Policy": "frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+}
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    resp = await call_next(request)
+    for k, v in SECURITY_HEADERS.items():
+        if k not in resp.headers:                  # (file downloads set their own, stricter CSP)
+            resp.headers[k] = v
+    if request.url.path.startswith("/api/"):
+        resp.headers.setdefault("Cache-Control", "no-store")
+    return resp
+
+
 @app.middleware("http")
 async def https_redirect(request: Request, call_next):
     """With 'redirect HTTP to HTTPS' on, plain-HTTP requests are sent to the HTTPS port."""
@@ -44,6 +64,8 @@ def regenerate_share_configs():
             storage.write_pool_meta(p)
         if shares.load():
             shares.write_configs(shares.load())
+        from . import containers
+        containers.secure_projects_share()
     except Exception as e:
         print("could not regenerate share configs:", e)
 

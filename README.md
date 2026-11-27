@@ -75,6 +75,7 @@ server, or VM (VMware, Proxmox, Hyper-V, VirtualBox).
 | **Shared-folder permissions**: read/write and read-only users and groups (local or domain), applied to Samba and the folder's ACLs | ✅ |
 | **Task Scheduler**: your own scripts (as root or a user), S.M.A.R.T. tests (short/extended, drives chosen by serial) and recycle-bin cleanup, hourly/daily/weekly/monthly/at startup, run history, alerts on failure; self-test results and Run test buttons in Storage Manager | ✅ tested on a VM |
 | **VPN Server** (WireGuard): devices with QR code / .conf, home-network-only or all traffic, live connection status, NAT to the home network (works alongside Docker), DDNS name as address, firewall hints | ✅ tested on a VM |
+| **Log Center**: system log (journal, by service/priority/text), sign-in history (successes, failures, lockouts, auto-blocks), **SMB file access log** per shared folder (who opened, changed, renamed or deleted what), CSV export | ✅ tested on a VM |
 | **Firewall** (nftables): rules per service/port and source, default allow or deny, safe apply with automatic rollback, refuses rules that would lock you out; **auto-block** of addresses with repeated failed sign-ins | ✅ tested on a VM |
 | **External Access**: DDNS (DuckDNS, Cloudflare, No-IP, Dynu, any dyndns2) and free **Let's Encrypt** certificates with automatic renewal | DDNS ✅ · Let's Encrypt: deploy/renewal path tested, issuing needs a public name |
 | **SAN Manager (iSCSI)**: LUNs (thin with space reclaim, or thick; instant clone on Btrfs), **online LUN expansion**, **LUN snapshots** (scheduled, revert, clone a snapshot as a new LUN) and **LUN replication** to another Cynthology (incremental, failover to a LUN there) and targets with allowed initiators and CHAP; **VMware VAAI** block primitives (ATS, XCOPY, WRITE SAME, UNMAP) work with ESXi out of the box, no plugin | ✅ tested with an iSCSI initiator: VAAI pages, UNMAP reclaim, CHAP/ACLs, reboot |
@@ -114,6 +115,16 @@ cd backend
 CYN_DEV=1 uvicorn cynthology.main:app --reload --port 5000   # log in as admin / admin, drives are mocked
 python -m pytest tests
 ```
+
+## Security
+
+The web interface runs as root (like DSM), so the code treats everything users can influence as
+untrusted: File Station re-checks paths right before writing and never writes through links users
+planted, downloads of web pages/scripts are forced to save instead of opening, values that end up in
+config files (smb.conf, exports, nginx, network, systemd units) are validated, the `docker` shared
+folder (compose files run as root) is for administrators only, ordinary users can't use SSH for
+port forwarding, and sign-ins are rate-limited and logged. Found something? Please open an issue
+(or, for anything serious, a private security advisory on GitHub).
 
 ## Making a release
 

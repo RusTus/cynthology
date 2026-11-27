@@ -276,7 +276,7 @@ WM.register("files", {
     }
     async function openFile(it) {
       const r = await API.post("/api/files/ticket", { path: itemPath(it) });
-      window.open(r.url + "&inline=true", "_blank");
+      window.open(r.url + "&inline=true", "_blank", "noopener");
     }
     async function properties() {
       const sel = selected();

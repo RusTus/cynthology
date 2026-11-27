@@ -85,8 +85,9 @@ def get_sources(_=Depends(current_user)):
 @router.put("/sources")
 def put_sources(body: list[Source], _=Depends(require_admin)):
     for s in body:
-        if not s.url.startswith(("https://", "http://")):
-            raise HTTPException(400, f"{s.name}: location must be an http(s) URL")
+        if not s.url.startswith("https://"):
+            # packages run scripts as root and are only checked against the feed's own checksum
+            raise HTTPException(400, f"{s.name}: the location must start with https:// (plain http could be tampered with)")
     save_sources([s.model_dump() for s in body])
     _feed_cache.clear()
     return {"ok": True}
@@ -406,6 +407,12 @@ class Install(BaseModel):
     wizard: dict[str, str | bool | int] = {}
 
 
+_ENV_DENY = {"ENV", "IFS", "SHELLOPTS", "BASHOPTS", "PS4", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "LOCPATH",
+             "NLSPATH", "HOSTALIASES", "RESOLV_HOST_CONF", "LANGUAGE", "CDPATH", "GLOBIGNORE", "PROMPT_COMMAND"}
+_PRIV_GROUPS = {"root", "sudo", "adm", "shadow", "disk", "docker", "cynthology-admin", "users", "staff", "wheel", "sys",
+                "kmem", "tty", "lpadmin", "systemd-journal", "netdev", "kvm", "libvirt", "nut", "www-data", "operator"}
+
+
 def _env(name: str, info: dict, status: str, extra: dict | None = None) -> dict:
     base = _pkg_path(name)
     env = {
@@ -420,6 +427,9 @@ def _env(name: str, info: dict, status: str, extra: dict | None = None) -> dict:
         "SYNOPKG_TEMP_LOGFILE": f"/run/cyn-pkg/{name}.log", "SYNOPKG_TEMP_UPGRADE_FOLDER": os.path.join(STATE_DIR, "spk-upgrade", name),
     }
     for k, v in (extra or {}).items():
+        # wizard answers become variables - but never ones that change how programs run (LD_PRELOAD, PATH, ...)
+        if k in env or k in _ENV_DENY or k.startswith(("LD_", "BASH_", "PYTHON", "PERL", "RUBY", "NODE_", "GCONV", "MALLOC")):
+            continue
         if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", k):
             env[k] = "true" if v is True else "false" if v is False else str(v)
     return env
@@ -430,6 +440,23 @@ def _privilege(stage_or_pkg: str, name: str) -> tuple[str, str, bool]:
     user = priv.get("username") or f"sc-{name}"
     group = priv.get("groupname") or user
     as_root = priv.get("defaults", {}).get("run-as") == "root"
+    # The package's own account: a plain new name - never root, a real user or a privileged group
+    import grp
+    import pwd
+    for n in (user, group):
+        if not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", n or "") or n in _PRIV_GROUPS:
+            raise HTTPException(400, f"the package asks for the account {n!r}, which is not allowed")
+    try:
+        pw = pwd.getpwnam(user)
+        if pw.pw_uid < 100 or pw.pw_uid >= 1000 or pw.pw_dir != _pkg_path(name, "home"):
+            raise HTTPException(400, f"the package wants to run as the existing account {user!r}, which is not allowed")
+    except KeyError:
+        pass
+    try:
+        if grp.getgrnam(group).gr_gid < 100:
+            raise HTTPException(400, f"the package wants the system group {group!r}, which is not allowed")
+    except KeyError:
+        pass
     return user, group, as_root
 
 
@@ -688,7 +715,11 @@ def put_auto(body: AutoUpdate, _=Depends(require_admin)):
 def _link_usr_local(name: str, create: bool) -> None:
     res = _read_json(_pkg_path(name, "conf", "resource")).get("usr-local-linker", {})
     for kind, items in res.items():
+        if kind not in ("bin", "lib", "etc", "sbin", "share", "include") or not isinstance(items, list):
+            continue
         for item in items:
+            if not isinstance(item, str) or os.path.basename(item) in ("", ".", ".."):
+                continue
             dst = os.path.join(ROOT, "usr/local", kind, os.path.basename(item))
             if create:
                 os.makedirs(os.path.dirname(dst), exist_ok=True)

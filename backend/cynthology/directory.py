@@ -32,7 +32,7 @@ GLOBAL_INC = os.path.join(STATE_DIR, "cyn-global.conf") if DEV else "/etc/samba/
 KRB5 = os.path.join(STATE_DIR, "krb5.conf") if DEV else "/etc/krb5.conf"
 NSSWITCH = os.path.join(STATE_DIR, "nsswitch.conf") if DEV else "/etc/nsswitch.conf"
 MARK = "#cyn-domain# "
-DOMAIN_RE = re.compile(r"^(?=.{3,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
+DOMAIN_RE = re.compile(r"^(?=.{3,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}\Z")
 
 
 def load() -> dict:

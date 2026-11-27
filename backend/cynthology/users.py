@@ -63,6 +63,8 @@ def set_password(name: str, body: Password, _=Depends(require_admin)):
     valid_name(name, "username")
     run(["chpasswd"], input=f"{name}:{body.password}\n")
     run(["smbpasswd", "-s", name], input=f"{body.password}\n{body.password}\n")
+    from .auth import end_sessions
+    end_sessions(name)                  # a new password signs the account out everywhere
     return {"ok": True}
 
 
@@ -73,6 +75,8 @@ def delete_user(name: str, _=Depends(require_admin)):
         raise HTTPException(400, "cannot delete built-in account")
     run(["smbpasswd", "-x", name], check=False)
     run(["userdel", name])
+    from .auth import end_sessions
+    end_sessions(name)
     if DEV:
         _DEV_USERS[:] = [u for u in _DEV_USERS if u["name"] != name]
     return {"ok": True}

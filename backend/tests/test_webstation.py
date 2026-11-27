@@ -24,7 +24,7 @@ def test_render_php_name_and_proxy_sites():
     conf = ws.render(st, "/volume1/web", "8.4", ipv6=True)
     assert conf.count("listen 80 default_server;") == 1 and "listen [::]:443 ssl default_server;" in conf
     assert "fastcgi_pass unix:/run/php/php8.4-fpm.sock;" in conf
-    assert "root /volume1/web/blog;" in conf and "server_name blog.example.com;" in conf
+    assert 'root "/volume1/web/blog";' in conf and "server_name blog.example.com;" in conf
     assert "proxy_pass http://127.0.0.1:8096;" in conf and "map $http_upgrade" in conf
     assert "81" not in conf
     assert "[::]" not in ws.render(st, "/volume1/web", "8.4", ipv6=False)
@@ -54,3 +54,9 @@ def test_validation():
 def test_php_ini():
     ini = ws.php_ini({**ws.PHP_DEFAULTS, "display_errors": True})
     assert "upload_max_filesize = 512M" in ini and "display_errors = On" in ini
+
+
+def test_render_name_cannot_break_out():
+    st = {"php": dict(ws.PHP_DEFAULTS), "sites": [site(id="a", name="x\n}\nserver { listen 1;")]}
+    conf = ws.render(st, "/volume1/web", "8.4", ipv6=False)
+    assert [ln for ln in conf.splitlines() if "listen 1;" in ln] == ["server {  # x } server { listen 1;"]

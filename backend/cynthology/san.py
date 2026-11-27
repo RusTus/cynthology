@@ -32,8 +32,8 @@ from .util import DEV, STATE_DIR, read_only, run
 
 router = APIRouter(prefix="/api/san", tags=["san"])
 STATE = os.path.join(STATE_DIR, "san.json")
-NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}$")
-IQN_RE = re.compile(r"^(iqn\.\d{4}-\d{2}\.[a-z0-9.-]+(:[^\s]+)?|eui\.[0-9a-fA-F]{16}|naa\.[0-9a-fA-F]{16,32})$")
+NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}\Z")
+IQN_RE = re.compile(r"^(iqn\.\d{4}-\d{2}\.[a-z0-9.-]+(:[^\s]+)?|eui\.[0-9a-fA-F]{16}|naa\.[0-9a-fA-F]{16,32})\Z")
 LUN_DIR = "@iSCSI"
 
 
@@ -47,9 +47,9 @@ def load() -> dict:
 
 
 def save(st: dict) -> None:
-    with open(STATE + ".new", "w") as f:
+    fd = os.open(STATE + ".new", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)   # secrets: never readable by others
+    with os.fdopen(fd, "w") as f:
         json.dump(st, f, indent=1)
-    os.chmod(STATE + ".new", 0o600)        # CHAP secrets
     os.replace(STATE + ".new", STATE)
 
 
@@ -488,7 +488,7 @@ def vaai_status(name: str, _=Depends(require_admin)):
 # subvolumes, they can be replicated with btrfs send like shared-folder snapshots.
 
 SNAP_FMT = "@GMT-%Y.%m.%d-%H.%M.%S"
-SNAP_RE = re.compile(r"^@GMT-\d{4}\.\d{2}\.\d{2}-\d{2}\.\d{2}\.\d{2}$")
+SNAP_RE = re.compile(r"^@GMT-\d{4}\.\d{2}\.\d{2}-\d{2}\.\d{2}\.\d{2}\Z")
 INTERVAL_H = {"hourly": 1, "daily": 24, "weekly": 24 * 7}
 _dev_snaps: dict[str, list[str]] = {}
 

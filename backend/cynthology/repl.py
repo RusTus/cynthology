@@ -39,8 +39,8 @@ KNOWN = os.path.join(DIR, "known_hosts")
 RECV_USER = "cynrepl"
 RECV_HOME = "/var/lib/cynrepl"
 AUTH_KEYS = os.path.join(STATE_DIR, "cynrepl-authorized_keys") if DEV else f"{RECV_HOME}/.ssh/authorized_keys"
-NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
-SRC_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
+NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\Z")
+SRC_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}\Z")
 INTERVAL_H = {"hourly": 1, "daily": 24, "weekly": 24 * 7}
 os.makedirs(DIR, mode=0o700, exist_ok=True)
 
@@ -78,8 +78,16 @@ def serve(source: str, command: str) -> int:
         elif op == "receive" and len(args) == 2:
             d = _rdir(source, args[1])
             os.makedirs(d, exist_ok=True)
-            # btrfs receive reads the stream from stdin and creates the read-only subvolume in d
-            return subprocess.run(["btrfs", "receive", "-e", d], stdin=sys.stdin.buffer).returncode
+            before = set(os.listdir(d))
+            # btrfs receive reads the stream from stdin and creates the read-only subvolume in d.
+            # The stream comes from another machine: --chroot confines every path it contains to d.
+            rc = subprocess.run(["btrfs", "receive", "--chroot", "-e", d], stdin=sys.stdin.buffer).returncode
+            for n in set(os.listdir(d)) - before:          # only snapshot-named subvolumes are kept
+                if not snapshots.NAME_RE.match(n):
+                    subprocess.run(["btrfs", "subvolume", "delete", os.path.join(d, n)], capture_output=True)
+                    print(f"rejected unexpected item {n!r}", file=sys.stderr)
+                    rc = rc or 3
+            return rc
         elif op == "prune" and len(args) == 3 and args[2].isdigit():
             d = _rdir(source, args[1])
             keep = int(args[2])

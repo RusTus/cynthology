@@ -25,9 +25,9 @@ from .storage import load_pools
 from .util import DEV, run
 
 router = APIRouter(prefix="/api/containers", tags=["containers"])
-NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$")
-PROJECT_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
-IMAGE_RE = re.compile(r"^[a-z0-9][a-z0-9._/:@-]{0,254}$")
+NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}\Z")
+PROJECT_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}\Z")
+IMAGE_RE = re.compile(r"^[a-z0-9][a-z0-9._/:@-]{0,254}\Z")
 RESERVED_PORTS = {22: "SSH", 139: "SMB", 445: "SMB", 2049: "NFS", 3493: "UPS server", 5000: "Cynthology", 5001: "Cynthology"}
 
 
@@ -304,8 +304,30 @@ def projects_root(create: bool = False) -> str:
     if not share:
         if not create:
             return ""
-        share = {"path": shares_mod.ensure_share("docker", [], "Container Manager projects (compose.yaml + data)")}
+        shares_mod.ensure_share("docker", [], "Container Manager projects (compose.yaml + data)")
+        share = secure_projects_share()
     return share["path"]
+
+
+def secure_projects_share() -> dict | None:
+    """The docker share holds compose files that run as root: administrators only.
+    (Older versions created it writable by @users - this also migrates those.)"""
+    shares = shares_mod.load()
+    share = next((s for s in shares if s["name"] == "docker"), None)
+    if not share or DEV:
+        return share
+    admins = ["@cynthology-admin"]
+    if share.get("write_users") != admins or share.get("read_users"):
+        old = dict(share)
+        share.update(read_users=[], write_users=admins)
+        shares_mod.write_configs(shares)
+        shares_mod.apply_acls(share["path"], old, share)
+    path = share["path"]
+    if os.path.isdir(path):
+        run(["chgrp", "cynthology-admin", path], check=False)
+        run(["chmod", "2770", path], check=False)      # (other users: no way in, not even over NFS/SFTP)
+        run(["setfacl", "-x", "g:users,d:g:users", path], check=False)
+    return share
 
 
 def _project_dir(name: str) -> str:

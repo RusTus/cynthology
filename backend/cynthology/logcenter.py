@@ -122,7 +122,7 @@ def signins(q: str = "", event: str = "", limit: int = 1000, _=Depends(require_a
 
 # ---------- SMB file access (full_audit) ----------
 
-AUDIT_RE = re.compile(r"^(?P<user>[^|]*)\|(?P<ip>[^|]*)\|(?P<share>[^|]*)\|(?P<op>[a-z_]+)\|(?P<ok>ok|fail)\|(?P<rest>.*)$")
+AUDIT_RE = re.compile(r"^(?P<user>[^|]*)\|(?P<ip>[^|]*)\|(?P<share>[^|]*)\|(?P<op>[a-z_]+)\|(?P<ok>ok|fail)\|(?P<rest>.*)\Z")
 OPS = {"openat": "open", "renameat": "rename", "unlinkat": "delete", "mkdirat": "create folder"}
 
 

@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 582 entries.
+// Generated from the English UI strings (see i18n.js). 584 entries.
 i18nAdd("de", {
 "Error: ": "Fehler: ",
 "Settings and data are kept.": "Einstellungen und Daten bleiben erhalten.",
@@ -581,5 +581,7 @@ i18nAdd("de", {
 "Port-based: the website answers on its own port(s), at any address of the NAS.": "Portbasiert: Die Website antwortet auf eigenen Ports, unter jeder Adresse des NAS.",
 " - e.g. after this NAS dies. Write it down or save it in a password manager, not only on this NAS.": " – z. B. wenn dieses NAS ausfällt. Schreiben Sie es auf oder speichern Sie es in einem Passwort-Manager, nicht nur auf diesem NAS.",
 " - ESXi then uses this NAS for cloning, zeroing, locking and space reclaim (VAAI). No plugin is needed.": " – ESXi nutzt dann dieses NAS zum Klonen, Nullen, Sperren und Freigeben von Speicher (VAAI). Ein Plugin ist nicht nötig.",
-". Find yours in vSphere: host → Configure → Storage Adapters → iSCSI Software Adapter → iSCSI Name.": ". Ihren finden Sie in vSphere: Host → Configure → Storage Adapters → iSCSI Software Adapter → iSCSI Name."
+". Find yours in vSphere: host → Configure → Storage Adapters → iSCSI Software Adapter → iSCSI Name.": ". Ihren finden Sie in vSphere: Host → Configure → Storage Adapters → iSCSI Software Adapter → iSCSI Name.",
+"A link wants to sign you in as": "Ein Link möchte Sie anmelden als",
+"Continue only if you opened this link yourself from your NAS.": "Fahren Sie nur fort, wenn Sie diesen Link selbst von Ihrem NAS aus geöffnet haben."
 });

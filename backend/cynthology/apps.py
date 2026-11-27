@@ -154,9 +154,13 @@ def _app_view(meta: dict, status: dict) -> dict:
 
 
 @router.get("")
-def list_apps(_=Depends(current_user)):
+def list_apps(user=Depends(current_user)):
     status = _compose_status()
-    return [_app_view(m, status) for m in catalog().values()]
+    views = [_app_view(m, status) for m in catalog().values()]
+    if not user.get("admin"):            # notes hold generated passwords (database root etc.)
+        for v in views:
+            v["notes"] = None
+    return views
 
 
 # ---------- Synology app alternatives ----------
@@ -177,7 +181,7 @@ def _spk_index() -> dict[str, dict]:
 
 
 @router.get("/alternatives")
-def alternatives(_=Depends(current_user)):
+def alternatives(user=Depends(current_user)):
     alts = json.load(open(os.path.join(CATALOG_DIR, "alternatives.json")))
     apps = catalog()
     status = _compose_status()
@@ -194,6 +198,8 @@ def alternatives(_=Depends(current_user)):
                          url=(i or {}).get("url"))
             elif o["kind"] == "container":
                 o.update(_app_view(apps[o["app"]], status), available=True)
+                if not user.get("admin"):
+                    o["notes"] = None
             else:
                 o.update(available=True, installed=True)
     return alts
@@ -228,7 +234,9 @@ def install(app_id: str, body: InstallBody | None = None, _=Depends(require_admi
     secret = secrets.token_urlsafe(15).replace("-", "x").replace("_", "y")
     if not DEV:   # reinstall over kept data: reuse the passwords its databases were created with
         try:
-            secret = json.load(open(os.path.join(_app_dir(app_id), META)))["secret"]
+            kept = json.load(open(os.path.join(_app_dir(app_id), META)))["secret"]
+            if isinstance(kept, str) and re.fullmatch(r"[A-Za-z0-9]{8,64}", kept):   # (it goes into YAML)
+                secret = kept
         except (OSError, ValueError, KeyError, TypeError):
             pass
     notes = fill(meta.get("notes", ""), secret, fields=fields)

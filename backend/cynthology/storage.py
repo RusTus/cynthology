@@ -687,7 +687,7 @@ if __name__ == "__main__":
 # "Online Assemble"); any drive with data that isn't part of a pool here can be erased instead.
 
 POOL_META = ".cynthology-pool.json"      # on the volume itself, so an import restores name and RAID type
-VG_RE = re.compile(r"^vg_cyn(\d+)$")
+VG_RE = re.compile(r"^vg_cyn(\d+)\Z")
 _scanned: list = []
 MOCK_FOREIGN = [{"vg": "vg_cyn1", "label": "Volume 1", "raid": "shr", "fs": "btrfs", "size": 17_100_000_000,
                  "disks": ["sda", "sdb", "sdc", "sdd"], "status": "healthy", "tolerance": 1, "importable": True, "why_not": None,

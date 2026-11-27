@@ -5,9 +5,20 @@ async function boot() {
   // session handed over from the HTTP origin by the setup wizard (see setup.js)
   const frag = new URLSearchParams(location.hash.slice(1));
   if (frag.get("token")) {
-    API.token = frag.get("token");
-    sessionStorage.setItem("cyn-token", API.token);
     history.replaceState(null, "", location.pathname);
+    // Only the setup wizard / network change hand a session over like this. A link from anywhere else
+    // could sign you in to someone else's account (and your uploads would land there): ask first.
+    let ok = false;
+    try { ok = !!document.referrer && new URL(document.referrer).hostname === location.hostname; } catch { }
+    if (!ok) {
+      const prev = API.token; API.token = frag.get("token");
+      let who = null;
+      try { who = (await API.get("/api/auth/me")).user; } catch { }
+      API.token = prev;
+      ok = !!who && confirm(t("A link wants to sign you in as") + ` "${who}". ` + t("Continue only if you opened this link yourself from your NAS."));
+    }
+    if (!ok) { frag.delete("open"); frag.delete("net-confirm"); }
+    else { API.token = frag.get("token"); sessionStorage.setItem("cyn-token", API.token); }
     if (frag.get("open") === "create-pool") boot.after = () => openCreatePool();
     if (frag.get("net-confirm")) boot.after = () => act(() => API.post("/api/network/confirm"), "Network settings saved - you are on the new address");
   }

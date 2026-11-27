@@ -10,7 +10,7 @@ current() { cat /etc/cynthology-release 2>/dev/null || echo dev; }
 latest() {   # GitHub's /releases/latest redirect names the newest tag (no API rate limit)
   URL="https://github.com/$REPO/releases/latest"
   if command -v curl >/dev/null; then
-    curl -fsSLI -o /dev/null -w '%{url_effective}' "$URL" 2>/dev/null
+    curl -fsSLI --proto =https --proto-redir =https -o /dev/null -w '%{url_effective}' "$URL" 2>/dev/null
   else
     wget -S --spider --max-redirect=5 "$URL" 2>&1 | sed -n 's/^ *Location: *//p' | tail -1
   fi | sed -n 's#.*/tag/\(v[^/]*\)$#\1#p'

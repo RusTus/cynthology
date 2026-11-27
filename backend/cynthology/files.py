@@ -83,6 +83,15 @@ def resolve(user: dict, path: str, write: bool = False) -> tuple[dict, str]:
     return share, full
 
 
+def _confine(path: str, root: str) -> str:
+    """Re-check right before writing that the real location is still inside the share (a share user
+    could have swapped a folder for a symlink since resolve() ran). Returns the real path."""
+    real = os.path.realpath(path)
+    if real != root and not real.startswith(root + os.sep):
+        raise HTTPException(403, "path leaves the shared folder")
+    return real
+
+
 def _own(path: str, user: dict) -> None:
     """Give a new file/folder to the signed-in user (group 'users'), like an SMB upload would."""
     if DEV:
@@ -156,8 +165,8 @@ def _check_name(name: str) -> str:
 
 @router.post("/mkdir")
 def mkdir(body: NameOp, user=Depends(current_user)):
-    _, full = resolve(user, body.path, write=True)
-    target = os.path.join(full, _check_name(body.name))
+    share, full = resolve(user, body.path, write=True)
+    target = os.path.join(_confine(full, os.path.realpath(share["path"])), _check_name(body.name))
     try:
         os.mkdir(target, 0o2775)
     except FileExistsError:
@@ -176,7 +185,7 @@ def rename(body: Rename, user=Depends(current_user)):
     share, full = resolve(user, body.path, write=True)
     if full == os.path.realpath(share["path"]):
         raise HTTPException(400, "rename shared folders in Control Panel")
-    target = os.path.join(os.path.dirname(full), _check_name(body.new_name))
+    target = os.path.join(_confine(os.path.dirname(full), os.path.realpath(share["path"])), _check_name(body.new_name))
     if os.path.lexists(target):
         raise HTTPException(409, "an item with that name already exists")
     os.rename(full, target)
@@ -197,10 +206,16 @@ def delete(body: Paths, user=Depends(current_user)):
             raise HTTPException(400, "delete shared folders in Control Panel")
         rel = os.path.relpath(full, root)
         if share.get("recycle_bin") and not rel.startswith("#recycle"):
-            dest = os.path.join(root, "#recycle", rel)
+            bin_ = os.path.join(root, "#recycle")
+            if os.path.islink(bin_):
+                raise HTTPException(403, "the recycle bin of this shared folder is a link - remove it first")
+            dest = os.path.join(bin_, rel)
+            _confine(os.path.dirname(dest) if os.path.exists(os.path.dirname(dest)) else bin_, root)
             os.makedirs(os.path.dirname(dest), exist_ok=True)
+            _confine(os.path.dirname(dest), os.path.realpath(bin_))
             if os.path.lexists(dest):
                 dest += time.strftime(" (%Y-%m-%d %H.%M.%S)")
+            _confine(full, root)
             shutil.move(full, dest)
         elif os.path.isdir(full) and not os.path.islink(full):
             shutil.rmtree(full)
@@ -217,16 +232,20 @@ class Transfer(BaseModel):
 
 @router.post("/transfer")
 def transfer(body: Transfer, user=Depends(current_user)):
-    _, dest = resolve(user, body.dest, write=True)
+    dshare, dest = resolve(user, body.dest, write=True)
+    droot = os.path.realpath(dshare["path"])
     if not os.path.isdir(dest):
         raise HTTPException(400, "destination is not a folder")
     for p in body.paths:
-        _, src = resolve(user, p, write=body.move)
+        sshare, src = resolve(user, p, write=body.move)
+        if os.path.realpath(src) == os.path.realpath(sshare["path"]) or os.path.realpath(src) == os.path.realpath(dshare["path"]):
+            raise HTTPException(400, "a whole shared folder can't be copied or moved - open it and select its contents")
         target = os.path.join(dest, os.path.basename(src))
         if target == src or (os.path.isdir(src) and (target + os.sep).startswith(src + os.sep)):
             raise HTTPException(400, "can't copy or move a folder into itself")
         if os.path.lexists(target):
             raise HTTPException(409, f"{os.path.basename(src)} already exists in the destination")
+        _confine(dest, droot)
         if body.move:
             shutil.move(src, target)
         elif os.path.isdir(src):
@@ -240,18 +259,23 @@ def transfer(body: Transfer, user=Depends(current_user)):
 @router.post("/upload")
 async def upload(request: Request, path: str, name: str, overwrite: bool = False, user=Depends(current_user)):
     """Raw file bytes in the body (streamed, so large files are fine)."""
-    _, folder = resolve(user, path, write=True)
+    ushare, folder = resolve(user, path, write=True)
+    folder = _confine(folder, os.path.realpath(ushare["path"]))
     target = os.path.join(folder, _check_name(name))
     if os.path.lexists(target) and not overwrite:
         raise HTTPException(409, f"{name} already exists")
-    tmp = os.path.join(folder, f".{name}.uploading")
+    import secrets
+    tmp = os.path.join(folder, f".{name[:64]}.{secrets.token_hex(4)}.uploading")
     try:
-        with open(tmp, "wb") as f:
+        # new file only, never through a symlink someone planted (we write as root)
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o664)
+        with os.fdopen(fd, "wb") as f:
             async for chunk in request.stream():
                 f.write(chunk)
+        _confine(folder, os.path.realpath(ushare["path"]))
         os.replace(tmp, target)
     finally:
-        if os.path.exists(tmp):
+        if os.path.lexists(tmp):
             os.remove(tmp)
     _own(target, user)
     return {"ok": True}
@@ -282,8 +306,17 @@ def ticket(body: Ticket, user=Depends(current_user)):
     return {"url": f"/api/files/download?ticket={t}"}
 
 
+ACTIVE_TYPES = (".html", ".htm", ".xhtml", ".svg", ".svgz", ".xml", ".xsl", ".js", ".mjs", ".shtml", ".swf", ".pdf")
+
+
 def _disposition(name: str, inline: bool = False) -> dict:
-    return {"Content-Disposition": f"{'inline' if inline else 'attachment'}; filename*=UTF-8''{urllib.parse.quote(name)}"}
+    # Files from shares are untrusted: content that can run script (HTML, SVG...) is never shown
+    # inline on the NAS's origin, and the sandbox/nosniff headers stop a browser from treating
+    # anything else as a web page.
+    if name.lower().endswith(ACTIVE_TYPES):
+        inline = False
+    return {"Content-Disposition": f"{'inline' if inline else 'attachment'}; filename*=UTF-8''{urllib.parse.quote(name)}",
+            "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "sandbox; default-src 'none'; img-src 'self'; media-src 'self'"}
 
 
 class _Sink:

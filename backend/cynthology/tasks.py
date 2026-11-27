@@ -112,11 +112,11 @@ def _unit(t: dict) -> str:
 
 def install_units(t: dict) -> None:
     unit = _unit(t)
-    service = (f"[Unit]\nDescription=Cynthology task: {t['name']}\n\n[Service]\nType=oneshot\n"
+    service = (f"[Unit]\nDescription=Cynthology task: {re.sub(r"[\x00-\x1f\x7f%]+", " ", t['name'])}\n\n[Service]\nType=oneshot\n"
                f"WorkingDirectory=/opt/cynthology/backend\nEnvironment=CYN_STATE={STATE_DIR}\n"
                f"ExecStart=/usr/bin/python3 -m cynthology.tasks run {t['id']}\n")
     cal = on_calendar(t["schedule"])
-    timer = (f"[Unit]\nDescription=Cynthology task timer: {t['name']}\n\n[Timer]\n" +
+    timer = (f"[Unit]\nDescription=Cynthology task timer: {re.sub(r"[\x00-\x1f\x7f%]+", " ", t['name'])}\n\n[Timer]\n" +
              (f"OnCalendar={cal}\nPersistent=true\n" if cal else "OnBootSec=2min\n") +
              f"Unit={unit}.service\n\n[Install]\nWantedBy=timers.target\n")
     os.makedirs(UNIT_DIR, exist_ok=True)
@@ -278,7 +278,12 @@ def list_tasks(_=Depends(require_admin)):
 @router.post("")
 def save_task(body: Task, _=Depends(require_admin)):
     _validate(body)
+    if body.id and not re.fullmatch(r"[0-9a-f]{8}", body.id):
+        raise HTTPException(400, "bad task id")       # (ids are generated here; they end up in unit file names)
+    body.name = re.sub(r"[\x00-\x1f\x7f%]+", " ", body.name).strip()   # one line, no systemd % specifiers
     items = load()
+    if body.id and not any(x["id"] == body.id for x in items):
+        raise HTTPException(404, "no such task")
     t = body.model_dump()
     t["id"] = body.id or secrets.token_hex(4)
     items = [x for x in items if x["id"] != t["id"]] + [t]

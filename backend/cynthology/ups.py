@@ -219,9 +219,12 @@ class UpsConfig(BaseModel):
 
 
 @router.get("")
-def get_ups(_=Depends(current_user)):
+def get_ups(user=Depends(current_user)):
     cfg = load()
     cfg.pop("local_password", None)
+    if not user.get("admin"):               # passwords of the UPS server / SNMP community: admins only
+        for k in ("server_password", "snmp_community", "server_user"):
+            cfg.pop(k, None)
     return {"config": cfg, "status": status()}
 
 
@@ -284,6 +287,11 @@ EVENT_TEXT = {
 
 def event(name: str) -> None:
     if name == "shutdown-timer":
+        # (this hook can be run by the nut account: only shut down when the UPS really is on battery)
+        st = status()
+        if not st.get("on_battery"):
+            _notify("warning", "Ignored a shutdown request", "The UPS shutdown timer fired, but the UPS reports mains power.")
+            return
         cfg = load()
         _notify("critical", "Shutting down: on UPS battery too long",
                 f"The NAS was on battery for {cfg['shutdown_minutes']} minutes and is shutting down safely.")

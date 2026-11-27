@@ -144,6 +144,10 @@ def repo_and_env(t: dict) -> tuple[str, dict]:
         return os.path.join(base, sub), env
     if d["type"] == "sftp":
         port = int(d.get("port") or 22)
+        # (host and user end up in an ssh command line: no spaces, quotes or leading dashes)
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", d.get("user", "")) or \
+                not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]{0,252}|\[[0-9a-fA-F:.]{2,45}\]", d.get("host", "")) or not 0 < port < 65536:
+            raise RuntimeError("the SFTP server name, user or port isn't valid")
         ssh = (f"ssh -i {SSH_KEY} -p {port} -o UserKnownHostsFile={KNOWN_HOSTS} -o StrictHostKeyChecking=accept-new "
                f"-o BatchMode=yes -o ServerAliveInterval=60 {d['user']}@{d['host']} -s sftp")
         env["CYN_SFTP_COMMAND"] = ssh
@@ -387,6 +391,11 @@ def _validate(body: Task) -> None:
     if any(s not in names for s in body.sources):
         raise HTTPException(400, "unknown shared folder")
     d = body.dest
+    if d.type == "sftp":
+        try:
+            repo_and_env({"id": "x", "dest": d.model_dump()})
+        except RuntimeError as e:
+            raise HTTPException(400, str(e))
     if d.type == "local" and not d.uuid and not d.path.startswith("/"):
         raise HTTPException(400, "choose a USB drive or enter a full folder path (e.g. /volume2/backups)")
     if d.type == "local" and not d.uuid:

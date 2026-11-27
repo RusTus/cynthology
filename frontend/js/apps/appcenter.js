@@ -101,18 +101,18 @@ WM.register("appcenter", {
       for (const step of s.wizard || []) {
         form.append(h("h3", { class: "pc-group" }, step.step_title || ""));
         for (const item of step.items || []) {
-          if (item.desc) form.append(h("div", { class: "muted", html: item.desc }));
+          if (item.desc) form.append(h("div", { class: "muted" }, wizText(item.desc)));
           for (const sub of item.subitems || []) {
             if (item.type === "textfield" || item.type === "password" || item.type === "combobox") {
               answers[sub.key] = sub.defaultValue ?? "";
-              form.append(h("label", {}, h("span", { html: sub.desc || sub.key }),
+              form.append(h("label", {}, h("span", {}, wizText(sub.desc || sub.key)),
                 h("input", { type: item.type === "password" ? "password" : "text", value: sub.defaultValue ?? "", oninput: (e) => (answers[sub.key] = e.target.value) })));
             } else if (item.type === "singleselect" || item.type === "multiselect") {
               answers[sub.key] = !!sub.defaultValue;
               form.append(h("label", { class: "check" }, h("input", {
                 type: item.type === "singleselect" ? "radio" : "checkbox", name: step.step_title + item.desc, checked: !!sub.defaultValue,
                 onchange: (e) => { if (item.type === "singleselect") item.subitems.forEach((x) => (answers[x.key] = false)); answers[sub.key] = e.target.checked; } }),
-                h("span", { html: sub.desc || sub.key })));
+                h("span", {}, wizText(sub.desc || sub.key))));
             }
           }
         }
@@ -262,3 +262,9 @@ WM.register("appcenter", {
     render();
   },
 });
+
+// Package wizard texts come from third-party feeds: show them as plain text (line breaks kept), never as HTML.
+function wizText(html) {
+  const doc = new DOMParser().parseFromString(String(html).replace(/<br\s*\/?>/gi, "\n"), "text/html");
+  return h("span", { style: "white-space:pre-line" }, doc.body.textContent || "");
+}

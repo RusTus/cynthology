@@ -19,7 +19,7 @@ from .util import DEV, read_only, run
 router = APIRouter(prefix="/api/snapshots", tags=["snapshots"])
 SNAPDIR = ".snapshots"
 FMT = "@GMT-%Y.%m.%d-%H.%M.%S"
-NAME_RE = re.compile(r"^@GMT-\d{4}\.\d{2}\.\d{2}-\d{2}\.\d{2}\.\d{2}$")
+NAME_RE = re.compile(r"^@GMT-\d{4}\.\d{2}\.\d{2}-\d{2}\.\d{2}\.\d{2}\Z")
 INTERVAL_H = {"hourly": 1, "daily": 24, "weekly": 24 * 7}
 
 
@@ -235,6 +235,11 @@ def restore(share: str, name: str, body: Restore, _=Depends(require_admin)):
             raise HTTPException(404, f"{rel} is not in this snapshot")
         dst = os.path.join(dest_root, rel.strip("/"))
         os.makedirs(os.path.dirname(dst), exist_ok=True)
+        # the live folder may have changed since the snapshot: never follow a user's symlink out of it
+        real_parent = os.path.realpath(os.path.dirname(dst))
+        share_real = os.path.realpath(s["path"])
+        if real_parent != share_real and not real_parent.startswith(share_real + os.sep) or os.path.islink(dst):
+            raise HTTPException(400, f"{rel}: the folder it goes back into is now a link - move it out of the way first")
         # cp -a keeps owners/permissions/times; --reflink makes it instant and free of extra space on Btrfs
         if os.path.isdir(src):
             os.makedirs(dst, exist_ok=True)

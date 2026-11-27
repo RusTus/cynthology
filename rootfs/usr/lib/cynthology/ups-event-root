@@ -1,4 +1,8 @@
 #!/bin/sh
-# Root side of the UPS event hook: alert/email, and on the shutdown timer start a forced shutdown.
-case "$1" in *[!a-z-]*|"") echo "ups-event: bad event name" >&2; exit 1 ;; esac
+# Root side of the UPS event hook: alert/email, and on the shutdown timer start a forced shutdown
+# (only if the UPS really is on battery - checked in ups.py). Only the events upssched sends.
+case "$1" in
+  onbatt|online|lowbatt|commbad|commok|replbatt|fsd|shutdown-timer) ;;
+  *) echo "ups-event: unknown event" >&2; exit 1 ;;
+esac
 cd /opt/cynthology/backend && CYN_STATE=/var/lib/cynthology exec /usr/bin/python3 -m cynthology.ups event "$1"

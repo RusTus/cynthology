@@ -41,9 +41,17 @@ esac
 
 echo "==> Installing Cynthology to $DEST"
 mkdir -p "$DEST" /var/lib/cynthology /etc/exports.d
-chmod 755 /var/lib/cynthology && chown root:root /var/lib/cynthology
-rsync -a --delete --exclude .cyn-state --exclude __pycache__ "$SRC/backend" "$SRC/frontend" "$SRC/catalog" "$DEST/"
-rsync -a "$SRC/rootfs/" /
+# state (keys, passwords, configs): only root can list it; nginx may pass through to acme/
+chmod 711 /var/lib/cynthology && chown root:root /var/lib/cynthology
+# files are installed root-owned and not writable by others, whatever the unpacked tarball had
+RS="rsync -a --no-owner --no-group --chmod=Dgo-w,Fgo-w"
+$RS --delete --exclude .cyn-state --exclude __pycache__ "$SRC/backend" "$SRC/frontend" "$SRC/catalog" "$DEST/"
+$RS --keep-dirlinks "$SRC/rootfs/" /
+# repair: older installers (run from a user's own git clone) copied that user's ownership onto
+# system folders such as / and /etc. Every folder we install into belongs to root.
+(cd "$SRC/rootfs" && find . -type d) | while read -r d; do
+  t="/${d#./}"; [ -d "$t" ] && [ ! -L "$t" ] && [ "$(stat -c %u "$t")" != 0 ] && chown root:root "$t" && echo "fixed owner of $t"
+done
 install -m 755 "$SRC/get.sh" /usr/lib/cynthology/get.sh   # used by "cynthology update" and the Update page
 
 echo "==> Configuring services"
@@ -95,6 +103,7 @@ elif [ "$NOSYSTEMD" != 1 ]; then
   systemctl daemon-reload
   systemctl enable --now cynthology-ui cynthology-snapshots.timer cynthology-health.timer cynthology-backup.timer cynthology-pkgupdate.timer cynthology-repl.timer cynthology-scrub.timer cynthology-ddns.timer cynthology-issue cynthology-firewall cynthology-unlock rtslib-fb-targetctl ssh smbd avahi-daemon docker
   systemctl restart cynthology-ui   # pick up new code when upgrading
+  sshd -t 2>/dev/null && systemctl reload ssh 2>/dev/null || true   # (our sshd_config.d drop-in)
   systemctl enable --now wsdd2 2>/dev/null || systemctl enable --now wsdd 2>/dev/null || true
 fi
 IP=$(hostname -I 2>/dev/null | awk '{print $1}')

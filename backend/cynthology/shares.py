@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from .auth import current_user, require_admin
 from .storage import load_pools
-from .util import DEV, STATE_DIR, read_only, run, valid_name, valid_principal
+from .util import DEV, STATE_DIR, one_line, read_only, run, valid_name, valid_nfs_clients, valid_principal
 
 router = APIRouter(prefix="/api/shares", tags=["shares"])
 SHARES_FILE = os.path.join(STATE_DIR, "shares.json")
@@ -28,7 +28,7 @@ class Share(BaseModel):
     description: str = ""
     smb: bool = True
     nfs: bool = False
-    nfs_clients: str = "192.168.0.0/16"
+    nfs_clients: str = ""                  # empty = this NAS's own subnet(s)
     recycle_bin: bool = True
     read_users: list[str] = []
     write_users: list[str] = ["@users"]
@@ -68,7 +68,7 @@ def smb_block(s: dict) -> str:
     snaps = not s.get("usb") and not s.get("encrypted")
     vfs = ["catia", "fruit", streams] + (["btrfs", "shadow_copy2"] if snaps else []) + (["recycle"] if s.get("recycle_bin") else []) + \
         (["full_audit"] if s.get("audit") else [])
-    block = [f"[{s['name']}]", f"   path = {s['path']}", f"   comment = {s.get('description', '')}",
+    block = [f"[{s['name']}]", f"   path = {s['path']}", f"   comment = {one_line(s.get('description', ''))}",
              "   browseable = yes", "   read only = yes",
              f"   valid users = {' '.join(_smb_names(s['read_users'] + s['write_users']))}",
              f"   write list = {' '.join(_smb_names(s['write_users']))}",
@@ -90,6 +90,14 @@ def smb_block(s: dict) -> str:
     return "\n".join(block)
 
 
+def _local_subnets() -> list[str]:
+    try:
+        from .vpn import lan_networks
+        return lan_networks()
+    except Exception:
+        return []
+
+
 def write_configs(shares: list[dict]) -> None:
     smb, nfs = [], []
     for s in shares:
@@ -101,7 +109,14 @@ def write_configs(shares: list[dict]) -> None:
         if s["smb"]:
             smb.append(smb_block(s))
         if s["nfs"]:
-            nfs.append(f"{s['path']} {s['nfs_clients']}(rw,sync,no_subtree_check,root_squash)")
+            # NFS (sec=sys) trusts the user IDs a client claims: only the local network by default
+            clients = s.get("nfs_clients") or " ".join(_local_subnets()) or "192.168.0.0/16"
+            try:
+                clients = valid_nfs_clients(clients)
+            except HTTPException:
+                continue                  # (never write an export line we did not validate)
+            for c in clients.split():
+                nfs.append(f"{s['path']} {c}(rw,sync,no_subtree_check,root_squash)")
     os.makedirs(os.path.dirname(SMB_CONF), exist_ok=True)
     with open(SMB_CONF, "w") as f:
         f.write("# Managed by Cynthology - do not edit\n\n" + "\n\n".join(smb) + "\n")
@@ -161,7 +176,24 @@ def adopt_pool_shares(pool: dict) -> list[str]:
     shares = load()
     have = {s["name"].lower() for s in shares}
     added = []
-    for s in saved:
+    clean = []
+    for s in saved if isinstance(saved, list) else []:
+        # the metadata file comes from disks we did not set up: validate it like user input
+        try:
+            s = {k: v for k, v in s.items() if k not in ("path", "pool_id", "password", "usb", "mount")
+                 and isinstance(v, (str, int, float, bool, list, dict, type(None)))}
+            s["tm_max_gb"] = int(s.get("tm_max_gb") or 0)
+            valid_name(s.get("name", ""), "share name")
+            for u in list(s.get("read_users", [])) + list(s.get("write_users", [])):
+                valid_principal(u)
+            s["description"] = one_line(s.get("description", ""))
+            s["nfs_clients"] = valid_nfs_clients(s.get("nfs_clients", ""))
+            if s.get("cipher") and s["cipher"] != f"{pool['mount']}/@enc/{s['name']}":
+                continue
+        except (HTTPException, AttributeError, TypeError):
+            continue
+        clean.append(s)
+    for s in clean:
         path = os.path.join(mount, s["name"])
         if s["name"].lower() in have or not os.path.isdir(path):
             continue
@@ -172,13 +204,20 @@ def adopt_pool_shares(pool: dict) -> list[str]:
 
 
 @router.get("")
-def list_shares(_=Depends(current_user)):
-    return [{**s, "locked": bool(s.get("encrypted")) and not unlocked(s)} for s in load()]
+def list_shares(user=Depends(current_user)):
+    out = [{**s, "locked": bool(s.get("encrypted")) and not unlocked(s)} for s in load()]
+    if user.get("admin"):
+        return out
+    from .files import access          # others: only the folders they can use, without the user lists
+    return [{k: v for k, v in s.items() if k not in ("read_users", "write_users", "user_quota", "cipher")}
+            for s in out if access(user, s)]
 
 
 @router.post("")
 def create_share(body: Share, _=Depends(require_admin)):
     valid_name(body.name, "share name")
+    body.description = one_line(body.description)
+    body.nfs_clients = valid_nfs_clients(body.nfs_clients)
     for u in body.read_users + body.write_users:
         valid_principal(u)
     if body.name.lower() in ("home", "homes"):

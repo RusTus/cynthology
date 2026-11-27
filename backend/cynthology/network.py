@@ -136,6 +136,9 @@ class NetConfig(BaseModel):
 
 def validate(cfg: NetConfig, nics: list[str]) -> None:
     used = set()
+    for n in cfg.nics:            # (names go into /etc/network/interfaces: only real ports)
+        if n.name not in nics:
+            raise HTTPException(400, f"unknown network port {n.name!r}")
     for b in cfg.bonds:
         if not re.fullmatch(r"bond[0-9]", b.name):
             raise HTTPException(400, "bond names are bond0..bond9")

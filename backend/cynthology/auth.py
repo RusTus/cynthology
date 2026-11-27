@@ -103,9 +103,23 @@ def _check_lock(*keys: str) -> None:
                 raise HTTPException(429, f"Too many failed attempts. Try again in {wait} minute(s).")
 
 
-def _fail(*keys: str) -> None:
-    for k in keys:
-        FAILS.setdefault(k, []).append(time.time())
+_LOCK = __import__("threading").Lock()
+
+
+def _canonical(user: str) -> str:
+    """The account's real name as the system knows it (domain names are case-insensitive:
+    corp\\ALICE and CORP\\alice are the same account - 2FA, sessions and permissions must agree)."""
+    import pwd
+    try:
+        return pwd.getpwnam(user).pw_name
+    except KeyError:
+        return user
+
+
+def _fail(*keys: str, counted: bool = False) -> None:
+    if not counted:
+        for k in keys:
+            FAILS.setdefault(k, []).append(time.time())
     # firewall auto-block: an address that keeps failing is shut out completely for a while
     try:
         from . import firewall
@@ -143,16 +157,21 @@ def enrollment_done(user: str) -> None:
 def login(body: Login, request: Request):
     from . import twofa
     ip = request.client.host if request.client else "?"
-    keys = (f"u:{body.username.lower()}", f"ip:{ip}")
-    try:
-        _check_lock(*keys)
-    except HTTPException:
-        _log("locked", body.username, ip, "too many failed attempts")
-        raise
+    # lock on user+address (someone elsewhere can't lock the real admin out) and on the address
+    keys = (f"u:{body.username.lower()}|{ip}", f"ip:{ip}")
+    with _LOCK:                          # count the attempt BEFORE checking the password, so that
+        try:                             # parallel requests can't all slip past the limit
+            _check_lock(*keys)
+        except HTTPException:
+            _log("locked", body.username, ip, "too many failed attempts")
+            raise
+        for k in keys:
+            FAILS.setdefault(k, []).append(time.time())
     if not _pam_ok(body.username, body.password):
-        _fail(*keys)
+        _fail(*keys, counted=True)
         _log("failed", body.username, ip, "wrong user name or password")
         raise HTTPException(401, "Invalid username or password")
+    body.username = _canonical(body.username)
     if "\\" not in body.username:      # domain accounts authenticate against the domain
         _ensure_smb_password(body.username, body.password)
     try:
@@ -200,19 +219,35 @@ def current_user(request: Request, authorization: str = Header(default="")) -> d
     if not s or s["exp"] < time.time():
         raise HTTPException(401, "Not logged in")
     # administrators must finish setting up 2-step verification before anything else
-    if s.get("enroll_required") and not request.url.path.startswith(("/api/auth/", "/api/2fa")):
+    if s.get("enroll_required") and not (request.url.path.startswith("/api/auth/") or
+                                         request.url.path in ("/api/2fa", "/api/2fa/setup", "/api/2fa/enable")):
         raise HTTPException(403, "Set up 2-step verification first")
     return s
 
 
 def require_admin(user: dict = Depends(current_user)) -> dict:
-    if not user["admin"] and _is_admin(user["user"]):
-        user["admin"] = True            # made admin since signing in: no need to sign in again
+    # admin rights are re-checked (at most once a minute): removing someone from the admin group
+    # takes effect without waiting for their session to expire - and being added needs no new sign-in
+    if time.time() - user.get("admin_checked", 0) > 60:
+        now_admin = _is_admin(user["user"])
+        if now_admin != user["admin"]:
+            user["admin"] = now_admin
+        user["admin_checked"] = time.time()
         _save_sessions()
     if not user["admin"]:
         raise HTTPException(403, f"Administrator rights required. The account '{user['user']}' is not an administrator - "
                                  f"on the NAS console run:  sudo usermod -aG cynthology-admin {user['user']}")
     return user
+
+
+def end_sessions(user: str) -> int:
+    """Sign a user out everywhere (account deleted, password changed)."""
+    gone = [t for t, s in SESSIONS.items() if s["user"].lower() == user.lower()]
+    for t in gone:
+        del SESSIONS[t]
+    if gone:
+        _save_sessions()
+    return len(gone)
 
 
 @router.post("/logout")

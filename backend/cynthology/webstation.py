@@ -29,9 +29,9 @@ TLS_CERT, TLS_KEY = "/etc/cynthology/tls/cert.pem", "/etc/cynthology/tls/key.pem
 PACKAGES = ["nginx", "php-fpm", "php-mysql", "php-pgsql", "php-sqlite3", "php-gd", "php-curl", "php-mbstring", "php-xml",
             "php-zip", "php-intl", "php-bcmath", "php-imagick", "php-apcu", "php-redis", "php-ldap", "php-soap"]
 RESERVED = {22, 139, 445, 2049, 3493, 5000, 5001}
-HOST_RE = re.compile(r"^(\*\.)?[A-Za-z0-9]([A-Za-z0-9-]{0,62})(\.[A-Za-z0-9]([A-Za-z0-9-]{0,62}))*$")
-SIZE_RE = re.compile(r"^\d{1,5}[KMG]?$")
-PROXY_RE = re.compile(r"^https?://[A-Za-z0-9.\-\[\]:]+(:\d+)?(/[A-Za-z0-9._~/%-]*)?$")
+HOST_RE = re.compile(r"^(\*\.)?[A-Za-z0-9]([A-Za-z0-9-]{0,62})(\.[A-Za-z0-9]([A-Za-z0-9-]{0,62}))*\Z")
+SIZE_RE = re.compile(r"^\d{1,5}[KMG]?\Z")
+PROXY_RE = re.compile(r"^https?://[A-Za-z0-9.\-\[\]:]+(:\d+)?(/[A-Za-z0-9._~/%-]*)?\Z")
 PHP_DEFAULTS = {"memory_limit": "256M", "upload_max_filesize": "512M", "post_max_size": "512M",
                 "max_execution_time": "120", "display_errors": False}
 
@@ -106,13 +106,15 @@ def web_root(create: bool = False) -> str:
 
 def site_root(site: dict, root: str) -> str:
     parts = [p for p in site.get("folder", "").strip("/").split("/") if p]
-    if ".." in parts:
-        raise HTTPException(400, "bad folder")
+    # (goes into nginx's "root" line: plain folder names only)
+    if ".." in parts or len(parts) > 16 or not all(re.fullmatch(r"[A-Za-z0-9 _.()+,@#&-]{1,128}", p) for p in parts):
+        raise HTTPException(400, "the folder may only use letters, digits, spaces and . _ - ( ) + , @ # &")
     return os.path.join(root, *parts)
 
 
 def validate(site: Site, others: list[dict]) -> None:
-    if not site.name.strip() or len(site.name) > 60:
+    site.name = re.sub(r"[\x00-\x1f\x7f]+", " ", site.name).strip()
+    if not site.name or len(site.name) > 60:
         raise HTTPException(400, "give the website a name")
     if site.type not in ("port", "name") or site.kind not in ("static", "php", "proxy"):
         raise HTTPException(400, "bad website type")
@@ -170,7 +172,8 @@ def render(st: dict, root: str, php_ver: str | None, ipv6: bool | None = None) -
             if ipv6:
                 listen.append(f"    listen [::]:{port}{' ssl' if ssl else ''}{dflt};")
         name = s["hostname"] if s["type"] == "name" else "_"
-        body = [f"server {{  # {s['name']}", *listen, f"    server_name {name};", f"    client_max_body_size {upload};"]
+        label = re.sub(r"[\x00-\x1f\x7f]+", " ", s["name"])
+        body = [f"server {{  # {label}", *listen, f"    server_name {name};", f"    client_max_body_size {upload};"]
         # Let's Encrypt validation files for the NAS's certificate (Control Panel > Security)
         body += ["    location ^~ /.well-known/acme-challenge/ { root /var/lib/cynthology/acme; default_type text/plain; }"]
         if s.get("https_port"):
@@ -187,7 +190,7 @@ def render(st: dict, root: str, php_ver: str | None, ipv6: bool | None = None) -
                      "        proxy_set_header Connection $connection_upgrade;", "        proxy_read_timeout 3600s;",
                      "        proxy_buffering off;", "    }"]
         else:
-            body += [f"    root {site_root(s, root)};", "    index index.php index.html index.htm;",
+            body += [f'    root "{site_root(s, root)}";', "    index index.php index.html index.htm;",
                      "    location ~ /\\.(?!well-known) { deny all; }",
                      "    location ~ ^/(@eaDir|#recycle|\\.snapshots)(/|$) { deny all; }"]
             if s["kind"] == "php" and php_ver:
