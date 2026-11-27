@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 727 entries.
+// Generated from the English UI strings (see i18n.js). 758 entries.
 i18nAdd("es", {
 "Settings and data are kept.": "Se conservan la configuración y los datos.",
 "Also installs required package(s): ": "También instala los paquetes necesarios: ",
@@ -726,5 +726,36 @@ i18nAdd("es", {
 "Users": "Usuarios",
 "Network settings and iSCSI are not part of the backup. Restored firewall rules start switched off.": "La red y el iSCSI no forman parte de la copia. Las reglas de cortafuegos restauradas empiezan desactivadas.",
 "Restore the selected parts now?": "¿Restaurar ahora las partes seleccionadas?",
-"Configuration restored": "Configuración restaurada"
+"Configuration restored": "Configuración restaurada",
+"Another Cynthology (Backup Vault)": "Otro Cynthology (bóveda de copias)",
+"On the other Cynthology: Control Panel → File Services → Backup Vault → switch it on and add an account for this NAS. ": "En el otro Cynthology: Panel de control → Servicios de archivos → Bóveda de copias → actívela y añada una cuenta para este NAS. ",
+"Its old backups can then never be deleted from here (append-only) - good protection against ransomware.": "Sus copias antiguas nunca podrán borrarse desde aquí (solo añadir): buena protección contra el ransomware.",
+"Vault address": "Dirección de la bóveda",
+"Account": "Cuenta",
+"Account password": "Contraseña de la cuenta",
+"Backup name (optional)": "Nombre de la copia (opcional)",
+"Trust a new certificate (only if you renewed or replaced it on the vault)": "Confiar en un certificado nuevo (solo si lo renovó o sustituyó en la bóveda)",
+"old versions are kept - the Backup Vault protects them from deletion": "se conservan las versiones antiguas: la bóveda las protege contra el borrado",
+"Backup Vault": "Bóveda de copias",
+"Let other Cynthology boxes back up to this one (Backup → Another Cynthology). Backups arrive encrypted; this NAS can't read them.": "Permita que otros Cynthology hagan copias en este (Copia → Otro Cynthology). Las copias llegan cifradas; este NAS no puede leerlas.",
+"Enable the Backup Vault": "Activar la bóveda de copias",
+"Store backups on": "Guardar copias en",
+"Append-only: senders can add backups but never delete them (recommended)": "Solo añadir: los remitentes pueden añadir copias pero nunca borrarlas (recomendado)",
+"To free space: switch append-only off for a day - the sending NAS then removes old versions by its own rules on its next run - then switch it back on.": "Para liberar espacio: desactive «solo añadir» durante un día; el NAS remitente borrará las versiones antiguas según sus reglas en su siguiente ejecución. Luego vuelva a activarlo.",
+"Certificate fingerprint (compare it on the sending NAS):": "Huella del certificado (compárela en el NAS remitente):",
+"Backup Vault saved": "Bóveda guardada",
+"Accounts": "Cuentas",
+"Remove this account? Its backups stay on the disk.": "¿Quitar esta cuenta? Sus copias se quedan en el disco.",
+"Account removed": "Cuenta quitada",
+"No accounts yet - add one per NAS that sends backups here.": "Aún no hay cuentas: añada una por cada NAS que envíe copias aquí.",
+"+ Add account": "+ Añadir cuenta",
+"Add a vault account": "Añadir una cuenta a la bóveda",
+"Account name": "Nombre de la cuenta",
+"Password (copy it for the sending NAS)": "Contraseña (cópiela para el NAS remitente)",
+"Account added": "Cuenta añadida",
+"Lock (days)": "Bloqueo (días)",
+"Each new snapshot can't be deleted - by anyone - for this many days. Protects against ransomware and mistakes.": "Nadie puede borrar cada nueva instantánea durante estos días. Protege contra el ransomware y los errores.",
+"New snapshots will be locked for": "Las nuevas instantáneas se bloquearán durante",
+"days. Locked snapshots can't be deleted by anyone - not even an administrator - and they keep using space until the lock runs out. Continue?": "días. Nadie puede borrar las instantáneas bloqueadas, ni siquiera un administrador, y ocupan espacio hasta que termine el bloqueo. ¿Continuar?",
+"Locked until": "Bloqueada hasta"
 });

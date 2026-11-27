@@ -162,7 +162,54 @@ def repo_and_env(t: dict) -> tuple[str, dict]:
         return f"s3:{endpoint}/{d['bucket']}/{sub}".rstrip("/"), env
     if d["type"] == "rest":
         return f"rest:{d['url'].rstrip('/')}/{sub}".rstrip("/"), env
+    if d["type"] == "vault":                 # another Cynthology's Backup Vault (restic REST server over HTTPS)
+        host, port, user = d.get("host", ""), int(d.get("port") or 6281), d.get("user", "")
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]{0,252}|[0-9a-fA-F:]{2,45}", host) or not 0 < port < 65536 \
+                or not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,31}", user):
+            raise RuntimeError("the vault address, port or account name isn't valid")
+        repo = re.sub(r"[^A-Za-z0-9_.-]", "-", sub or socket.gethostname())[:64]
+        env["RESTIC_REST_USERNAME"], env["RESTIC_REST_PASSWORD"] = user, d.get("secret_key") or ""
+        pin = vault_pin_path(host, port)
+        if os.path.exists(pin):              # a self-signed vault: trust exactly the certificate seen when it was added
+            env["RESTIC_CACERT"] = pin
+        h = f"[{host}]" if ":" in host else host
+        return f"rest:https://{h}:{port}/{user}/{repo}", env
     raise RuntimeError("unknown destination type")
+
+
+def vault_pin_path(host: str, port: int) -> str:
+    return os.path.join(DIR, "vault-certs", f"{re.sub(r'[^A-Za-z0-9.-]', '_', host)}-{int(port)}.pem")
+
+
+def vault_certificate(host: str, port: int, trust_new: bool = False) -> dict:
+    """Check the vault's certificate. A publicly trusted one (Let's Encrypt) needs nothing; a
+    self-signed one is pinned the first time (trust on first use) and must match afterwards."""
+    import ssl
+    try:
+        ctx = ssl.create_default_context()
+        with socket.create_connection((host, port), timeout=10) as sock, ctx.wrap_socket(sock, server_hostname=host):
+            pass
+        if os.path.exists(vault_pin_path(host, port)):
+            os.remove(vault_pin_path(host, port))
+        return {"trusted": True}
+    except ssl.SSLCertVerificationError:
+        pass
+    except OSError as e:
+        raise HTTPException(400, f"can't reach {host}:{port} - is the Backup Vault on there and the port open? ({e})")
+    from .vault import fingerprint
+    pem = ssl.get_server_certificate((host, port), timeout=10)
+    pin = vault_pin_path(host, port)
+    os.makedirs(os.path.dirname(pin), mode=0o700, exist_ok=True)
+    tmp = pin + ".seen"
+    with open(tmp, "w") as f:
+        f.write(pem)
+    fp = fingerprint(tmp)
+    if os.path.exists(pin) and not trust_new and fingerprint(pin) != fp:
+        os.remove(tmp)
+        raise HTTPException(409, f"the vault's certificate has changed (now {fp}). If you renewed or replaced it on "
+                                 "the vault, compare the fingerprint there and choose 'Trust the new certificate'.")
+    os.replace(tmp, pin)
+    return {"trusted": False, "fingerprint": fp}
 
 
 def restic(t: dict, *args: str, json_out: bool = False, timeout: int | None = None,
@@ -246,12 +293,21 @@ def do_backup(tid: str) -> None:
             raise RuntimeError(_tail_error(tid) or f"backup failed (exit code {rc})")
         ret = t.get("retention") or {}
         keep = [f"--keep-{k}={int(v)}" for k, v in ret.items() if k in ("last", "daily", "weekly", "monthly", "yearly") and int(v or 0) > 0]
+        note = None
+        refused = read_status(tid).get("vault_refused_at") or 0
+        if keep and t["dest"]["type"] == "vault" and time.time() - refused < 20 * 3600:
+            keep = []                        # (the vault said no today already: ask again on the next nightly run)
+            note = "old versions are kept - the Backup Vault protects them from deletion"
         if keep:
             r = restic(t, "forget", "--tag", f"cyn-{tid}", "--prune", *keep, log=True)
-            if r.returncode != 0:
+            if r.returncode != 0 and t["dest"]["type"] == "vault":
+                # an append-only vault refuses deletions on purpose: old versions stay until the vault allows it
+                note = "old versions are kept - the Backup Vault protects them from deletion"
+                write_status(tid, vault_refused_at=int(time.time()))
+            elif r.returncode != 0:
                 raise RuntimeError("cleaning up old versions failed: " + (_tail_error(tid) or _err(r)))
         write_status(tid, state="warning" if rc == 3 else "success", finished=int(time.time()), progress=None,
-                     error="some files could not be read (see log)" if rc == 3 else None,
+                     error="some files could not be read (see log)" if rc == 3 else None, note=note,
                      summary={"files_new": summary.get("files_new"), "files_changed": summary.get("files_changed"),
                               "data_added": summary.get("data_added"), "total_files": summary.get("total_files_processed"),
                               "total_bytes": summary.get("total_bytes_processed"),
@@ -375,6 +431,7 @@ class Task(BaseModel):
     retention: dict = {"daily": 7, "weekly": 4, "monthly": 12}
     exclude: list[str] = []
     password: str | None = None    # encryption password; required on create
+    trust_new: bool = False        # vault: accept a changed certificate
 
 
 def _validate(body: Task) -> None:
@@ -402,9 +459,14 @@ def _validate(body: Task) -> None:
         raise HTTPException(400, "SFTP needs a host and user")
     if d.type == "s3" and not (d.bucket and d.access_key):
         raise HTTPException(400, "S3 needs a bucket and access key")
+    if d.type == "vault":
+        try:
+            repo_and_env({"id": "x", "dest": d.model_dump()})
+        except RuntimeError as e:
+            raise HTTPException(400, str(e))
     if d.type == "rest" and not d.url.startswith(("http://", "https://")):
         raise HTTPException(400, "REST server URL must start with http:// or https://")
-    if d.type not in ("local", "sftp", "s3", "rest"):
+    if d.type not in ("local", "sftp", "s3", "rest", "vault"):
         raise HTTPException(400, "unknown destination type")
     if not re.fullmatch(r"\d{1,2}:\d{2}", body.schedule.get("time", "02:00")):
         raise HTTPException(400, "time must be HH:MM")
@@ -426,10 +488,12 @@ def list_tasks(_=Depends(require_admin)):
 @router.post("")
 def create(body: Task, _=Depends(require_admin)):
     _validate(body)
+    if body.dest.type == "vault":
+        vault_certificate(body.dest.host, int(body.dest.port or 6281), body.trust_new)
     if not body.password or len(body.password) < 8:
         raise HTTPException(400, "the encryption password must be at least 8 characters")
     tid = secrets.token_hex(4)
-    t = body.model_dump(exclude={"password"})
+    t = body.model_dump(exclude={"password", "trust_new"})
     t["id"] = tid
     t["dest"]["secret_key"] = body.dest.secret_key or ""
     fd = os.open(_pw_file(tid), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -444,12 +508,14 @@ def create(body: Task, _=Depends(require_admin)):
 @router.put("/{tid}")
 def update(tid: str, body: Task, _=Depends(require_admin)):
     _validate(body)
+    if body.dest.type == "vault":
+        vault_certificate(body.dest.host, int(body.dest.port or 6281), body.trust_new)
     tasks = load_tasks()
     t = next((x for x in tasks if x["id"] == tid), None)
     if not t:
         raise HTTPException(404, "no such backup task")
     secret = t["dest"].get("secret_key", "")
-    t.update(body.model_dump(exclude={"password", "dest"}))
+    t.update(body.model_dump(exclude={"password", "dest", "trust_new"}))
     t["dest"] = body.dest.model_dump()
     t["dest"]["secret_key"] = body.dest.secret_key if body.dest.secret_key is not None else secret
     save_tasks(tasks)
@@ -505,20 +571,31 @@ def test_destination(body: Task, _=Depends(require_admin)):
     t = body.model_dump()
     t["id"] = "test-" + secrets.token_hex(3)
     if body.dest.secret_key is None:   # editing: reuse the stored secret
-        stored = next((x for x in load_tasks() if x["dest"].get("bucket") == body.dest.bucket), None)
+        same = (lambda x: x["dest"].get("host") == body.dest.host and x["dest"].get("user") == body.dest.user) if body.dest.type == "vault" \
+            else (lambda x: x["dest"].get("bucket") == body.dest.bucket)
+        stored = next((x for x in load_tasks() if x["dest"].get("type") == body.dest.type and same(x)), None)
         t["dest"]["secret_key"] = stored["dest"].get("secret_key", "") if stored else ""
     pw = _pw_file(t["id"])
     with open(pw, "w") as f:
         f.write(body.password or "probe-only")
+    cert = None
     try:
+        if body.dest.type == "vault":
+            cert = vault_certificate(body.dest.host, int(body.dest.port or 6281), trust_new=body.trust_new)
         r = restic(t, "cat", "config", timeout=60)
         out = (r.stderr or "") + (r.stdout or "")
+        if cert and not cert["trusted"]:
+            fp = f" Vault certificate: {cert['fingerprint']} - it should match the fingerprint shown on the vault."
+        else:
+            fp = ""
+        if re.search(r"401|unauthorized", out, re.I):
+            raise HTTPException(400, "the vault refused the account name or password")
         if r.returncode == 0:
-            return {"ok": True, "message": "Connected - an existing backup repository was found and the password works."}
+            return {"ok": True, "message": "Connected - an existing backup repository was found and the password works." + fp}
         if re.search(r"wrong password|no key found", out, re.I):
-            return {"ok": True, "message": "Connected - a backup repository exists here but the password does not match it."}
+            return {"ok": True, "message": "Connected - a backup repository exists here but the password does not match it." + fp}
         if re.search(r"does not exist|no such file|unable to open config|NoSuchKey|404|Is there a repository", out, re.I):
-            return {"ok": True, "message": "Connected - a new backup repository will be created on the first run."}
+            return {"ok": True, "message": "Connected - a new backup repository will be created on the first run." + fp}
         raise HTTPException(400, "could not reach the destination: " + _err(r))
     except subprocess.TimeoutExpired:
         raise HTTPException(400, "timed out reaching the destination")

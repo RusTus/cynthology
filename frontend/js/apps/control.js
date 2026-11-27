@@ -260,7 +260,42 @@ async function fileServicesCards(reload) {
       } }, acc.has(u.name) ? "Change" : "Set password"),
         acc.has(u.name) ? h("button", { class: "btn", onclick: async () => { await act(() => API.put("/api/fileservices/rsync/account", { user: u.name, password: "" }), "rsync access removed"); reload(); } }, "Remove") : null)))) : null,
     fs.rsync.enabled ? h("div", { class: "muted", style: "font-size:12px" }, `Example: rsync -av ./photos/ rsync://USER@${host}/SHARE/photos/`) : null);
-  return h("div", {}, dav, sftp, rs);
+  return h("div", {}, dav, sftp, rs, await vaultCard(reload));
+}
+
+// Backup Vault: other Cynthology boxes back up here (backend vault.py)
+async function vaultCard(reload) {
+  const [v, pools] = await Promise.all([API.get("/api/vault"), API.get("/api/storage/pools").catch(() => [])]);
+  const f = { enabled: v.enabled, port: v.port, pool_id: v.pool_id ?? pools[0]?.id ?? null, append_only: v.append_only };
+  const card = h("div", { class: "card", style: "max-width:640px;margin-bottom:18px" },
+    h("div", {}, h("b", {}, "Backup Vault"), " ", h("span", { class: "pill " + (v.running ? "ok" : "") }, v.running ? "Running" : "Off")),
+    h("div", { class: "muted", style: "font-size:12px" }, "Let other Cynthology boxes back up to this one (Backup → Another Cynthology). Backups arrive encrypted; this NAS can't read them."),
+    h("label", { class: "check" }, h("input", { type: "checkbox", checked: f.enabled, onchange: (e) => (f.enabled = e.target.checked) }), "Enable the Backup Vault"),
+    h("div", { style: "display:flex;gap:14px;flex-wrap:wrap" },
+      h("label", { style: "display:grid;gap:4px" }, "Store backups on", h("select", { onchange: (e) => (f.pool_id = +e.target.value) },
+        pools.map((p) => h("option", { value: p.id, selected: p.id === f.pool_id }, p.name || p.mount)))),
+      h("label", { style: "display:grid;gap:4px" }, "Port", h("input", { type: "number", value: f.port, style: "width:100px", oninput: (e) => (f.port = +e.target.value) }))),
+    h("label", { class: "check" }, h("input", { type: "checkbox", checked: f.append_only, onchange: (e) => (f.append_only = e.target.checked) }),
+      "Append-only: senders can add backups but never delete them (recommended)"),
+    h("div", { class: "muted", style: "font-size:12px" }, "To free space: switch append-only off for a day - the sending NAS then removes old versions by its own rules on its next run - then switch it back on."),
+    v.fingerprint ? h("div", { class: "muted", style: "font-size:12px" }, t("Certificate fingerprint (compare it on the sending NAS):"), h("div", { class: "mono", style: "font-size:11px;word-break:break-all" }, v.fingerprint)) : null,
+    h("div", {}, h("button", { class: "btn primary", onclick: async () => { await act(() => API.put("/api/vault", f), "Backup Vault saved"); reload(); } }, "Apply")),
+    h("h4", { style: "margin:10px 0 4px" }, "Accounts"),
+    v.accounts.length ? h("table", {}, v.accounts.map((a) => h("tr", {}, h("td", { translate: "no" }, h("b", {}, a)),
+      h("td", { class: "muted" }, v.sizes[a] != null ? fmtBytes(v.sizes[a]) : ""),
+      h("td", {}, h("button", { class: "btn", onclick: async () => {
+        if (!confirm(t("Remove this account? Its backups stay on the disk."))) return;
+        await act(() => API.put("/api/vault/account", { name: a, password: "" }), "Account removed"); reload();
+      } }, "Remove"))))) : h("div", { class: "muted" }, "No accounts yet - add one per NAS that sends backups here."),
+    h("div", { class: "toolbar" }, h("button", { class: "btn", onclick: () => {
+      const name = h("input", { placeholder: "home-nas" });
+      const gen = Array.from(crypto.getRandomValues(new Uint8Array(18)), (b) => "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"[b % 57]).join("");
+      const pw = h("input", { value: gen, readonly: true, onfocus: (e) => e.target.select() });
+      const close = modal(t("Add a vault account"), h("div", { class: "form" }, h("label", {}, "Account name", name), h("label", {}, "Password (copy it for the sending NAS)", pw)), [
+        ["Cancel", null, ""],
+        ["Add", async () => { await act(() => API.put("/api/vault/account", { name: name.value.trim(), password: pw.value }), "Account added"); close(); reload(); }, "primary"]]);
+    } }, "+ Add account")));
+  return card;
 }
 
 async function cpInfo(p) {

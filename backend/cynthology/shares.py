@@ -289,6 +289,10 @@ def delete_share(name: str, delete_data: bool = False, _=Depends(require_admin))
     share = next((s for s in shares if s["name"] == name), None)
     if not share:
         raise HTTPException(404, "no such share")
+    if delete_data:
+        from .snapshots import locked_snaps
+        if locked_snaps(share):
+            raise HTTPException(423, "this folder has locked (immutable) snapshots - its data can't be deleted until the locks run out")
     if share.get("encrypted"):
         lock(share)
         if delete_data:

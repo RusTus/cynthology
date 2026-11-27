@@ -23,10 +23,10 @@ function snapshotsLocal(pane) {
           " to restore. In File Station, tick “Hidden files” and open .snapshots."),
         h("br"),
         rows.length ? h("table", {},
-          h("tr", {}, h("th", {}, "Shared folder"), h("th", {}, "Schedule"), h("th", {}, "Keep"), h("th", {}, "Snapshots"), h("th", {}, "Latest"), h("th", {})),
+          h("tr", {}, h("th", {}, "Shared folder"), h("th", {}, "Schedule"), h("th", {}, "Keep"), h("th", { title: "Each new snapshot can't be deleted - by anyone - for this many days. Protects against ransomware and mistakes." }, "Lock (days)"), h("th", {}, "Snapshots"), h("th", {}, "Latest"), h("th", {})),
           rows.map((r) => {
-            if (!r.supported) return h("tr", {}, h("td", {}, h("b", {}, r.share)), h("td", { colspan: 5, class: "muted" }, "Not on a Btrfs volume - snapshots unavailable"));
-            const pol = { schedule: r.schedule, keep: r.keep };
+            if (!r.supported) return h("tr", {}, h("td", {}, h("b", {}, r.share)), h("td", { colspan: 6, class: "muted" }, "Not on a Btrfs volume - snapshots unavailable"));
+            const pol = { schedule: r.schedule, keep: r.keep, lock_days: r.lock_days || 0 };
             const save = () => act(() => API.put(`/api/snapshots/${r.share}`, pol), "Snapshot schedule saved");
             return h("tr", {},
               h("td", {}, h("b", {}, r.share)),
@@ -34,6 +34,12 @@ function snapshotsLocal(pane) {
                 ["off", "hourly", "daily", "weekly"].map((v) => h("option", { value: v, selected: v === r.schedule }, v[0].toUpperCase() + v.slice(1))))),
               h("td", {}, h("input", { type: "number", min: 0, max: 1000, value: r.keep, style: "width:80px", title: "0 = keep all",
                 onchange: (e) => { pol.keep = +e.target.value; save().then(render); } })),
+              h("td", {}, h("input", { type: "number", min: 0, max: 3650, value: pol.lock_days, style: "width:80px", title: "0 = not locked",
+                onchange: (e) => {
+                  const v = +e.target.value;
+                  if (v > pol.lock_days && !confirm(t("New snapshots will be locked for") + ` ${v} ` + t("days. Locked snapshots can't be deleted by anyone - not even an administrator - and they keep using space until the lock runs out. Continue?"))) { e.target.value = pol.lock_days; return; }
+                  pol.lock_days = v; save();
+                } })),
               h("td", {}, h("a", { href: "#", onclick: (e) => { e.preventDefault(); showList(r.share); } }, String(r.count))),
               h("td", { class: "muted" }, snapWhen(r.latest)),
               h("td", {}, h("button", { class: "btn", onclick: async () => { await act(() => API.post(`/api/snapshots/${r.share}`), "Snapshot taken"); render(); } }, "Take snapshot")));
@@ -46,7 +52,9 @@ function snapshotsLocal(pane) {
       pane.replaceChildren(h("h2", {}, `Snapshots of ${share}`),
         h("div", { class: "toolbar" }, h("button", { class: "btn", onclick: render }, "← Back")),
         snaps.length ? h("table", {}, h("tr", {}, h("th", {}, "Taken"), h("th", {}, "Name"), h("th", {})),
-          snaps.map((s) => h("tr", {}, h("td", {}, new Date(s.time).toLocaleString()), h("td", { class: "mono muted" }, s.name),
+          snaps.map((s) => h("tr", {}, h("td", {}, new Date(s.time).toLocaleString(),
+              s.locked_until ? h("span", { class: "pill info", style: "margin-left:8px", title: t("Locked until") + " " + new Date(s.locked_until * 1000).toLocaleString() }, "🔒 " + new Date(s.locked_until * 1000).toLocaleDateString()) : null),
+            h("td", { class: "mono muted" }, s.name),
             h("td", { style: "white-space:nowrap" },
               h("button", { class: "btn primary", onclick: () => snapBrowse(pane, share, s, () => showList(share)) }, "Browse & restore"), " ",
               h("button", { class: "btn", onclick: async () => {
@@ -55,7 +63,7 @@ function snapshotsLocal(pane) {
                 if (r) toast("Safety snapshot of the previous state: " + snapWhen(r.safety_snapshot));
                 showList(share);
               } }, "Restore whole folder"), " ",
-              h("button", { class: "btn danger", onclick: async () => {
+              s.locked_until ? null : h("button", { class: "btn danger", onclick: async () => {
               if (!confirm(`Delete snapshot ${s.name}?`)) return;
               await act(() => API.del(`/api/snapshots/${share}/${encodeURIComponent(s.name)}`), "Snapshot deleted"); showList(share);
             } }, "Delete")))))

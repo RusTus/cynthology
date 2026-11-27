@@ -5,7 +5,9 @@ shadow_copy2 default, so Windows shows them under "Previous Versions" on the SMB
 A systemd timer runs `python3 -m cynthology.snapshots` hourly to take due snapshots and prune.
 """
 import datetime
+import json
 import os
+import time
 import re
 import subprocess
 
@@ -14,13 +16,43 @@ from pydantic import BaseModel
 
 from . import shares as shares_mod
 from .auth import current_user, require_admin
-from .util import DEV, read_only, run
+from .util import DEV, STATE_DIR, read_only, run
 
 router = APIRouter(prefix="/api/snapshots", tags=["snapshots"])
 SNAPDIR = ".snapshots"
 FMT = "@GMT-%Y.%m.%d-%H.%M.%S"
 NAME_RE = re.compile(r"^@GMT-\d{4}\.\d{2}\.\d{2}-\d{2}\.\d{2}\.\d{2}\Z")
 INTERVAL_H = {"hourly": 1, "daily": 24, "weekly": 24 * 7}
+LOCKS = os.path.join(STATE_DIR, "snapshot-locks.json")
+
+
+# ---------- immutable snapshots ----------
+# A shared folder can lock each new snapshot for N days: until then nothing in Cynthology deletes it -
+# not the Delete button, not retention, not deleting the shared folder with its data. (The lock is
+# set when the snapshot is taken; shortening the setting later doesn't shorten existing locks.)
+
+def _locks() -> dict:
+    try:
+        return json.load(open(LOCKS))
+    except (OSError, ValueError):
+        return {}
+
+
+def lock_until(share: dict, name: str) -> int | None:
+    until = _locks().get(f"{share['name']}/{name}")
+    return until if until and until > time.time() else None
+
+
+def locked_snaps(share: dict) -> list[str]:
+    return [n for n in list_snaps(share) if lock_until(share, n)] if os.path.isdir(share["path"]) else []
+
+
+def _set_lock(share: dict, name: str, days: int) -> None:
+    locks = {k: v for k, v in _locks().items() if v > time.time()}       # (forget expired ones)
+    locks[f"{share['name']}/{name}"] = int(time.time()) + days * 86400
+    with open(LOCKS + ".new", "w") as f:
+        json.dump(locks, f)
+    os.replace(LOCKS + ".new", LOCKS)
 
 
 def _share(name: str) -> dict:
@@ -53,6 +85,8 @@ def take(share: dict) -> str:
     if DEV:   # no Btrfs in dev mode: a plain copy stands in for the snapshot
         import shutil
         shutil.copytree(share["path"], os.path.join(d, name), ignore=shutil.ignore_patterns(SNAPDIR, "#recycle"))
+        if int(share.get("snap_lock_days") or 0) > 0:
+            _set_lock(share, name, int(share["snap_lock_days"]))
         return name
     run(["mkdir", "-p", d])
     run(["btrfs", "subvolume", "snapshot", "-r", share["path"], os.path.join(d, name)])
@@ -60,6 +94,8 @@ def take(share: dict) -> str:
         # (never let one user's full home stop the others' snapshots)
         run(["mkdir", "-p", os.path.join(sub, SNAPDIR)], check=False)
         run(["btrfs", "subvolume", "snapshot", "-r", sub, os.path.join(sub, SNAPDIR, name)], check=False)
+    if int(share.get("snap_lock_days") or 0) > 0:
+        _set_lock(share, name, int(share["snap_lock_days"]))
     return name
 
 
@@ -80,6 +116,10 @@ def delete(share: dict, name: str) -> None:
     path = os.path.join(share["path"], SNAPDIR, name)
     if not os.path.isdir(path):
         raise HTTPException(404, "no such snapshot")
+    until = lock_until(share, name)
+    if until:
+        raise HTTPException(423, "this snapshot is locked (immutable) until " +
+                            datetime.datetime.fromtimestamp(until).strftime("%Y-%m-%d %H:%M") + " - it can't be deleted before then")
     if DEV:
         os.rmdir(path)
     else:
@@ -94,9 +134,13 @@ def prune(share: dict) -> int:
     snaps = list_snaps(share)
     if keep <= 0 or len(snaps) <= keep:
         return 0
+    gone = 0
     for name in snaps[:-keep]:
+        if lock_until(share, name):        # (locked ones stay until their lock runs out)
+            continue
         delete(share, name)
-    return len(snaps) - keep
+        gone += 1
+    return gone
 
 
 def run_due(now: datetime.datetime | None = None) -> list[str]:
@@ -122,13 +166,15 @@ def overview(_=Depends(current_user)):
     for s in shares_mod.load():
         snaps = list_snaps(s) if os.path.isdir(s["path"]) else []
         out.append({"share": s["name"], "supported": supported(s), "schedule": s.get("snap_schedule") or "off",
-                    "keep": s.get("snap_keep") or 0, "count": len(snaps), "latest": snaps[-1] if snaps else None})
+                    "keep": s.get("snap_keep") or 0, "lock_days": s.get("snap_lock_days") or 0,
+                    "count": len(snaps), "latest": snaps[-1] if snaps else None})
     return out
 
 
 class Policy(BaseModel):
     schedule: str = "off"
     keep: int = 0
+    lock_days: int = 0             # immutable for this many days after each snapshot (0 = off)
 
 
 @router.put("/{share}")
@@ -141,7 +187,9 @@ def set_policy(share: str, body: Policy, _=Depends(require_admin)):
     s = next((x for x in items if x["name"] == share), None)
     if not s:
         raise HTTPException(404, "no such shared folder")
-    s["snap_schedule"], s["snap_keep"] = body.schedule, body.keep
+    if not 0 <= body.lock_days <= 3650:
+        raise HTTPException(400, "lock between 0 (off) and 3650 days")
+    s["snap_schedule"], s["snap_keep"], s["snap_lock_days"] = body.schedule, body.keep, body.lock_days
     shares_mod.write_configs(items)
     prune(s)
     return {"ok": True}
@@ -150,7 +198,7 @@ def set_policy(share: str, body: Policy, _=Depends(require_admin)):
 @router.get("/{share}")
 def get_snaps(share: str, _=Depends(current_user)):
     s = _share(share)
-    return [{"name": n, "time": snap_time(n).isoformat()} for n in reversed(list_snaps(s))]
+    return [{"name": n, "time": snap_time(n).isoformat(), "locked_until": lock_until(s, n)} for n in reversed(list_snaps(s))]
 
 
 @router.post("/{share}")

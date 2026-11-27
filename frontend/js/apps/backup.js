@@ -1,6 +1,6 @@
 // Backup: encrypted, versioned backups of shared folders (restic) to USB, another NAS (SFTP) or the cloud (S3).
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const DEST_LABEL = { local: "USB drive / local folder", sftp: "Another NAS or server (SFTP)", s3: "Cloud storage (S3-compatible)", rest: "restic REST server" };
+const DEST_LABEL = { local: "USB drive / local folder", vault: "Another Cynthology (Backup Vault)", sftp: "Another NAS or server (SFTP)", s3: "Cloud storage (S3-compatible)", rest: "restic REST server" };
 
 WM.register("backup", {
   name: "Backup", icon: "💾", color: "#2e9d5b", w: 980, h: 640,
@@ -12,7 +12,7 @@ WM.register("backup", {
 
     const fmtTime = (ts) => (ts ? new Date(ts * 1000).toLocaleString() : "-");
     const destText = (d) => d.type === "local" ? (d.uuid ? `USB drive ${d.uuid.slice(0, 8)}… / ${d.path || ""}` : d.path)
-      : d.type === "sftp" ? `${d.user}@${d.host}:${d.path}` : d.type === "s3" ? `${d.endpoint || "AWS"} / ${d.bucket}/${d.path}` : d.url;
+      : d.type === "vault" ? `${d.user}@${d.host}:${d.port}` : d.type === "sftp" ? `${d.user}@${d.host}:${d.path}` : d.type === "s3" ? `${d.endpoint || "AWS"} / ${d.bucket}/${d.path}` : d.url;
 
     async function list() {
       clearTimeout(timer);
@@ -38,6 +38,7 @@ WM.register("backup", {
         s.state === "running" && s.progress ? h("div", {}, h("div", { class: "bar" }, h("div", { style: `width:${s.progress.percent}%` })),
           h("div", { class: "muted" }, `${s.progress.percent}% · ${s.progress.files} files · ${fmtBytes(s.progress.bytes)} of ${fmtBytes(s.progress.total_bytes)}`)) : null,
         s.error ? h("div", { class: "err" }, s.error) : null,
+        s.note && s.state !== "failed" ? h("div", { class: "muted", style: "font-size:12px" }, "🔒 " + t_(s.note)) : null,
         h("div", { class: "muted" }, `Last run: ${fmtTime(s.finished || s.started)}` + (sum ? ` · ${sum.files_new ?? 0} new, ${sum.files_changed ?? 0} changed, ${fmtBytes(sum.data_added || 0)} added in ${sum.duration}s` : "")),
         h("div", { class: "muted" }, "Next run: " + (t.next_run ? fmtTime(t.next_run) : "not scheduled")),
         s.check ? h("div", { class: "muted" }, `Integrity check: ${s.check.state}` + (s.check.finished ? ` (${fmtTime(s.check.finished)})` : "")) : null,
@@ -97,6 +98,16 @@ WM.register("backup", {
             field("User", d, "user"), field("Folder on the server", d, "path", { placeholder: "backups/cynthology" }),
             h("div", { class: "note" }, "Add this NAS's key to ", h("span", { class: "mono" }, "~/.ssh/authorized_keys"), " of that user on the server:",
               h("textarea", { readonly: true, style: "width:100%;min-height:60px;margin-top:6px", onclick: (e) => e.target.select() }, key.public_key)));
+        } else if (d.type === "vault") {
+          if (!t && d.port === 22) d.port = 6281;
+          parts.push(h("div", { class: "note" }, "On the other Cynthology: Control Panel → File Services → Backup Vault → switch it on and add an account for this NAS. ",
+              "Its old backups can then never be deleted from here (append-only) - good protection against ransomware."),
+            field("Vault address", d, "host", { placeholder: "192.168.1.60 or nas2.example.com" }), field("Port", d, "port", { type: "number" }),
+            field("Account", d, "user", { placeholder: "this NAS's name, e.g. home-nas" }),
+            h("label", {}, "Account password", h("input", { type: "password", autocomplete: "new-password", placeholder: t ? t_("(unchanged)") : "", oninput: (e) => (d.secret_key = e.target.value) })),
+            field("Backup name (optional)", d, "path", { placeholder: "defaults to this NAS's name" }),
+            h("label", { class: "check" }, h("input", { type: "checkbox", onchange: (e) => (f.trust_new = e.target.checked) }),
+              "Trust a new certificate (only if you renewed or replaced it on the vault)"));
         } else if (d.type === "s3") {
           parts.push(field("Endpoint", d, "endpoint", { placeholder: "https://s3.us-west-004.backblazeb2.com (empty = AWS)" }),
             field("Bucket", d, "bucket"), field("Folder in bucket", d, "path", { placeholder: "cynthology" }), field("Region (optional)", d, "region"),
@@ -210,3 +221,5 @@ WM.register("backup", {
     list();
   },
 });
+
+function t_(s) { return typeof t === "function" ? t(s) : s; }

@@ -42,6 +42,7 @@ SERVICES = {
     "vpn": ("WireGuard VPN", [("udp", "VPN_PORT")]),
     "webdav": ("WebDAV (network drive over HTTP/HTTPS)", [("tcp", "WEBDAV_HTTP"), ("tcp", "WEBDAV_HTTPS")]),
     "rsync": ("rsync server", [("tcp", "873")]),
+    "vault": ("Backup Vault (backups from other NAS boxes)", [("tcp", "VAULT_PORT")]),
 }
 
 
@@ -54,6 +55,12 @@ def _service_ports(key: str) -> list[tuple[str, str]]:
         except Exception:
             port = "51820"
         return [(proto, port) for proto, _ in ports]
+    if key == "vault":
+        try:
+            from .vault import load as vault_load
+            return [("tcp", str(vault_load()["port"]))]
+        except Exception:
+            return [("tcp", "6281")]
     if key == "webdav":         # the ports WebDAV is set to
         try:
             from .fileservices import load as fs_load

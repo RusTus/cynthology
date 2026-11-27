@@ -38,7 +38,7 @@ FORMAT = 1
 # settings files (relative to the state folder) per category; directories are copied whole
 SETTINGS_FILES = ["notify.json", "ddns.json", "fileservices.json", "vpn.json", "ups.json", "webstation.json",
                   "firewall.json", "settings.json", "package-sources.json", "usb.json", "tasks/tasks.json",
-                  "backup", "repl"]
+                  "backup", "repl", "vault"]
 SHARE_FILES = ["sharelinks.json", "sharelinks.key"]
 TLS_DIR = "/etc/cynthology/tls"
 KEY_DIR = "/etc/cynthology/keys"
@@ -381,6 +381,9 @@ def _reapply(report: list[str]) -> None:
         step("VPN", lambda: vpn.apply(vpn.load()))
     if ups.load().get("enabled"):
         step("UPS", lambda: ups.apply(ups.load()))
+    from . import vault
+    if vault.load().get("enabled"):
+        step("Backup Vault", lambda: vault.apply(vault.load()))
     if webstation.installed() and webstation.load().get("sites"):
         step("Web Station", lambda: webstation.apply(webstation.load()))
     if steps:
