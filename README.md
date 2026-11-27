@@ -136,6 +136,9 @@ port forwarding, and sign-ins are rate-limited and logged. Found something? Plea
 
 ## Making a release
 
+Releases can be signed with minisign so that every NAS refuses tampered or unsigned updates -
+see [SIGNING.md](SIGNING.md) for the one-time setup.
+
 Push a tag like `v0.1.2-alpha` (or run **Actions → Release ISO** by hand). GitHub Actions
 builds the ISO by remastering the official Debian netinst (`image/build-iso.sh`) and publishes
 it, so the Download links above always point at the newest release.

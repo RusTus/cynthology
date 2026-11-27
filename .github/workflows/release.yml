@@ -52,6 +52,31 @@ jobs:
           cd dist && sha256sum cynthology-install.tar.gz > cynthology-install.tar.gz.sha256
           ls -la
 
+      - name: Sign (minisign)
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+        run: |
+          V="${{ steps.v.outputs.version }}"
+          PUB=$(sed -n 's/^CYN_RELEASE_KEY="\(.*\)"$/\1/p' get.sh)
+          if [ -z "$MINISIGN_SECRET_KEY" ]; then
+            # installs that know the key refuse unsigned releases: never publish one by accident
+            [ -z "$PUB" ] || { echo "::error::get.sh has a release key but the MINISIGN_SECRET_KEY secret is missing"; exit 1; }
+            echo "No signing key configured - release is not signed (see SIGNING.md)"; exit 0
+          fi
+          sudo apt-get install -y -q minisign
+          umask 077
+          printf '%s\n' "$MINISIGN_SECRET_KEY" > "$RUNNER_TEMP/release.key"
+          for f in cynthology-install.tar.gz cynthology-amd64.iso; do
+            minisign -S -s "$RUNNER_TEMP/release.key" -m "dist/$f" -t "cynthology $V $f" </dev/null
+          done
+          rm -f "$RUNNER_TEMP/release.key"
+          if [ -n "$PUB" ]; then   # the key in get.sh must match the one that signed
+            minisign -V -P "$PUB" -m dist/cynthology-install.tar.gz
+          else
+            echo "::warning::release signed, but get.sh has no CYN_RELEASE_KEY yet - installs don't check signatures"
+          fi
+          ls -la dist
+
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -70,9 +95,10 @@ jobs:
 
           Then open \`https://<box-ip>:5001\` and sign in with your Debian user.
           NOTES
+          SIGS=$(ls dist/*.minisig 2>/dev/null || true)
           gh release create "v$V" --target "$GITHUB_SHA" --title "Cynthology $V" --notes-file notes.md \
             dist/cynthology-amd64.iso dist/cynthology-amd64.iso.sha256 \
-            dist/cynthology-install.tar.gz dist/cynthology-install.tar.gz.sha256 \
+            dist/cynthology-install.tar.gz dist/cynthology-install.tar.gz.sha256 $SIGS \
           || gh release upload "v$V" --clobber \
             dist/cynthology-amd64.iso dist/cynthology-amd64.iso.sha256 \
-            dist/cynthology-install.tar.gz dist/cynthology-install.tar.gz.sha256
+            dist/cynthology-install.tar.gz dist/cynthology-install.tar.gz.sha256 $SIGS

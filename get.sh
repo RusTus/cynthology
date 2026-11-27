@@ -11,6 +11,9 @@
 set -euo pipefail
 
 REPO="RusTus/cynthology"
+# Release signing key (minisign public key). When set, only releases signed with the matching
+# secret key are installed - a tampered or unsigned download is refused. See SIGNING.md.
+CYN_RELEASE_KEY=""
 die() { echo "Error: $*" >&2; exit 1; }
 
 [ "$(id -u)" = 0 ] || die "run as root:  wget -qO- https://raw.githubusercontent.com/$REPO/main/get.sh | sudo bash"
@@ -45,6 +48,27 @@ if [ "${CYN_CHANNEL:-}" != main ]; then
   curl -fsL --proto =https --proto-redir =https --retry 3 -o "$TMP/cyn.tar.gz.sha256" "$URL.sha256" \
     && (cd "$TMP" && sed 's/cynthology-install.tar.gz/cyn.tar.gz/' cyn.tar.gz.sha256 | sha256sum -c --quiet -) \
     || die "checksum verification failed"
+fi
+if [ -n "$CYN_RELEASE_KEY" ] && [ "${CYN_CHANNEL:-}" != main ]; then
+  command -v minisign >/dev/null || { apt-get update -q >/dev/null; apt-get install -y -q minisign >/dev/null; } \
+    || die "could not install minisign to check the release signature"
+  curl -fsL --proto =https --proto-redir =https --retry 3 -o "$TMP/cyn.tar.gz.minisig" "$URL.minisig" \
+    || die "this release is not signed - refusing to install it (see SIGNING.md)"
+  OUT=$(minisign -V -P "$CYN_RELEASE_KEY" -m "$TMP/cyn.tar.gz" -x "$TMP/cyn.tar.gz.minisig" 2>&1) \
+    || die "the release signature is NOT valid - the download may have been tampered with. Nothing was installed."
+  # the signed comment names the version: never go back to an older signed release unasked
+  SIGNED=$(printf '%s\n' "$OUT" | sed -n 's/^Trusted comment: cynthology \([^ ]*\).*/\1/p')
+  [ -n "$SIGNED" ] || die "the release signature has no version in it"
+  if [ -n "${CYN_VERSION:-}" ] && [ "${CYN_VERSION#v}" != "$SIGNED" ]; then
+    die "asked for $CYN_VERSION but the signed file is version $SIGNED"
+  fi
+  CUR=$(cat /etc/cynthology-release 2>/dev/null || true)
+  case "$CUR" in [0-9]*) ;; *) CUR="" ;; esac           # (development installs have no version number)
+  if [ -n "$CUR" ] && [ "$CUR" != "$SIGNED" ] && [ "$(printf '%s\n%s\n' "$CUR" "$SIGNED" | sort -V | tail -1)" = "$CUR" ] \
+     && [ "${CYN_ALLOW_DOWNGRADE:-0}" != 1 ]; then
+    die "$SIGNED is older than the installed $CUR (set CYN_ALLOW_DOWNGRADE=1 to go back on purpose)"
+  fi
+  echo "==> Signature OK: Cynthology $SIGNED, signed with the Cynthology release key"
 fi
 mkdir "$TMP/src"
 tar xzf "$TMP/cyn.tar.gz" -C "$TMP/src" --strip-components=1
