@@ -64,6 +64,8 @@ Already installed an older version? Run the same command again - it upgrades in 
 | 48 | Backup Vault | NAS B: File Services → Backup Vault → on → + Add account (copy password). NAS A: Backup → Create → Another Cynthology → B's IP, account, password → Test (compare fingerprint) → run twice | Both versions on B; "old versions are kept" shown; Restore works from A |
 | 49 | Immutable snapshots | Snapshots → set Lock (days) 1 on a folder → Take snapshot → try Delete | No Delete button; the API refuses until the lock runs out |
 | 50 | Security Advisor | Control Panel → Security Advisor → Check now → press Fix on one item and change it → Check now | Findings match your setup; the fixed one turns OK |
+| 51 | Drive hibernation | Hardware & Power → spin down after 10 minutes → Apply → leave the NAS alone 15 min → reopen the page | Hard drives show "sleeping"; opening a share wakes them in a few seconds |
+| 52 | Power schedule | Add shut down at a time 5 min from now and start up 10 min later (same day) → Apply | NAS turns off, then on by itself (if the board supports it) |
 | 19 | Synology alternatives | Package Center → Synology alternatives → MariaDB → Install, then phpMyAdmin → Install → Open (server: NAS IP, user root, password from Info) | phpMyAdmin logs in |
 
 Logs if something breaks: `sudo journalctl -u cynthology-ui -n 100`

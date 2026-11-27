@@ -1,0 +1,14 @@
+[Unit]
+Description=Cynthology hardware settings at boot (Wake-on-LAN, drive hibernation, next scheduled start-up)
+After=local-fs.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=CYN_STATE=/var/lib/cynthology
+WorkingDirectory=/opt/cynthology/backend
+ExecStartPre=/usr/lib/cynthology/wait-volumes
+ExecStart=/usr/bin/python3 -m cynthology.hardware boot
+
+[Install]
+WantedBy=multi-user.target

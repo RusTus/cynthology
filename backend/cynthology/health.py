@@ -28,9 +28,13 @@ FULL_PCT = 90
 
 # ---------- checks ----------
 
+ASLEEP: set[str] = set()      # drives that were spun down during the last collect()
+
+
 def collect() -> dict[str, dict]:
     """key -> {level: 'critical'|'warning', title, detail}. Keys are stable so changes can be detected."""
     issues = {}
+    ASLEEP.clear()
     for p in storage.pools():
         if p["status"] == "degraded":
             issues[f"pool-{p['id']}-degraded"] = {
@@ -56,8 +60,11 @@ def collect() -> dict[str, dict]:
         if d.get("system") or not d.get("in_use"):
             continue
         try:
-            s = storage.smart(d["name"])
+            s = storage.smart(d["name"], let_sleep=True)     # (never wake a hibernating drive)
         except Exception:
+            continue
+        if s.get("asleep"):
+            ASLEEP.add(d.get("serial") or d["name"])
             continue
         if s.get("supported") and s.get("passed") is False:
             issues[f"disk-{d.get('serial') or d['name']}-smart"] = {
@@ -150,6 +157,9 @@ def run_check() -> list[dict]:
         if k not in before:
             changes.append({**v, "key": k, "event": "new", "time": int(time.time())})
     for k, v in before.items():
+        if k not in now and any(k.startswith(f"disk-{s}-") for s in ASLEEP):
+            now[k] = v               # asleep: not checked this time - keep what we knew
+            continue
         if k not in now:
             changes.append({**v, "key": k, "event": "resolved", "level": "info",
                             "title": f"Resolved: {v['title']}", "time": int(time.time())})

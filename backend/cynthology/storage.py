@@ -156,10 +156,17 @@ def disks(_=Depends(current_user)):
 
 
 @router.get("/disks/{name}/smart")
-def smart(name: str, _=Depends(require_admin)):
+def smart(name: str, let_sleep: bool = False, _=Depends(require_admin)):
+    """let_sleep: don't wake a drive that has spun down (background checks); returns asleep=True."""
     if DEV:
         return {"supported": True, "passed": True, "temperature": 34, "power_on_hours": 12034, "reallocated": 0}
-    data = json.loads(read_only(["smartctl", "-j", "-a", f"/dev/{name}"]) or "{}")
+    if not re.fullmatch(r"[a-z0-9]+", name):
+        raise HTTPException(400, "bad drive name")
+    r = subprocess.run(["smartctl", "-j", "-a", *(["-n", "standby"] if let_sleep else []), f"/dev/{name}"],
+                       capture_output=True, text=True, timeout=60)
+    data = json.loads(r.stdout or "{}")
+    if let_sleep and r.returncode == 2 and "smart_status" not in data:
+        return {"supported": True, "asleep": True, "passed": None}
     if "smart_status" not in data:
         return {"supported": False, "passed": None}
     attrs = {a["id"]: a["raw"]["value"] for a in data.get("ata_smart_attributes", {}).get("table", [])}

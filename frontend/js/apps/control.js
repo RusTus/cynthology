@@ -13,6 +13,7 @@ const CP_SECTIONS = {
   general: { label: "General", group: "System", icon: "cp_general", desc: "Server name, time zone", render: (p) => cpGeneral(p) },
   info: { label: "Info Center", group: "System", icon: "cp_info", desc: "Hardware and system details", render: (p) => cpInfo(p) },
   notify: { label: "Notifications", group: "System", icon: "cp_notify", desc: "Email alerts", render: (p) => cpNotify(p) },
+  hardware: { label: "Hardware & Power", group: "System", icon: "cp_power", desc: "Drive hibernation, power schedule, Wake-on-LAN, temperatures", render: (p) => cpHardware(p) },
   ups: { label: "UPS", group: "System", icon: "cp_ups", desc: "Power failure protection", render: (p) => cpUps(p) },
   usb: { label: "External Devices", group: "System", icon: "cp_usb", desc: "USB drives", render: (p) => cpUsb(p) },
   tasks: { label: "Task Scheduler", group: "System", icon: "cp_tasks", desc: "Scripts, drive tests and clean-ups on a schedule", render: (p) => cpTasks(p) },
@@ -335,6 +336,73 @@ async function cpAdvisor(p, fresh = false) {
       h("button", { class: "btn primary", onclick: () => cpAdvisor(p, true) }, "Check now")),
     h("label", { class: "check", style: "margin-top:10px" }, showOk, "Show passed checks too"),
     list);
+}
+
+// Hardware & Power (backend hardware.py)
+async function cpHardware(p) {
+  const d = await API.get("/api/hardware");
+  const f = { hibernate_minutes: d.hibernate_minutes, schedule: d.schedule.map((e) => ({ ...e })), wol: [...d.wol] };
+  const reload = () => { p.replaceChildren(); cpHardware(p); };
+  const card = (...c) => h("div", { class: "card", style: "max-width:720px;margin-bottom:16px" }, ...c);
+  const DAYN = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const when = (ts) => (ts ? new Date(ts * 1000).toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" }) : t("not scheduled"));
+
+  const hib = card(h("b", {}, "Drive hibernation"),
+    h("div", { class: "muted", style: "font-size:12px" }, "Hard drives that haven't been used for a while spin down: quieter, cooler and less power. The first access afterwards takes a few seconds while they spin up. SSDs and the system drive are not affected."),
+    h("label", { style: "display:grid;gap:4px;max-width:260px" }, "Spin down idle hard drives after",
+      h("select", { onchange: (e) => (f.hibernate_minutes = +e.target.value) },
+        [[0, "Never"], [10, "10 minutes"], [20, "20 minutes"], [30, "30 minutes"], [60, "1 hour"], [120, "2 hours"], [240, "4 hours"]].map(([v, l]) =>
+          h("option", { value: v, selected: f.hibernate_minutes === v }, l)))),
+    !d.hdidle_installed ? h("div", { class: "note warn" }, "hd-idle is not installed yet - update Cynthology.") : null,
+    d.drives.length ? h("table", {}, d.drives.map((x) => h("tr", {}, h("td", { translate: "no" }, h("b", {}, x.name), " ", h("span", { class: "muted" }, x.model)),
+      h("td", {}, h("span", { class: "pill " + (x.state === "asleep" ? "info" : x.state === "spinning" ? "ok" : "") }, t(x.state === "asleep" ? "sleeping" : x.state)))))) :
+      h("div", { class: "muted" }, "No hard drives (only SSDs) - nothing to spin down."),
+    h("div", { class: "muted", style: "font-size:12px" }, "Drives stay awake while something uses them: containers or downloads on that volume, Time Machine, indexing on computers that keep the share open."));
+
+  const sched = h("div");
+  const drawSched = () => sched.replaceChildren(
+    f.schedule.length ? h("table", {}, f.schedule.map((e, i) => h("tr", {},
+      h("td", {}, h("select", { onchange: (ev) => (e.action = ev.target.value) },
+        [["shutdown", "Shut down"], ["startup", "Start up"]].map(([v, l]) => h("option", { value: v, selected: e.action === v }, l)))),
+      h("td", {}, h("input", { type: "time", value: e.time, onchange: (ev) => (e.time = ev.target.value) })),
+      h("td", {}, h("div", { style: "display:flex;gap:6px;flex-wrap:wrap" }, DAYN.map((dn, di) => h("label", { class: "check", style: "font-size:12px" },
+        h("input", { type: "checkbox", checked: e.days.includes(di), onchange: (ev) => { e.days = ev.target.checked ? [...e.days, di].sort() : e.days.filter((x) => x !== di); } }), t(dn))))),
+      h("td", {}, h("button", { class: "btn", onclick: () => { f.schedule.splice(i, 1); drawSched(); } }, "Remove")))))
+      : h("div", { class: "muted" }, "No schedule - the NAS stays on."),
+    h("div", { class: "toolbar" },
+      h("button", { class: "btn", onclick: () => { f.schedule.push({ action: "shutdown", time: "23:30", days: [0, 1, 2, 3, 4, 5, 6], enabled: true }); drawSched(); } }, "+ Shut down at…"),
+      h("button", { class: "btn", onclick: () => { f.schedule.push({ action: "startup", time: "07:00", days: [0, 1, 2, 3, 4, 5, 6], enabled: true }); drawSched(); } }, "+ Start up at…")));
+  drawSched();
+  const pw = card(h("b", {}, "Power schedule"),
+    h("div", { class: "muted", style: "font-size:12px" }, `${t("Next shutdown")}: ${when(d.next_shutdown)} · ${t("next start-up")}: ${when(d.next_startup)}. ` +
+      t("A scheduled shutdown waits if a backup, RAID rebuild or scrub is running.")),
+    !d.rtc ? h("div", { class: "note warn" }, "This machine's clock can't switch it on - start-up times won't work here (shutdowns do). Wake-on-LAN or the BIOS's own power-on timer can do it instead.") : null,
+    d.rtc && d.next_startup && d.alarm_set !== d.next_startup ? h("div", { class: "note warn" },
+      t("The clock couldn't be set for the next start-up. Many PCs can only switch themselves on up to 24 hours ahead - a start-up more than a day after the last shutdown (e.g. after a weekend off) won't happen. Use Wake-on-LAN or the BIOS's power-on timer for those.")) : null,
+    sched);
+
+  const wake = h("input", { placeholder: "00:11:22:33:44:55", style: "max-width:220px" });
+  const wol = card(h("b", {}, "Wake-on-LAN"),
+    h("div", { class: "muted", style: "font-size:12px" }, "Switch the NAS on from another device with a Wake-on-LAN app, using the network port's MAC address. It may also need to be enabled in the BIOS."),
+    d.nics.length ? h("table", {}, d.nics.map((n) => h("tr", {},
+      h("td", { translate: "no" }, h("b", {}, n.name), " ", h("span", { class: "mono muted" }, n.mac)),
+      h("td", {}, n.supported ? h("label", { class: "check" }, h("input", { type: "checkbox", checked: f.wol.includes(n.name),
+        onchange: (e) => { f.wol = e.target.checked ? [...f.wol, n.name] : f.wol.filter((x) => x !== n.name); } }), "Wake on LAN")
+        : h("span", { class: "muted" }, "not supported by this port"))))) : null,
+    h("div", { style: "display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin-top:8px" },
+      h("label", { style: "display:grid;gap:4px" }, "Wake another computer (its MAC address)", wake),
+      h("button", { class: "btn", onclick: () => act(() => API.post("/api/hardware/wake", { mac: wake.value }), "Wake-up packet sent") }, "Wake")));
+
+  const sensors = Object.entries(d.temps), fans = Object.entries(d.fans);
+  const env = card(h("b", {}, "Temperatures and fans"),
+    sensors.length || fans.length ? h("table", {},
+      sensors.map(([k, v]) => h("tr", {}, h("td", { translate: "no" }, k), h("td", {}, h("span", { class: "pill " + (v >= 85 ? "bad" : v >= 70 ? "warn" : "ok") }, `${v.toFixed(0)} °C`)))),
+      fans.map(([k, v]) => h("tr", {}, h("td", { translate: "no" }, k), h("td", {}, `${v} RPM`))))
+      : h("div", { class: "muted" }, "This machine doesn't report temperatures or fans (common in virtual machines)."),
+    h("div", { class: "muted", style: "font-size:12px" }, "Drive temperatures are in Storage Manager → Drives. Fan speeds follow the BIOS settings."));
+
+  p.append(h("h2", {}, "Hardware & Power"), hib, pw, wol, env,
+    h("div", { class: "toolbar" }, h("button", { class: "btn primary", onclick: async () => { await act(() => API.put("/api/hardware", f), "Hardware settings saved"); reload(); } }, "Apply")));
 }
 
 async function cpInfo(p) {

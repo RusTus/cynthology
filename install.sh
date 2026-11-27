@@ -22,7 +22,7 @@ apt-get install -y -q --no-install-recommends \
   python3 python3-fastapi python3-uvicorn python3-psutil python3-qrcode libpam0g ca-certificates curl sudo rsync util-linux acl openssl restic openssh-client openssh-server exfatprogs ntfs-3g dosfstools psmisc ifenslave nut-client nut-server \
   mdadm lvm2 thin-provisioning-tools btrfs-progs e2fsprogs gdisk parted smartmontools \
   samba smbclient nfs-kernel-server avahi-daemon \
-  docker.io initramfs-tools targetcli-fb python3-rtslib-fb nftables certbot gocryptfs fuse3 winbind libnss-winbind libpam-winbind krb5-user wireguard-tools restic-rest-server python3-bcrypt
+  docker.io initramfs-tools targetcli-fb python3-rtslib-fb nftables certbot gocryptfs fuse3 winbind libnss-winbind libpam-winbind krb5-user wireguard-tools restic-rest-server python3-bcrypt hd-idle hdparm ethtool
 # optional packages whose names differ between Debian releases
 for alts in "wsdd2 wsdd" "docker-cli" "docker-compose docker-compose-plugin"; do
   for p in $alts; do
@@ -98,11 +98,11 @@ cat "$SRC/VERSION" 2>/dev/null > /etc/cynthology-release || echo "Cynthology dev
 
 udevadm control --reload-rules 2>/dev/null || true
 if [ "$CHROOT" = 1 ]; then
-  systemctl enable cynthology-ui cynthology-snapshots.timer cynthology-health.timer cynthology-backup.timer cynthology-pkgupdate.timer cynthology-repl.timer cynthology-scrub.timer cynthology-ddns.timer cynthology-issue cynthology-firewall cynthology-unlock rtslib-fb-targetctl ssh smbd avahi-daemon docker
+  systemctl enable cynthology-ui cynthology-snapshots.timer cynthology-health.timer cynthology-backup.timer cynthology-pkgupdate.timer cynthology-repl.timer cynthology-scrub.timer cynthology-ddns.timer cynthology-issue cynthology-firewall cynthology-unlock cynthology-power rtslib-fb-targetctl ssh smbd avahi-daemon docker
   systemctl enable wsdd2 2>/dev/null || systemctl enable wsdd 2>/dev/null || true
 elif [ "$NOSYSTEMD" != 1 ]; then
   systemctl daemon-reload
-  systemctl enable --now cynthology-ui cynthology-snapshots.timer cynthology-health.timer cynthology-backup.timer cynthology-pkgupdate.timer cynthology-repl.timer cynthology-scrub.timer cynthology-ddns.timer cynthology-issue cynthology-firewall cynthology-unlock rtslib-fb-targetctl ssh smbd avahi-daemon docker
+  systemctl enable --now cynthology-ui cynthology-snapshots.timer cynthology-health.timer cynthology-backup.timer cynthology-pkgupdate.timer cynthology-repl.timer cynthology-scrub.timer cynthology-ddns.timer cynthology-issue cynthology-firewall cynthology-unlock cynthology-power rtslib-fb-targetctl ssh smbd avahi-daemon docker
   systemctl restart cynthology-ui   # pick up new code when upgrading
   sshd -t 2>/dev/null && systemctl reload ssh 2>/dev/null || true   # (our sshd_config.d drop-in)
   systemctl try-restart cynthology-webdav 2>/dev/null || true       # (only if WebDAV is on)
