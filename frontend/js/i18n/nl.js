@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 834 entries.
+// Generated from the English UI strings (see i18n.js). 842 entries.
 i18nAdd("nl", {
 "Error: ": "Fout: ",
 "Settings and data are kept.": "Instellingen en gegevens blijven behouden.",
@@ -833,5 +833,13 @@ i18nAdd("nl", {
 "Temperatures and fans": "Temperaturen en ventilatoren",
 "This machine doesn't report temperatures or fans (common in virtual machines).": "Dit apparaat meldt geen temperaturen of ventilatoren (gebruikelijk bij virtuele machines).",
 "Drive temperatures are in Storage Manager → Drives. Fan speeds follow the BIOS settings.": "Schijftemperaturen staan in Opslagbeheer → Schijven. Ventilatoren volgen de BIOS.",
-"Hardware settings saved": "Hardware-instellingen opgeslagen"
+"Hardware settings saved": "Hardware-instellingen opgeslagen",
+"Previous": "Vorige",
+"Close (Esc)": "Sluiten (Esc)",
+"No preview for this kind of file.": "Geen voorbeeld voor dit soort bestand.",
+"Your browser can't play this format. Download it and use a player like VLC.": "Je browser kan dit formaat niet afspelen. Download het en gebruik een speler zoals VLC.",
+"The PDF viewer isn't installed - update Cynthology.": "De pdf-viewer is niet geïnstalleerd - werk Cynthology bij.",
+"Only the first 200 pages are shown - download the file for the rest.": "Alleen de eerste 200 pagina's worden getoond - download het bestand voor de rest.",
+"Only the first 1 MB is shown (read-only).": "Alleen de eerste MB wordt getoond (alleen-lezen).",
+"Read-only for you.": "Alleen-lezen voor jou."
 });

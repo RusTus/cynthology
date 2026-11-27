@@ -310,6 +310,23 @@ def unlock(lid: str, body: Unlock, request: Request):
     return resp
 
 
+@public.get("/{lid}/thumb")
+def share_thumb(lid: str, request: Request, p: str = "", size: int = 256):
+    """Thumbnails and photo previews on the link's page (don't count as downloads)."""
+    from fastapi.responses import Response
+    from .preview import SANDBOX, make_thumb
+    link = _get(lid)
+    if not _unlocked(request, link):
+        raise HTTPException(403, "enter the password first")
+    root, full = _target(link, p)
+    if not os.path.isfile(full):
+        raise HTTPException(404, "not a file")
+    if state(link) != "active":
+        raise HTTPException(410, "this link has reached its download limit")
+    return Response(make_thumb(full, 1600 if size > 256 else 256), media_type="image/webp",
+                    headers={"Cache-Control": "private, max-age=86400", **SANDBOX})
+
+
 @public.get("/{lid}/dl")
 def download(lid: str, request: Request, p: str = "", inline: bool = False):
     link = _get(lid)

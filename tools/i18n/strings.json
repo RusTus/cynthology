@@ -876,5 +876,13 @@
 "Temperatures and fans",
 "This machine doesn't report temperatures or fans (common in virtual machines).",
 "Drive temperatures are in Storage Manager → Drives. Fan speeds follow the BIOS settings.",
-"Hardware settings saved"
+"Hardware settings saved",
+"Previous",
+"Close (Esc)",
+"No preview for this kind of file.",
+"Your browser can't play this format. Download it and use a player like VLC.",
+"The PDF viewer isn't installed - update Cynthology.",
+"Only the first 200 pages are shown - download the file for the rest.",
+"Only the first 1 MB is shown (read-only).",
+"Read-only for you."
 ]

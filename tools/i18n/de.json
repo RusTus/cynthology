@@ -876,5 +876,13 @@
 "Temperatures and fans": "Temperaturen und Lüfter",
 "This machine doesn't report temperatures or fans (common in virtual machines).": "Dieses Gerät meldet keine Temperaturen oder Lüfter (üblich bei virtuellen Maschinen).",
 "Drive temperatures are in Storage Manager → Drives. Fan speeds follow the BIOS settings.": "Laufwerkstemperaturen finden Sie im Speicher-Manager → Laufwerke. Lüfter folgen den BIOS-Einstellungen.",
-"Hardware settings saved": "Hardware-Einstellungen gespeichert"
+"Hardware settings saved": "Hardware-Einstellungen gespeichert",
+"Previous": "Zurück",
+"Close (Esc)": "Schließen (Esc)",
+"No preview for this kind of file.": "Keine Vorschau für diesen Dateityp.",
+"Your browser can't play this format. Download it and use a player like VLC.": "Ihr Browser kann dieses Format nicht abspielen. Laden Sie die Datei herunter und nutzen Sie einen Player wie VLC.",
+"The PDF viewer isn't installed - update Cynthology.": "Der PDF-Betrachter ist nicht installiert - aktualisieren Sie Cynthology.",
+"Only the first 200 pages are shown - download the file for the rest.": "Nur die ersten 200 Seiten werden gezeigt - laden Sie die Datei für den Rest herunter.",
+"Only the first 1 MB is shown (read-only).": "Nur das erste MB wird gezeigt (schreibgeschützt).",
+"Read-only for you.": "Für Sie schreibgeschützt."
 }

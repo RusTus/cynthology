@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 853 entries.
+// Generated from the English UI strings (see i18n.js). 861 entries.
 i18nAdd("es", {
 "Settings and data are kept.": "Se conservan la configuración y los datos.",
 "Also installs required package(s): ": "También instala los paquetes necesarios: ",
@@ -852,5 +852,13 @@ i18nAdd("es", {
 "Temperatures and fans": "Temperaturas y ventiladores",
 "This machine doesn't report temperatures or fans (common in virtual machines).": "Este equipo no informa de temperaturas ni ventiladores (habitual en máquinas virtuales).",
 "Drive temperatures are in Storage Manager → Drives. Fan speeds follow the BIOS settings.": "Las temperaturas de los discos están en Administrador de almacenamiento → Discos. Los ventiladores siguen la BIOS.",
-"Hardware settings saved": "Ajustes de hardware guardados"
+"Hardware settings saved": "Ajustes de hardware guardados",
+"Previous": "Anterior",
+"Close (Esc)": "Cerrar (Esc)",
+"No preview for this kind of file.": "No hay vista previa para este tipo de archivo.",
+"Your browser can't play this format. Download it and use a player like VLC.": "Su navegador no puede reproducir este formato. Descárguelo y use un reproductor como VLC.",
+"The PDF viewer isn't installed - update Cynthology.": "El visor de PDF no está instalado: actualice Cynthology.",
+"Only the first 200 pages are shown - download the file for the rest.": "Solo se muestran las primeras 200 páginas: descargue el archivo para el resto.",
+"Only the first 1 MB is shown (read-only).": "Solo se muestra el primer MB (solo lectura).",
+"Read-only for you.": "Solo lectura para usted."
 });

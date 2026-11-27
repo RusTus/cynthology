@@ -315,3 +315,26 @@ table.kv th { text-transform: none; letter-spacing: 0; font-size: 13px; font-wei
   .fs-table th:nth-child(2), .fs-table td:nth-child(2) { width: 84px; }
   #user-btn .user-name { display: none; }
 }
+
+/* ---------- thumbnails and the file viewer ---------- */
+.fs-thumb-box { width: 96px; height: 72px; display: grid; place-items: center; margin: 0 auto; }
+.fs-thumb { max-width: 96px; max-height: 72px; border-radius: 6px; object-fit: cover; box-shadow: 0 1px 4px rgba(0,0,0,.35); }
+.viewer { position: fixed; inset: 0; z-index: 9500; background: rgba(8, 11, 15, .96); display: flex; flex-direction: column; color: #e6ebf0; outline: none; }
+.viewer-bar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: rgba(255,255,255,.04); }
+.viewer-bar .btn { background: rgba(255,255,255,.08); color: #e6ebf0; border-color: rgba(255,255,255,.12); }
+.viewer-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.viewer-count { color: #94a1ae; font-size: 13px; white-space: nowrap; }
+.viewer-stage { flex: 1; min-height: 0; display: grid; place-items: center; overflow: auto; padding: 10px; touch-action: pan-y; }
+.viewer-img { max-width: 100%; max-height: calc(100vh - 80px); object-fit: contain; user-select: none; }
+.viewer-media { max-width: 100%; max-height: calc(100vh - 90px); }
+audio.viewer-media { width: min(600px, 90vw); }
+.viewer-pdf { display: grid; gap: 12px; justify-items: center; align-self: start; }
+.viewer-pdf canvas { background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,.5); }
+.viewer-textbox { width: min(1000px, 100%); height: 100%; display: flex; flex-direction: column; gap: 8px; align-self: stretch; }
+.viewer-text { flex: 1; min-height: 300px; width: 100%; background: #0f141a; color: #e6ebf0; border: 1px solid #36414d; border-radius: 8px; padding: 12px; font-size: 13px; line-height: 1.5; resize: none; }
+.viewer-none { display: grid; gap: 10px; justify-items: center; text-align: center; }
+.viewer-nav { position: absolute; top: 50%; transform: translateY(-50%); width: 48px; height: 64px; border: 0; border-radius: 10px;
+  background: rgba(255,255,255,.08); color: #fff; font-size: 34px; cursor: pointer; }
+.viewer-nav:hover { background: rgba(255,255,255,.16); }
+.viewer-nav.prev { left: 10px; } .viewer-nav.next { right: 10px; }
+@media (max-width: 700px) { .viewer-nav { display: none; } .viewer-bar .btn:first-of-type { padding: 6px 10px; } }

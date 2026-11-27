@@ -22,7 +22,7 @@ apt-get install -y -q --no-install-recommends \
   python3 python3-fastapi python3-uvicorn python3-psutil python3-qrcode libpam0g ca-certificates curl sudo rsync util-linux acl openssl restic openssh-client openssh-server exfatprogs ntfs-3g dosfstools psmisc ifenslave nut-client nut-server \
   mdadm lvm2 thin-provisioning-tools btrfs-progs e2fsprogs gdisk parted smartmontools \
   samba smbclient nfs-kernel-server avahi-daemon \
-  docker.io initramfs-tools targetcli-fb python3-rtslib-fb nftables certbot gocryptfs fuse3 winbind libnss-winbind libpam-winbind krb5-user wireguard-tools restic-rest-server python3-bcrypt hd-idle hdparm ethtool
+  docker.io initramfs-tools targetcli-fb python3-rtslib-fb nftables certbot gocryptfs fuse3 winbind libnss-winbind libpam-winbind krb5-user wireguard-tools restic-rest-server python3-bcrypt hd-idle hdparm ethtool python3-pil ffmpeg poppler-utils libjs-pdf
 # optional packages whose names differ between Debian releases
 for alts in "wsdd2 wsdd" "docker-cli" "docker-compose docker-compose-plugin"; do
   for p in $alts; do
@@ -86,6 +86,8 @@ visudo -cqf /etc/sudoers.d/cynthology-ups || rm -f /etc/sudoers.d/cynthology-ups
 # Snapshot replication receiver: user "cynrepl" may only run the receive helper (keys get a forced command)
 id -u cynrepl >/dev/null 2>&1 || useradd -r -m -d /var/lib/cynrepl -s /bin/sh cynrepl
 passwd -l cynrepl >/dev/null 2>&1 || true
+# thumbnails are decoded by this account, never by root (see backend preview.py)
+id cyn-thumb >/dev/null 2>&1 || useradd -r -M -d /nonexistent -s /usr/sbin/nologin cyn-thumb
 install -d -m 700 -o cynrepl -g cynrepl /var/lib/cynrepl/.ssh
 touch /var/lib/cynrepl/.ssh/authorized_keys && chown cynrepl:cynrepl /var/lib/cynrepl/.ssh/authorized_keys && chmod 600 /var/lib/cynrepl/.ssh/authorized_keys
 printf 'cynrepl ALL=(root) NOPASSWD: /usr/lib/cynthology/repl-receive\n' > /etc/sudoers.d/cynthology-repl

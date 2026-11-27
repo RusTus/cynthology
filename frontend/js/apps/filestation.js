@@ -193,7 +193,8 @@ WM.register("files", {
         content = h("div", { class: "fs-grid" }, rows.map((it, i) => h("div", {
           class: "fs-tile" + (st.sel.has(itemPath(it)) ? " sel" : ""), title: it.folder ? `${it.folder}/${it.name}` : it.name,
           onclick: (e) => { e.stopPropagation(); clickItem(e, it, i, rows); }, ondblclick: () => open(it), oncontextmenu: (e) => ctx(e, it, i) },
-          fsIcon(it, 56), h("div", { class: "fs-tile-name" }, it.name))));
+          !it.dir && THUMBABLE.has(previewKind(it.name)) ? lazyThumb(itemPath(it), fsIcon(it, 56)) : fsIcon(it, 56),
+          h("div", { class: "fs-tile-name" }, it.name))));
       } else {
         const col = (key, label, style) => h("th", { style, class: "fs-sortable", onclick: () => { st.sort = { key, asc: st.sort.key === key ? !st.sort.asc : true }; render(); } },
           label, st.sort.key === key ? h("span", { class: "fs-caret" }, st.sort.asc ? " ▲" : " ▼") : null);
@@ -298,8 +299,12 @@ WM.register("files", {
       if (sel.length > 1 || sel[0]?.dir) toast("Downloading as a .zip file");
     }
     async function openFile(it) {
+      // the viewer steps through the previewable files of this folder (or of the search results)
+      const files = sorted().filter((x) => !x.dir && previewKind(x.name));
+      const idx = files.findIndex((x) => itemPath(x) === itemPath(it));
+      if (idx >= 0) return openViewer(files.map((x) => ({ name: x.name, path: itemPath(x), size: x.size })), idx);
       const r = await API.post("/api/files/ticket", { path: itemPath(it) });
-      window.open(r.url + "&inline=true", "_blank", "noopener");
+      const a = h("a", { href: r.url, download: "" }); document.body.append(a); a.click(); a.remove();
     }
     // ---------- sharing links (backend sharelinks.py) ----------
     async function linkBase() {
