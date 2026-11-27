@@ -54,6 +54,9 @@ Already installed an older version? Run the same command again - it upgrades in 
 | 38 | VPN | Control Panel → VPN Server → On → + Add device → scan the QR code with the WireGuard app; router: forward UDP 51820; phone on mobile data | Phone opens https://<NAS LAN IP>:5001 and the shares |
 | 39 | Log Center | Shared Folders → Edit → Log file access → open/delete a file over SMB; sign in once with a wrong password → Log Center | File access shows the open/delete with your user and PC address; Sign-ins shows the failed attempt |
 | 40 | Security update | After updating, as a non-admin user: File Station / SMB → the `docker` folder | Not visible / access denied (admins only now) |
+| 41 | WebDAV | File Services → WebDAV → Enable (HTTPS 5006) → Mac: Finder → Connect to Server → https://NAS:5006/ (Windows: needs Let's Encrypt or HTTP 5005) | Your shared folders appear; a user without write permission can't save into a read-only folder |
+| 42 | SFTP for users | File Services → Let users connect with SFTP → FileZilla/WinSCP to the NAS, port 22, as a normal user | Files work as over SMB; ssh in a terminal says "sftp connections only" |
+| 43 | rsync server | File Services → Enable the rsync server → Set password for a user → `rsync -av folder/ rsync://USER@NAS/SHARE/folder/` | Files arrive, owned by that user |
 | 19 | Synology alternatives | Package Center → Synology alternatives → MariaDB → Install, then phpMyAdmin → Install → Open (server: NAS IP, user root, password from Info) | phpMyAdmin logs in |
 
 Logs if something breaks: `sudo journalctl -u cynthology-ui -n 100`

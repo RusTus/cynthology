@@ -203,13 +203,64 @@ async function cpServices(p) {
       await act(() => API.put("/api/shares/timemachine/config", f), f.enabled ? "Time Machine is on" : "Time Machine is off");
       p.replaceChildren(); cpServices(p);
     } }, "Apply")));
-  p.append(h("h2", {}, "File Services"), tmCard, h("table", {},
+  p.append(h("h2", {}, "File Services"), tmCard, await fileServicesCards(() => { p.replaceChildren(); cpServices(p); }), h("table", {},
     svcs.map((s) => h("tr", {}, h("td", {}, h("b", {}, s.label), h("div", { class: "muted" }, s.unit)),
       h("td", {}, h("span", { class: "pill " + (s.running ? "ok" : "") }, s.running ? "Running" : "Stopped")),
       h("td", {}, h("button", { class: "btn", onclick: async () => {
         await act(() => API.post(`/api/services/${s.id}/${s.running ? "disable" : "enable"}`), `${s.label} ${s.running ? "stopped" : "started"}`);
         p.replaceChildren(); cpServices(p);
       } }, s.running ? "Disable" : "Enable"))))));
+}
+
+// WebDAV, SFTP for users, rsync server (see backend fileservices.py)
+async function fileServicesCards(reload) {
+  const [fs, users] = await Promise.all([API.get("/api/fileservices"), API.get("/api/users")]);
+  const host = location.hostname;
+  const card = (...c) => h("div", { class: "card", style: "max-width:640px;margin-bottom:18px" }, ...c);
+  const pill = (on, txt) => h("span", { class: "pill " + (on ? "ok" : "") }, txt);
+
+  const w = { ...fs.webdav };
+  const dav = card(
+    h("div", {}, h("b", {}, "WebDAV"), " ", pill(fs.running.webdav, fs.running.webdav ? "Running" : "Off")),
+    h("div", { class: "muted", style: "font-size:12px" }, "Open shared folders as a network drive over HTTP(S) - from outside your home too, and from phone apps. Users sign in with their NAS password and see only their folders."),
+    h("label", { class: "check" }, h("input", { type: "checkbox", checked: w.enabled, onchange: (e) => (w.enabled = e.target.checked) }), "Enable WebDAV"),
+    h("div", { style: "display:flex;gap:18px;flex-wrap:wrap" },
+      h("label", { class: "check" }, h("input", { type: "checkbox", checked: w.https, onchange: (e) => (w.https = e.target.checked) }), "HTTPS, port"),
+      h("input", { type: "number", value: w.https_port, style: "width:90px", oninput: (e) => (w.https_port = +e.target.value) }),
+      h("label", { class: "check" }, h("input", { type: "checkbox", checked: w.http, onchange: (e) => (w.http = e.target.checked) }), "HTTP (not encrypted), port"),
+      h("input", { type: "number", value: w.http_port, style: "width:90px", oninput: (e) => (w.http_port = +e.target.value) })),
+    h("div", { class: "muted", style: "font-size:12px" },
+      `Windows: Map network drive → https://${host}:${w.https_port}/  ·  Mac: Finder → Go → Connect to Server → https://${host}:${w.https_port}/  ·  `,
+      "Windows only accepts a trusted certificate (Control Panel → Security → Let's Encrypt) or plain HTTP."),
+    h("div", {}, h("button", { class: "btn primary", onclick: async () => { await act(() => API.put("/api/fileservices/webdav", w), "WebDAV settings saved"); reload(); } }, "Apply")));
+
+  const sftp = card(
+    h("div", {}, h("b", {}, "SFTP for users"), " ", pill(fs.sftp.users, fs.sftp.users ? "On" : "Off")),
+    h("div", { class: "muted", style: "font-size:12px" }, "Administrators always have SSH. With this on, other users can transfer files with SFTP (FileZilla, WinSCP, Cyberduck) - no command line, no tunnels. They get the same access as over SMB."),
+    h("label", { class: "check" }, h("input", { type: "checkbox", checked: fs.sftp.users, onchange: async (e) => {
+      await act(() => API.put("/api/fileservices/sftp", { users: e.target.checked }), e.target.checked ? "SFTP is on for users" : "SFTP is off for users"); reload();
+    } }), "Let users connect with SFTP"),
+    h("div", { class: "muted", style: "font-size:12px" }, `Server: ${host}, port 22, with the user's NAS password.`));
+
+  const acc = new Set(fs.rsync.accounts);
+  const local = users.filter((u) => !u.name.includes("\\"));
+  const rs = card(
+    h("div", {}, h("b", {}, "rsync server"), " ", pill(fs.running.rsync, fs.running.rsync ? "Running" : "Off")),
+    h("div", { class: "muted", style: "font-size:12px" }, "For backups from another NAS or from rsync on a computer (port 873). Every shared folder is an rsync module with the same permissions. rsync uses its own password per user."),
+    h("label", { class: "check" }, h("input", { type: "checkbox", checked: fs.rsync.enabled, onchange: async (e) => {
+      await act(() => API.put("/api/fileservices/rsync", { enabled: e.target.checked }), e.target.checked ? "rsync server started" : "rsync server stopped"); reload();
+    } }), "Enable the rsync server"),
+    fs.rsync.enabled ? h("table", {}, local.map((u) => h("tr", {},
+      h("td", {}, u.name), h("td", {}, acc.has(u.name) ? pill(true, "rsync password set") : h("span", { class: "muted" }, "no rsync access")),
+      h("td", {}, h("button", { class: "btn", onclick: () => {
+        const pw = h("input", { type: "password", autocomplete: "new-password" });
+        const close = modal(t("rsync password for") + " " + u.name, h("div", {}, h("label", {}, "Password (at least 8 characters)", pw)), [
+          ["Cancel", null, ""],
+          ["Save", async () => { await act(() => API.put("/api/fileservices/rsync/account", { user: u.name, password: pw.value }), "rsync password saved"); close(); reload(); }, "primary"]]);
+      } }, acc.has(u.name) ? "Change" : "Set password"),
+        acc.has(u.name) ? h("button", { class: "btn", onclick: async () => { await act(() => API.put("/api/fileservices/rsync/account", { user: u.name, password: "" }), "rsync access removed"); reload(); } }, "Remove") : null)))) : null,
+    fs.rsync.enabled ? h("div", { class: "muted", style: "font-size:12px" }, `Example: rsync -av ./photos/ rsync://USER@${host}/SHARE/photos/`) : null);
+  return h("div", {}, dav, sftp, rs);
 }
 
 async function cpInfo(p) {

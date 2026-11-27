@@ -40,6 +40,8 @@ SERVICES = {
     "webstation": ("Web Station websites (HTTP/HTTPS)", [("tcp", "80"), ("tcp", "443")]),
     "ups": ("UPS server (other NAS devices)", [("tcp", "3493")]),
     "vpn": ("WireGuard VPN", [("udp", "VPN_PORT")]),
+    "webdav": ("WebDAV (network drive over HTTP/HTTPS)", [("tcp", "WEBDAV_HTTP"), ("tcp", "WEBDAV_HTTPS")]),
+    "rsync": ("rsync server", [("tcp", "873")]),
 }
 
 
@@ -52,6 +54,13 @@ def _service_ports(key: str) -> list[tuple[str, str]]:
         except Exception:
             port = "51820"
         return [(proto, port) for proto, _ in ports]
+    if key == "webdav":         # the ports WebDAV is set to
+        try:
+            from .fileservices import load as fs_load
+            w = fs_load()["webdav"]
+        except Exception:
+            w = {"http_port": 5005, "https_port": 5006}
+        return [("tcp", str(w["http_port"])), ("tcp", str(w["https_port"]))]
     return ports
 
 

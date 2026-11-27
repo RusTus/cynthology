@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 584 entries.
+// Generated from the English UI strings (see i18n.js). 608 entries.
 i18nAdd("de", {
 "Error: ": "Fehler: ",
 "Settings and data are kept.": "Einstellungen und Daten bleiben erhalten.",
@@ -583,5 +583,29 @@ i18nAdd("de", {
 " - ESXi then uses this NAS for cloning, zeroing, locking and space reclaim (VAAI). No plugin is needed.": " – ESXi nutzt dann dieses NAS zum Klonen, Nullen, Sperren und Freigeben von Speicher (VAAI). Ein Plugin ist nicht nötig.",
 ". Find yours in vSphere: host → Configure → Storage Adapters → iSCSI Software Adapter → iSCSI Name.": ". Ihren finden Sie in vSphere: Host → Configure → Storage Adapters → iSCSI Software Adapter → iSCSI Name.",
 "A link wants to sign you in as": "Ein Link möchte Sie anmelden als",
-"Continue only if you opened this link yourself from your NAS.": "Fahren Sie nur fort, wenn Sie diesen Link selbst von Ihrem NAS aus geöffnet haben."
+"Continue only if you opened this link yourself from your NAS.": "Fahren Sie nur fort, wenn Sie diesen Link selbst von Ihrem NAS aus geöffnet haben.",
+"Open shared folders as a network drive over HTTP(S) - from outside your home too, and from phone apps. Users sign in with their NAS password and see only their folders.": "Freigegebene Ordner als Netzlaufwerk über HTTP(S) öffnen - auch von unterwegs und aus Handy-Apps. Benutzer melden sich mit ihrem NAS-Passwort an und sehen nur ihre Ordner.",
+"Enable WebDAV": "WebDAV aktivieren",
+"HTTPS, port": "HTTPS, Port",
+"HTTP (not encrypted), port": "HTTP (unverschlüsselt), Port",
+"Windows only accepts a trusted certificate (Control Panel → Security → Let's Encrypt) or plain HTTP.": "Windows akzeptiert nur ein vertrauenswürdiges Zertifikat (Systemsteuerung → Sicherheit → Let's Encrypt) oder einfaches HTTP.",
+"WebDAV settings saved": "WebDAV-Einstellungen gespeichert",
+"SFTP for users": "SFTP für Benutzer",
+"Administrators always have SSH. With this on, other users can transfer files with SFTP (FileZilla, WinSCP, Cyberduck) - no command line, no tunnels. They get the same access as over SMB.": "Administratoren haben immer SSH. Ist dies an, können andere Benutzer Dateien per SFTP übertragen (FileZilla, WinSCP, Cyberduck) - ohne Kommandozeile und ohne Tunnel. Sie haben dieselben Rechte wie über SMB.",
+"Let users connect with SFTP": "Benutzern SFTP erlauben",
+"SFTP is on for users": "SFTP ist für Benutzer an",
+"SFTP is off for users": "SFTP ist für Benutzer aus",
+"rsync server": "rsync-Server",
+"For backups from another NAS or from rsync on a computer (port 873). Every shared folder is an rsync module with the same permissions. rsync uses its own password per user.": "Für Sicherungen von einem anderen NAS oder per rsync von einem Computer (Port 873). Jeder freigegebene Ordner ist ein rsync-Modul mit denselben Rechten. rsync verwendet ein eigenes Passwort pro Benutzer.",
+"Enable the rsync server": "rsync-Server aktivieren",
+"rsync server started": "rsync-Server gestartet",
+"rsync server stopped": "rsync-Server gestoppt",
+"rsync password set": "rsync-Passwort gesetzt",
+"no rsync access": "kein rsync-Zugriff",
+"Change": "Ändern",
+"Set password": "Passwort festlegen",
+"rsync password for": "rsync-Passwort für",
+"Password (at least 8 characters)": "Passwort (mindestens 8 Zeichen)",
+"rsync password saved": "rsync-Passwort gespeichert",
+"rsync access removed": "rsync-Zugriff entfernt"
 });

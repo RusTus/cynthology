@@ -1,0 +1,13 @@
+[Unit]
+Description=Cynthology WebDAV server (HTTP 5005, HTTPS 5006 by default)
+After=network-online.target local-fs.target cynthology-ui.service
+Wants=network-online.target
+
+[Service]
+Environment=CYN_STATE=/var/lib/cynthology
+WorkingDirectory=/opt/cynthology/backend
+ExecStart=/usr/bin/python3 -m cynthology.webdav
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

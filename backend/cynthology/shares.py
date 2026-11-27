@@ -4,6 +4,7 @@ Cynthology owns /etc/samba/cyn-shares.conf (included from smb.conf) and
 /etc/exports.d/cyn.exports, regenerating both from shares.json on every change.
 """
 import json
+import re
 import os
 import subprocess
 
@@ -126,6 +127,11 @@ def write_configs(shares: list[dict]) -> None:
     with open(SHARES_FILE, "w") as f:
         json.dump(shares, f, indent=2)
     _save_volume_copies(shares)
+    try:
+        from .fileservices import write_rsyncd
+        write_rsyncd()                     # rsync server modules follow the shared folders
+    except Exception as e:
+        print("rsyncd.conf:", e)
     if os.path.exists(AVAHI_FILE):   # older versions announced Time Machine themselves; Samba does it now
         os.remove(AVAHI_FILE)
     run(["smbcontrol", "all", "reload-config"], check=False)
@@ -695,6 +701,31 @@ def apply_acls(path: str, old: dict, new: dict) -> None:
         if r.returncode != 0:
             raise HTTPException(400, f"{e.lstrip('@')}: no such user or group on this NAS" if "Invalid argument" in r.stderr or "invalid" in r.stderr.lower()
                                 else r.stderr.strip().splitlines()[-1])
+    sync_group_perms(path, new)
+
+
+def _group_perm(lists: dict) -> str:
+    """What the folder's own group ('users' = every NAS user) may do, from the permission lists."""
+    if "@users" in lists.get("write_users", []):
+        return "rwx"
+    if "@users" in lists.get("read_users", []):
+        return "r-x"
+    return "---"
+
+
+def sync_group_perms(path: str, lists: dict, force: bool = True) -> None:
+    """Make the file system agree with the lists, so SFTP, rsync and NFS (which only see the file
+    system) allow exactly what SMB and File Station allow. Without this, every folder stays 2775
+    root:users and any NAS user could write to it over SFTP even when the list says otherwise."""
+    if DEV or not os.path.isdir(path):
+        return
+    want = _group_perm(lists)
+    if not force:
+        cur = re.search(r"^group::(\S+)", read_only(["getfacl", "-cp", path]), re.M)
+        if cur and cur.group(1) == want:
+            return
+    spec = want.replace("x", "X")
+    subprocess.run(["setfacl", "-R", "-m", f"g::{spec},d:g::{spec}", path], capture_output=True)
 
 
 @router.put("/{name}/permissions")

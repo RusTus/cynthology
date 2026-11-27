@@ -13,7 +13,6 @@ SERVICES = {
     "wsdd": {"label": "Windows network discovery (WS-Discovery)", "unit": "wsdd2"},
     "avahi": {"label": "Bonjour / mDNS discovery", "unit": "avahi-daemon"},
     "docker": {"label": "Container engine", "unit": "docker"},
-    "rsync": {"label": "rsync server", "unit": "rsync"},
     "ups": {"label": "UPS monitoring (NUT)", "unit": "nut-monitor"},
 }
 _dev_state = {"smb": True, "ssh": True, "avahi": True, "docker": True}

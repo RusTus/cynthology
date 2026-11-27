@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 595 entries.
+// Generated from the English UI strings (see i18n.js). 619 entries.
 i18nAdd("es", {
 "Settings and data are kept.": "Se conservan la configuración y los datos.",
 "Also installs required package(s): ": "También instala los paquetes necesarios: ",
@@ -590,9 +590,33 @@ i18nAdd("es", {
 "Check: the datastore's Hardware Acceleration column shows ": "Compruebe: la columna Hardware Acceleration del almacén de datos muestra ",
 "Layout: mirrored (RAID 1) - required for a read-write cache.": "Diseño: en espejo (RAID 1), necesario para una caché de lectura y escritura.",
 "Port-based: the website answers on its own port(s), at any address of the NAS.": "Por puerto: el sitio web responde en su(s) propio(s) puerto(s), en cualquier dirección del NAS.",
-" - e.g. after this NAS dies. Write it down or save it in a password manager, not only on this NAS.": ": p. ej., si este NAS deja de funcionar. Anótela o guárdela en un gestor de contraseñas, no solo en este NAS.",
-" - ESXi then uses this NAS for cloning, zeroing, locking and space reclaim (VAAI). No plugin is needed.": ": ESXi usará entonces este NAS para clonar, poner a cero, bloquear y recuperar espacio (VAAI). No hace falta ningún plugin.",
+" - e.g. after this NAS dies. Write it down or save it in a password manager, not only on this NAS.": " - p. ej., si este NAS deja de funcionar. Anótela o guárdela en un gestor de contraseñas, no solo en este NAS.",
+" - ESXi then uses this NAS for cloning, zeroing, locking and space reclaim (VAAI). No plugin is needed.": " - ESXi usará entonces este NAS para clonar, poner a cero, bloquear y recuperar espacio (VAAI). No hace falta ningún plugin.",
 ". Find yours in vSphere: host → Configure → Storage Adapters → iSCSI Software Adapter → iSCSI Name.": ". Encuentre el suyo en vSphere: host → Configure → Storage Adapters → iSCSI Software Adapter → iSCSI Name.",
 "A link wants to sign you in as": "Un enlace quiere iniciar sesión como",
-"Continue only if you opened this link yourself from your NAS.": "Continúe solo si abrió este enlace usted mismo desde su NAS."
+"Continue only if you opened this link yourself from your NAS.": "Continúe solo si abrió este enlace usted mismo desde su NAS.",
+"Open shared folders as a network drive over HTTP(S) - from outside your home too, and from phone apps. Users sign in with their NAS password and see only their folders.": "Abra las carpetas compartidas como unidad de red por HTTP(S): también desde fuera de casa y desde apps del móvil. Los usuarios inician sesión con su contraseña del NAS y solo ven sus carpetas.",
+"Enable WebDAV": "Activar WebDAV",
+"HTTPS, port": "HTTPS, puerto",
+"HTTP (not encrypted), port": "HTTP (sin cifrar), puerto",
+"Windows only accepts a trusted certificate (Control Panel → Security → Let's Encrypt) or plain HTTP.": "Windows solo acepta un certificado de confianza (Panel de control → Seguridad → Let's Encrypt) o HTTP simple.",
+"WebDAV settings saved": "Ajustes de WebDAV guardados",
+"SFTP for users": "SFTP para usuarios",
+"Administrators always have SSH. With this on, other users can transfer files with SFTP (FileZilla, WinSCP, Cyberduck) - no command line, no tunnels. They get the same access as over SMB.": "Los administradores siempre tienen SSH. Con esto activado, los demás usuarios pueden transferir archivos por SFTP (FileZilla, WinSCP, Cyberduck), sin línea de comandos ni túneles. Tienen el mismo acceso que por SMB.",
+"Let users connect with SFTP": "Permitir que los usuarios se conecten por SFTP",
+"SFTP is on for users": "SFTP activado para los usuarios",
+"SFTP is off for users": "SFTP desactivado para los usuarios",
+"rsync server": "Servidor rsync",
+"For backups from another NAS or from rsync on a computer (port 873). Every shared folder is an rsync module with the same permissions. rsync uses its own password per user.": "Para copias de seguridad desde otro NAS o con rsync desde un ordenador (puerto 873). Cada carpeta compartida es un módulo rsync con los mismos permisos. rsync usa su propia contraseña por usuario.",
+"Enable the rsync server": "Activar el servidor rsync",
+"rsync server started": "Servidor rsync iniciado",
+"rsync server stopped": "Servidor rsync detenido",
+"rsync password set": "Contraseña de rsync definida",
+"no rsync access": "sin acceso rsync",
+"Change": "Cambiar",
+"Set password": "Definir contraseña",
+"rsync password for": "Contraseña de rsync para",
+"Password (at least 8 characters)": "Contraseña (al menos 8 caracteres)",
+"rsync password saved": "Contraseña de rsync guardada",
+"rsync access removed": "Acceso rsync quitado"
 });
