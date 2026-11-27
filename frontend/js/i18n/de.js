@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 847 entries.
+// Generated from the English UI strings (see i18n.js). 871 entries.
 i18nAdd("de", {
 "Error: ": "Fehler: ",
 "Settings and data are kept.": "Einstellungen und Daten bleiben erhalten.",
@@ -846,5 +846,29 @@ i18nAdd("de", {
 "The PDF viewer isn't installed - update Cynthology.": "Der PDF-Betrachter ist nicht installiert - aktualisieren Sie Cynthology.",
 "Only the first 200 pages are shown - download the file for the rest.": "Nur die ersten 200 Seiten werden gezeigt - laden Sie die Datei für den Rest herunter.",
 "Only the first 1 MB is shown (read-only).": "Nur das erste MB wird gezeigt (schreibgeschützt).",
-"Read-only for you.": "Für Sie schreibgeschützt."
+"Read-only for you.": "Für Sie schreibgeschützt.",
+"of unused space can be added to this pool": "ungenutzter Platz kann diesem Pool hinzugefügt werden",
+"- the drives are bigger than the pool uses. Growing runs in the background; the volume stays usable.": "- die Laufwerke sind größer, als der Pool nutzt. Das Vergrößern läuft im Hintergrund; das Volume bleibt nutzbar.",
+"Wait until the rebuild/reshape has finished": "Warten Sie, bis der Neuaufbau/Umbau fertig ist",
+"Grow the pool into the unused space now?": "Den Pool jetzt um den ungenutzten Platz vergrößern?",
+"Replace": "Ersetzen",
+"Swap this drive for another (e.g. bigger) one without losing protection": "Dieses Laufwerk gegen ein anderes (z. B. größeres) tauschen, ohne den Schutz zu verlieren",
+"Connect a free drive at least as large as": "Schließen Sie ein freies Laufwerk an, mindestens so groß wie",
+"Everything on the new drive is erased. The data is copied over while the pool stays fully protected; then the old drive is free to remove. If all drives get bigger, use Expand afterwards to use the extra space.": "Alles auf dem neuen Laufwerk wird gelöscht. Die Daten werden kopiert, während der Pool voll geschützt bleibt; danach kann das alte Laufwerk entfernt werden. Werden alle Laufwerke größer, nutzen Sie danach „Erweitern“.",
+"New drive": "Neues Laufwerk",
+"Change RAID type": "RAID-Typ ändern",
+"RAID 1 → RAID 5: a third drive is added and the pool grows by one drive's capacity. It still survives one failing drive.": "RAID 1 → RAID 5: Ein drittes Laufwerk kommt hinzu, der Pool wächst um eine Laufwerkskapazität. Er übersteht weiterhin den Ausfall eines Laufwerks.",
+"RAID 5 → RAID 6: one more drive is added; the pool then survives two failing drives (capacity stays the same).": "RAID 5 → RAID 6: Ein weiteres Laufwerk kommt hinzu; der Pool übersteht dann zwei ausfallende Laufwerke (Kapazität bleibt gleich).",
+"The conversion runs in the background and can take many hours; the volume stays usable.": "Die Umwandlung läuft im Hintergrund und kann viele Stunden dauern; das Volume bleibt nutzbar.",
+"Drive to add": "Hinzuzufügendes Laufwerk",
+"Convert": "Umwandeln",
+"Connect a free drive at least as large as the pool's largest drive": "Schließen Sie ein freies Laufwerk an, mindestens so groß wie das größte im Pool",
+"Remove pool": "Pool entfernen",
+"Remove storage pool": "Speicherpool entfernen",
+"Everything on this pool is erased and its drives become empty. This can't be undone. (Not possible while shared folders, LUNs, the Backup Vault or Docker still use it.)": "Alles auf diesem Pool wird gelöscht und seine Laufwerke werden leer. Das lässt sich nicht rückgängig machen. (Nicht möglich, solange freigegebene Ordner, LUNs, der Backup-Tresor oder Docker ihn nutzen.)",
+"Type the pool's name to confirm": "Zur Bestätigung den Namen des Pools eingeben",
+"Storage pool removed": "Speicherpool entfernt",
+"days": "Tage",
+"years": "Jahre",
+"in use": "in Betrieb"
 });

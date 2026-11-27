@@ -67,6 +67,7 @@ Already installed an older version? Run the same command again - it upgrades in 
 | 51 | Drive hibernation | Hardware & Power → spin down after 10 minutes → Apply → leave the NAS alone 15 min → reopen the page | Hard drives show "sleeping"; opening a share wakes them in a few seconds |
 | 52 | Power schedule | Add shut down at a time 5 min from now and start up 10 min later (same day) → Apply | NAS turns off, then on by itself (if the board supports it) |
 | 53 | Previews | File Station → a folder with photos and videos → icon view → double-click a photo → arrow keys / swipe; open a video, a PDF, a .txt (edit + Save) | Thumbnails appear; photos upright; video seeks; PDF readable; text saved |
+| 54 | Bigger drives | Storage → pool → Drives → Replace (pick a bigger free drive) → wait → repeat for a second drive → Expand | Pool stays "rebuilding" but protected; old drives end up free; capacity grows after Expand |
 | 19 | Synology alternatives | Package Center → Synology alternatives → MariaDB → Install, then phpMyAdmin → Install → Open (server: NAS IP, user root, password from Info) | phpMyAdmin logs in |
 
 Logs if something breaks: `sudo journalctl -u cynthology-ui -n 100`

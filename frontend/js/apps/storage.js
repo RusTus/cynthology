@@ -98,6 +98,18 @@ async function poolDetail(p, id, go) {
   const x = pools.find((q) => q.id === id);
   if (!x) return p.append(h("p", { class: "muted" }, "This storage pool no longer exists."));
   const scrub = await API.get(`/api/storage/pools/${id}/scrub`).catch(() => ({ supported: false }));
+  // unused space on bigger drives (after replacing drives): offer to put it to work
+  const expandBanner = h("div");
+  API.get(`/api/storage/pools/${id}/expansion`).then((e) => {
+    if (!e.gain) return;
+    expandBanner.replaceChildren(h("div", { class: "note", style: "margin-bottom:12px" },
+      h("b", {}, `${fmtBytes(e.gain)} ${t("of unused space can be added to this pool")}`), " ",
+      t("- the drives are bigger than the pool uses. Growing runs in the background; the volume stays usable."), " ",
+      h("button", { class: "btn primary", disabled: !!e.busy, title: e.busy ? t("Wait until the rebuild/reshape has finished") : "", onclick: async () => {
+        if (!confirm(t("Grow the pool into the unused space now?"))) return;
+        await act(() => API.post(`/api/storage/pools/${id}/expand`), "Expanding - this runs in the background"); reload();
+      } }, "Expand")));
+  }).catch(() => {});
   const pct = x.total ? Math.round((x.used / x.total) * 100) : 0;
   const cls = statusClass(x.status);
   const tol = { basic: "none", raid0: "none", raid1: "all but one drive", raid5: "1 drive", raid6: "2 drives", raid10: "1 drive per mirror pair", shr: "1 drive", shr2: "2 drives" }[x.raid];
@@ -118,7 +130,19 @@ async function poolDetail(p, id, go) {
     h("div", { class: "toolbar", style: "margin:14px 0" },
       h("button", { class: "btn" + (x.status === "degraded" ? " primary" : ""), onclick: () => addDiskDialog(p, x) }, x.status === "degraded" ? "Repair" : "Add drive"),
       ["raid0", "basic"].includes(x.raid) ? null : h("button", { class: "btn", onclick: () => addDiskDialog(p, x, true) }, "Add hot spare"),
-      x.failed?.length ? h("button", { class: "btn", onclick: async () => { await act(() => API.post(`/api/storage/pools/${id}/remove-failed`), "Failed drive detached - you can pull it now"); reload(); } }, "Detach failed drive") : null),
+      x.failed?.length ? h("button", { class: "btn", onclick: async () => { await act(() => API.post(`/api/storage/pools/${id}/remove-failed`), "Failed drive detached - you can pull it now"); reload(); } }, "Detach failed drive") : null,
+      (x.raid === "raid1" && x.disks.length === 2) || x.raid === "raid5" ? h("button", { class: "btn", onclick: () => changeRaidDialog(x, disks, reload) }, "Change RAID type") : null,
+      h("span", { style: "flex:1" }),
+      h("button", { class: "btn danger", onclick: () => {
+        const name = h("input", { placeholder: x.label });
+        const close = modal(t("Remove storage pool") + " " + x.label, h("div", { class: "form" },
+          h("div", { class: "note warn" }, t("Everything on this pool is erased and its drives become empty. This can't be undone. (Not possible while shared folders, LUNs, the Backup Vault or Docker still use it.)")),
+          h("label", {}, t("Type the pool's name to confirm"), name)), [["Cancel", null, ""], ["Remove pool", async () => {
+            await act(() => API.call("DELETE", `/api/storage/pools/${id}`, { confirm: name.value }), "Storage pool removed");
+            close(); go("overview");
+          }, "danger"]]);
+      } }, "Remove pool")),
+    expandBanner,
     h("h3", { class: "section-title" }, "Info"),
     h("table", { class: "kv" },
       row("RAID type", `${RAID_LABEL[x.raid]} - survives ${tol} failing`),
@@ -146,7 +170,38 @@ async function poolDetail(p, id, go) {
         h("td", {}, role === "Hot spare" ? h("button", { class: "btn", onclick: async () => {
           if (!confirm(`Remove hot spare ${d}?`)) return;
           await act(() => API.post(`/api/storage/pools/${id}/spare/remove`, { disk: d }), "Hot spare removed"); reload();
-        } }, "Remove") : null)))));
+        } }, "Remove") : role === "Member" && !["raid0", "basic"].includes(x.raid) ? h("button", { class: "btn", title: t("Swap this drive for another (e.g. bigger) one without losing protection"),
+          onclick: () => replaceDialog(x, d, disks, reload) }, "Replace") : null)))));
+}
+
+// Replace a working drive (hot replace: the pool stays protected while it copies).
+function replaceDialog(pool, old, disks, reload) {
+  const oldSize = disks.find((d) => d.name === old)?.size || 0;
+  const free = disks.filter((d) => d.usage === "free" && !d.system && d.size >= oldSize);
+  if (!free.length) return toast(t("Connect a free drive at least as large as") + ` ${old} (${fmtBytes(oldSize)})`);
+  const sel = h("select", {}, free.map((d) => h("option", { value: d.name }, `${d.name} - ${d.model || ""} (${fmtBytes(d.size)})`)));
+  const close = modal(t("Replace") + " " + old, h("div", { class: "form" },
+    h("div", { class: "muted", style: "font-size:13px" }, t("Everything on the new drive is erased. The data is copied over while the pool stays fully protected; then the old drive is free to remove. If all drives get bigger, use Expand afterwards to use the extra space.")),
+    h("label", {}, "New drive", sel)), [["Cancel", null, ""], ["Replace", async () => {
+      const r = await act(() => API.post(`/api/storage/pools/${pool.id}/replace`, { old, new: sel.value }));
+      close(); if (r) toast(r.note); reload();
+    }, "primary"]]);
+}
+
+function changeRaidDialog(pool, disks, reload) {
+  const target = pool.raid === "raid1" ? "raid5" : "raid6";
+  const big = Math.max(...pool.disks.map((n) => disks.find((d) => d.name === n)?.size || 0));
+  const free = disks.filter((d) => d.usage === "free" && !d.system && d.size >= big);
+  const text = target === "raid5" ? t("RAID 1 → RAID 5: a third drive is added and the pool grows by one drive's capacity. It still survives one failing drive.")
+    : t("RAID 5 → RAID 6: one more drive is added; the pool then survives two failing drives (capacity stays the same).");
+  if (!free.length) return toast(t("Connect a free drive at least as large as the pool's largest drive"));
+  const sel = h("select", {}, free.map((d) => h("option", { value: d.name }, `${d.name} - ${d.model || ""} (${fmtBytes(d.size)})`)));
+  const close = modal(t("Change RAID type"), h("div", { class: "form" }, h("div", { class: "muted", style: "font-size:13px" }, text,
+    " ", t("The conversion runs in the background and can take many hours; the volume stays usable.")), h("label", {}, "Drive to add", sel)), [
+    ["Cancel", null, ""], ["Convert", async () => {
+      const r = await act(() => API.post(`/api/storage/pools/${pool.id}/change-raid`, { level: target, disk: sel.value }));
+      close(); if (r) toast(r.note); reload();
+    }, "primary"]]);
 }
 
 // SSD cache: read-only (1-4 drives, safe) or read-write (2 mirrored drives).
@@ -388,6 +443,7 @@ async function storageDisks(p, go) {
         h("div", { style: "flex:1;min-width:0" },
           h("div", {}, h("b", {}, d.name), h("span", { class: "muted" }, `  ${d.model || "Unknown model"}  ·  ${fmtBytes(d.size)}`)),
           h("div", { class: cls === "bad" ? "err" : "muted", style: "font-size:13px" }, r)),
+        driveVitals(d),
         d.usage === "foreign" ? h("button", { class: "btn danger", onclick: (e) => { e.stopPropagation(); eraseDrives([d.name], () => go("drives")); } }, "Erase") : null,
         h("span", { class: "muted" }, "⌄")),
       details);
@@ -438,4 +494,22 @@ async function poolProgress(p, jobId, what) {
     }
     await new Promise((r) => setTimeout(r, 1500));
   }
+}
+
+// temperature and power-on hours in the drive list (never wakes a sleeping drive)
+function driveVitals(d) {
+  const box = h("span", { class: "muted drive-vitals", style: "font-size:12px;white-space:nowrap" });
+  if (d.system && !d.rota) return box;
+  API.get(`/api/storage/disks/${d.name}/smart?let_sleep=true`).then((s) => {
+    if (s.asleep) return box.replaceChildren("💤 " + t("sleeping"));
+    if (!s.supported) return;
+    const parts = [];
+    if (s.temperature != null) parts.push(h("span", { class: s.temperature >= 55 ? "err" : "" }, `${s.temperature} °C`));
+    if (s.power_on_hours != null) {
+      const hrs = s.power_on_hours;
+      parts.push(" · " + (hrs < 48 ? `${hrs} h` : hrs < 24 * 365 ? `${Math.round(hrs / 24)} ${t("days")}` : `${(hrs / 24 / 365).toFixed(1)} ${t("years")}`) + " " + t("in use"));
+    }
+    box.replaceChildren(...parts);
+  }).catch(() => {});
+  return box;
 }

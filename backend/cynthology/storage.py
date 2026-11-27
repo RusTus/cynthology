@@ -1096,3 +1096,363 @@ def remove_cache(pool_id: int, _=Depends(require_admin)):
         if failed:
             return {"ok": True, "warning": "cache removed, but some SSDs could not be wiped (erase them under Drives): " + "; ".join(failed)}
     return {"ok": True}
+
+
+# ---------- replacing drives, growing into new space, changing the RAID type ----------
+#
+# Replace: mdadm --replace copies a member onto the new drive while the old one stays in the
+# array, so the pool never loses redundancy (unlike pulling the old drive and repairing).
+# Expand: once drives are bigger than the pool uses, the space is put to work like Synology's
+# SHR: a drive that lacks a tier joins it, and leftover space on two or more drives becomes a
+# new tier; plain RAID pools grow their partitions when every member has room.
+
+MIN_GROW = 1 << 21          # 1 GiB in 512-byte sectors: smaller leftovers aren't worth a tier
+ALIGN = 2048                # 1 MiB partition alignment
+
+
+def _sectors(path: str) -> int:
+    with open(path) as f:
+        return int(f.read().strip())
+
+
+def disk_layout(disk: str) -> dict:
+    """{'free_start', 'end', 'parts': {n: (start, size)}} in 512-byte sectors, from sysfs."""
+    base = f"/sys/class/block/{disk}"
+    parts = {}
+    for p in os.listdir(base):
+        if p.startswith(disk) and os.path.exists(f"{base}/{p}/partition"):
+            n = _sectors(f"{base}/{p}/partition")
+            parts[n] = (_sectors(f"{base}/{p}/start"), _sectors(f"{base}/{p}/size"))
+    used_end = max((s + z for s, z in parts.values()), default=ALIGN)
+    free_start = -(-used_end // ALIGN) * ALIGN
+    end = (_sectors(f"{base}/size") - 34) // ALIGN * ALIGN        # (34 sectors: the GPT backup at the end)
+    return {"free_start": free_start, "end": end, "parts": parts}
+
+
+def plan_expand(raid: str, tiers: list[dict], layout: dict[str, dict], idle: dict[int, list[str]] | None = None) -> dict:
+    """What growing a pool into unused drive space would do (pure; unit tested).
+
+    tiers:  [{"part": n, "level": "1"|"5"|"6", "size": sectors, "members": [disk, ...]}]
+    layout: disk -> {"free_start", "end", "parts": {n: (start, size)}}
+    idle:   tier part -> pool drives whose partition already sits in that tier as an idle spare
+            (left by an interrupted expansion): they are made active members
+    Returns {"steps": [...], "gain": bytes}."""
+    lay = {d: {"free_start": v["free_start"], "end": v["end"], "n": len(v["parts"])} for d, v in layout.items()}
+    free = lambda d: lay[d]["end"] - lay[d]["free_start"]
+    steps, gain = [], 0
+    if raid in ("shr", "shr2"):
+        for t in sorted(tiers, key=lambda x: x["part"]):
+            for d in sorted((idle or {}).get(t["part"], [])):
+                if d in lay and d not in t["members"]:
+                    steps.append({"do": "activate", "disk": d, "part": t["part"], "size": t["size"]})
+                    gain += t["size"] * 512
+            for d in sorted(lay):
+                if d in t["members"] or lay[d]["n"] != t["part"] - 1 or free(d) < t["size"]:
+                    continue
+                steps.append({"do": "join", "disk": d, "part": t["part"], "start": lay[d]["free_start"], "size": t["size"]})
+                lay[d]["free_start"] += t["size"]
+                lay[d]["n"] += 1
+                gain += t["size"] * 512
+        n_tiers = max((t["part"] for t in tiers), default=0)
+        cand = sorted((d for d in lay if lay[d]["n"] == n_tiers and free(d) >= MIN_GROW), key=lambda d: -free(d))
+        need = 2 if raid == "shr" else 3
+        best = None
+        for k in range(need, len(cand) + 1):
+            size = free(cand[k - 1]) // ALIGN * ALIGN
+            if raid == "shr":
+                usable, level = (size, "1") if k == 2 else (size * (k - 1), "5")
+            else:
+                usable, level = (size, "1") if k == 3 else (size * (k - 2), "6")
+            if best is None or usable > best[0]:
+                best = (usable, k, size, level)
+        if best and best[2] >= MIN_GROW:
+            usable, k, size, level = best
+            disks = sorted(cand[:k])
+            steps.append({"do": "new_tier", "part": n_tiers + 1, "disks": disks, "size": size, "level": level,
+                          "starts": {d: lay[d]["free_start"] for d in disks}})
+            gain += usable * 512
+    elif raid in ("raid1", "raid5", "raid6") and len(tiers) == 1:
+        t = tiers[0]
+        members = t["members"]
+        if members and all(lay[d]["n"] == 1 for d in members):
+            room = min(free(d) for d in members) // ALIGN * ALIGN
+            if room >= MIN_GROW:
+                steps.append({"do": "grow_part", "disks": sorted(members), "part": 1, "add": room})
+                data = {"raid1": 1, "raid5": len(members) - 1, "raid6": len(members) - 2}[raid]
+                gain += room * data * 512
+    return {"steps": steps, "gain": gain}
+
+
+def _tiers_of(pool: dict) -> list[dict]:
+    out = []
+    for a in pool["arrays"]:
+        members = array_members(a["md"])
+        size = 0
+        for d in members:
+            p = disk_layout(d)["parts"].get(a["part"])
+            if p:
+                size = p[1]
+                break
+        out.append({"part": a["part"], "level": a["level"], "size": size, "members": members, "md": a["md"]})
+    return out
+
+
+def expansion(pool: dict) -> dict:
+    if DEV or pool["raid"] in ("raid0", "raid10", "basic"):
+        return {"steps": [], "gain": 0}
+    disks = pool_disks(pool)
+    idle = {}
+    for a in pool["arrays"]:
+        idle[a["part"]] = [d for d, _p, role in member_states(a["md"]) if role == "spare" and d in disks]
+    return plan_expand(pool["raid"], _tiers_of(pool), {d: disk_layout(d) for d in disks}, idle)
+
+
+def _busy(pool: dict) -> str | None:
+    for a in pool["arrays"]:
+        st = _md_info(a["md"])["state"] if not DEV else ""
+        if any(w in st for w in ("degraded", "recovering", "resyncing", "reshaping", "FAILED", "inactive")):
+            return st.strip()
+    return None
+
+
+def _mkpart(disk: str, n: int, start: int, size: int) -> str:
+    dev = f"/dev/{disk}"
+    run(["sgdisk", "-n", f"{n}:{start}:{start + size - 1}", "-t", f"{n}:FD00", dev])
+    run(["partx", "-a", dev], check=False)               # (the disk is in use: tell the kernel about the new partition only)
+    run(["udevadm", "settle"], check=False)
+    return _part(dev, n)
+
+
+@router.get("/pools/{pool_id}/expansion")
+def get_expansion(pool_id: int, _=Depends(require_admin)):
+    pool = _pool(pool_id)
+    plan = expansion(pool)
+    return {"gain": plan["gain"], "steps": plan["steps"], "busy": _busy(pool)}
+
+
+@router.post("/pools/{pool_id}/expand")
+def expand(pool_id: int, _=Depends(require_admin)):
+    pools_ = load_pools()
+    pool = next((x for x in pools_ if x["id"] == pool_id), None)
+    if not pool:
+        raise HTTPException(404, "no such pool")
+    if _busy(pool):
+        raise HTTPException(409, "wait until the pool is healthy and idle (no rebuild or reshape running)")
+    plan = expansion(pool)
+    if not plan["steps"]:
+        raise HTTPException(400, "there is no unused space to grow into")
+    by_part = {a["part"]: a for a in pool["arrays"]}
+    try:
+        _expand_steps(pool, plan["steps"], by_part)
+    finally:                                   # (whatever got done is put to use, even after an error)
+        _grow_when_reshaped(pool)
+        _save_mdadm_conf()
+        save_pools(pools_)
+    return {"ok": True, "gain": plan["gain"]}
+
+
+def _expand_steps(pool: dict, steps: list[dict], by_part: dict) -> None:
+    # one reshape per tier: md can't start a second reshape while one runs, so every new member
+    # of a tier is added first and the tier is grown once
+    joining: dict[int, int] = {}
+    for s in steps:
+        if s["do"] == "join":
+            run(["mdadm", "--add", by_part[s["part"]]["md"], _mkpart(s["disk"], s["part"], s["start"], s["size"])])
+            joining[s["part"]] = joining.get(s["part"], 0) + 1
+        elif s["do"] == "activate":                       # (already in the array as an idle spare)
+            joining[s["part"]] = joining.get(s["part"], 0) + 1
+    for part, extra in sorted(joining.items()):
+        a = by_part[part]
+        count = len(array_members(a["md"])) + extra
+        if a["level"] == "1" and ((pool["raid"] == "shr" and count >= 3) or (pool["raid"] == "shr2" and count >= 4)):
+            lvl = "5" if pool["raid"] == "shr" else "6"
+            run(["mdadm", "--grow", a["md"], f"--level={lvl}"])
+            a["level"] = lvl
+        run(["mdadm", "--grow", a["md"], f"--raid-devices={count}"])
+    for s in steps:
+        if s["do"] == "new_tier":
+            parts = [_mkpart(d, s["part"], s["starts"][d], s["size"]) for d in s["disks"]]
+            md = f"/dev/md/cyn{pool['id']}t{s['part']}"
+            for p in parts:
+                run(["mdadm", "--zero-superblock", "--force", p], check=False)
+            run(["mdadm", "--create", md, "--run", "--force", "--metadata=1.2", f"--level={s['level']}",
+                 f"--raid-devices={len(parts)}", "--bitmap=internal", f"--name=cyn{pool['id']}t{s['part']}", *parts])
+            run(["pvcreate", "-ff", "-y", md])
+            run(["vgextend", pool["vg"], md])
+            pool["arrays"].append({"md": md, "level": s["level"], "part": s["part"], "members": s["disks"]})
+        elif s["do"] == "grow_part":
+            a = by_part[s["part"]]
+            for d in s["disks"]:
+                start, size = disk_layout(d)["parts"][s["part"]]
+                dev = f"/dev/{d}"
+                # same start, later end: the md superblock and data stay where they are
+                info = read_only(["sgdisk", "-i", str(s["part"]), dev])
+                guid = re.search(r"Partition unique GUID: (\S+)", info)
+                run(["sgdisk", "-d", str(s["part"]), "-n", f"{s['part']}:{start}:{start + size + s['add'] - 1}",
+                     "-t", f"{s['part']}:FD00", *(["-u", f"{s['part']}:{guid.group(1)}"] if guid else []), dev])
+                run(["partx", "-u", dev])                   # (resize the partition in the running kernel)
+            run(["mdadm", "--grow", a["md"], "--size=max"])
+
+
+class Replace(BaseModel):
+    old: str
+    new: str
+
+
+@router.post("/pools/{pool_id}/replace")
+def replace_disk(pool_id: int, body: Replace, _=Depends(require_admin)):
+    """Swap a working drive for another (usually bigger) one without ever losing redundancy."""
+    pool = _pool(pool_id)
+    if pool["raid"] in ("raid0", "basic"):
+        raise HTTPException(400, "drives of a pool without redundancy can't be replaced in place")
+    if _busy(pool):
+        raise HTTPException(409, "wait until the pool is healthy and idle - or use Repair for a failed drive")
+    if body.old not in pool_disks(pool):
+        raise HTTPException(400, f"{body.old} is not an active drive of this pool")
+    new = _free_disks([body.new])[body.new]
+    sizes = {d["name"]: d["size"] for d in list_disks()}
+    if new["size"] < sizes.get(body.old, 0):
+        raise HTTPException(400, f"the new drive must be at least as large as {body.old}")
+    dev, old = f"/dev/{body.new}", f"/dev/{body.old}"
+    _scrub_disk(dev)
+    run(["sh", "-c", f"sgdisk --backup=/run/cyn-pt {old} && sgdisk --load-backup=/run/cyn-pt {dev} && sgdisk -e -G {dev}"])
+    run(["partprobe", dev], check=False)
+    run(["udevadm", "settle"], check=False)
+    old_parts = []
+    for a in pool["arrays"]:
+        mine = [p for d, p, role in member_states(a["md"]) if d == body.old and role == "active"]
+        if not mine:
+            continue
+        newpart = _part(dev, a["part"])
+        run(["mdadm", "--add", a["md"], newpart])
+        run(["mdadm", a["md"], "--replace", f"/dev/{mine[0]}", "--with", newpart])
+        old_parts.append((a["md"], f"/dev/{mine[0]}"))
+    if not old_parts:
+        raise HTTPException(400, f"{body.old} has no active part in this pool")
+    # when the copy is done the old partitions are marked faulty: take them out and wipe their RAID labels
+    mds = " ".join(m for m, _ in old_parts)
+    clean = "; ".join(f"mdadm {m} --remove {p}; mdadm --zero-superblock {p}" for m, p in old_parts)
+    serial = next((d.get("serial") for d in list_disks() if d["name"] == body.old), "") or ""
+    # wipe the old drive so it shows as free - found again by serial number, and only if nothing holds it
+    wipe = (f"D=$(lsblk -dnpo NAME,SERIAL | awk '$2==\"{serial}\"{{print $1}}'); "
+            "if [ -n \"$D\" ] && [ -z \"$(ls /sys/class/block/$(basename $D)/holders 2>/dev/null)\" ] && "
+            "! ls /sys/class/block/$(basename $D)/$(basename $D)*/holders/* >/dev/null 2>&1; then "
+            "wipefs -a $D?* 2>/dev/null; wipefs -a $D; sgdisk --zap-all $D; partprobe $D; fi; ") if re.fullmatch(r"[A-Za-z0-9_.-]+", serial) else ""
+    run(["systemd-run", f"--unit=cyn-replace-{body.old}-{int(time.time())}", "--collect",
+         "--description", f"Cynthology: replace {body.old} with {body.new}", "sh", "-c",
+         f"for md in {mds}; do mdadm --wait $md; done; sleep 2; {clean}; {wipe}"
+         "grep -v '^ARRAY' /etc/mdadm/mdadm.conf > /etc/mdadm/mdadm.conf.new; mdadm --detail --scan >> /etc/mdadm/mdadm.conf.new; "
+         "mv /etc/mdadm/mdadm.conf.new /etc/mdadm/mdadm.conf"])
+    return {"ok": True, "note": f"Copying {body.old} to {body.new} in the background. The pool stays protected throughout. "
+                                f"When it's done, {body.old} is free to remove."}
+
+
+class ChangeRaid(BaseModel):
+    level: str            # raid5 | raid6
+    disk: str
+
+
+@router.post("/pools/{pool_id}/change-raid")
+def change_raid(pool_id: int, body: ChangeRaid, _=Depends(require_admin)):
+    """RAID 1 (2 drives) -> RAID 5 (3 drives), or RAID 5 -> RAID 6 (one more drive), while in use."""
+    pools_ = load_pools()
+    pool = next((x for x in pools_ if x["id"] == pool_id), None)
+    if not pool:
+        raise HTTPException(404, "no such pool")
+    if _busy(pool):
+        raise HTTPException(409, "wait until the pool is healthy and idle")
+    allowed = {("raid1", "raid5"), ("raid5", "raid6")}
+    if (pool["raid"], body.level) not in allowed or len(pool["arrays"]) != 1:
+        raise HTTPException(400, "possible changes: RAID 1 → RAID 5, RAID 5 → RAID 6 (for SHR, just add a drive)")
+    a = pool["arrays"][0]
+    members = array_members(a["md"])
+    if pool["raid"] == "raid1" and len(members) != 2:
+        raise HTTPException(400, "RAID 1 → RAID 5 works from a 2-drive RAID 1")
+    dev = _clone_layout(pool, body.disk)
+    part = _part(dev, a["part"])
+    run(["mdadm", "--add", a["md"], part])
+    count = len(members) + 1
+    if body.level == "raid5":
+        run(["mdadm", "--grow", a["md"], "--level=5"])
+        run(["mdadm", "--grow", a["md"], f"--raid-devices={count}"])
+        a["level"] = "5"
+    else:
+        backup = os.path.join(STATE_DIR, f"reshape-{os.path.basename(a['md'])}.bak")
+        run(["mdadm", "--grow", a["md"], "--level=6", f"--raid-devices={count}", f"--backup-file={backup}"])
+        a["level"] = "6"
+    pool["raid"] = body.level
+    a["members"] = members + [body.disk]
+    _grow_when_reshaped(pool)
+    _save_mdadm_conf()
+    save_pools(pools_)
+    return {"ok": True, "note": "The conversion runs in the background and can take hours; the volume stays usable."}
+
+
+class RemovePool(BaseModel):
+    confirm: str            # the pool's name, typed by the user
+
+
+def pool_users(pool: dict) -> list[str]:
+    """What still lives on a pool (removing it would destroy these)."""
+    mount = pool["mount"].rstrip("/") + "/"
+    out = []
+    from . import shares as shares_mod
+    out += [f"shared folder {s['name']}" for s in shares_mod.load() if (s.get("cipher") or s["path"]).startswith(mount)]
+    try:
+        from . import san
+        out += [f"iSCSI LUN {lun['name']}" for lun in san.load().get("luns", []) if lun.get("pool_id") == pool["id"]]
+    except Exception:
+        pass
+    try:
+        from . import vault
+        if vault.load().get("enabled") and vault.load().get("pool_id") == pool["id"]:
+            out.append("the Backup Vault")
+    except Exception:
+        pass
+    try:
+        cfg = json.load(open("/etc/docker/daemon.json")) if not DEV else {}
+        if str(cfg.get("data-root", "")).startswith(mount):
+            out.append("Docker's data (Container Manager)")
+    except (OSError, ValueError):
+        pass
+    return out
+
+
+@router.delete("/pools/{pool_id}")
+def remove_pool(pool_id: int, body: RemovePool, _=Depends(require_admin)):
+    """Delete a storage pool and erase its drives. Refused while anything still uses it."""
+    pools_ = load_pools()
+    pool = next((x for x in pools_ if x["id"] == pool_id), None)
+    if not pool:
+        raise HTTPException(404, "no such pool")
+    if body.confirm.strip() != pool["label"]:
+        raise HTTPException(400, f"type the pool's name ({pool['label']}) to confirm")
+    users = pool_users(pool)
+    if users:
+        raise HTTPException(409, "still in use: " + ", ".join(users) + " - delete or move them first")
+    disks = sorted({d for a in pool["arrays"] for d, _p, _r in member_states(a["md"])}) if not DEV else pool["disks"]
+    if pool.get("cache"):
+        remove_cache(pool_id)
+    if not DEV:
+        if os.path.ismount(pool["mount"]):
+            r = subprocess.run(["umount", pool["mount"]], capture_output=True, text=True)
+            if r.returncode != 0:
+                raise HTTPException(409, f"{pool['mount']} is busy: {r.stderr.strip()}")
+        lines = open("/etc/fstab").read().splitlines()
+        with open("/etc/fstab.new", "w") as f:
+            f.write("\n".join(ln for ln in lines if not (len(ln.split()) > 1 and ln.split()[1] == pool["mount"])) + "\n")
+        os.replace("/etc/fstab.new", "/etc/fstab")
+        run(["vgchange", "-an", pool["vg"]], check=False)
+        run(["vgremove", "-ff", "-y", pool["vg"]], check=False)
+        for a in pool["arrays"]:
+            run(["pvremove", "-ff", "-y", a["md"]], check=False)
+            run(["mdadm", "--stop", a["md"]], check=False)
+        for d in disks:
+            _scrub_disk(f"/dev/{d}")
+        try:
+            os.rmdir(pool["mount"])
+        except OSError:
+            pass
+        _save_mdadm_conf(initramfs=True)
+    save_pools([x for x in pools_ if x["id"] != pool_id])
+    return {"ok": True, "erased": disks}
