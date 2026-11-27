@@ -358,6 +358,8 @@ def restore(qid: str, _=Depends(require_admin)):
                 pass
             qfd = os.open(os.path.dirname(f["stored"]), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
             try:
+                # (readable again while still inside the root-only quarantine folder - safe to do by name there)
+                os.chmod(os.path.basename(f["stored"]), 0o600, dir_fd=qfd)
                 os.rename(os.path.basename(f["stored"]), name, src_dir_fd=qfd, dst_dir_fd=fd)
             finally:
                 os.close(qfd)
