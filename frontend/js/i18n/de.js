@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 1051 entries.
+// Generated from the English UI strings (see i18n.js). 1070 entries.
 i18nAdd("de", {
 "Error: ": "Fehler: ",
 "Settings and data are kept.": "Einstellungen und Daten bleiben erhalten.",
@@ -1050,5 +1050,24 @@ i18nAdd("de", {
 "Only from these networks (one per line; empty = from anywhere)": "Nur aus diesen Netzwerken (eins pro Zeile; leer = von überall)",
 "For SMB, a network limit applies to every account, administrators included - keep your own network in the list.": "Bei SMB gilt eine Netzwerkbeschränkung für alle Konten, auch für Administratoren - lassen Sie Ihr eigenes Netzwerk in der Liste.",
 "SFTP rules apply when SFTP for users is on (Control Panel > File Services).": "SFTP-Regeln gelten, wenn SFTP für Benutzer eingeschaltet ist (Systemsteuerung > Dateidienste).",
-"Groups": "Gruppen"
+"Groups": "Gruppen",
+"Login Portal": "Anmeldeportal",
+"Sign-in page, your domain name, HTTPS and HSTS": "Anmeldeseite, Ihr Domänenname, HTTPS und HSTS",
+"Sign-in page": "Anmeldeseite",
+"Title": "Titel",
+"Welcome message": "Begrüßungstext",
+"e.g. Welcome! Sign in with your family account.": "z. B. Willkommen! Melden Sie sich mit Ihrem Familienkonto an.",
+"Show the server's address under the title": "Adresse des Servers unter dem Titel anzeigen",
+"Picture uploaded - click Save to use it": "Bild hochgeladen - zum Verwenden auf Speichern klicken",
+"Preview": "Vorschau",
+"Remove picture": "Bild entfernen",
+"Picture removed": "Bild entfernt",
+"Your domain": "Ihre Domäne",
+"Domain name of this NAS": "Domänenname dieses NAS",
+"The name you reach the NAS by from the internet (your DDNS name or your own domain). Sharing links use it.": "Der Name, unter dem Sie das NAS aus dem Internet erreichen (DDNS-Name oder eigene Domäne). Freigabelinks verwenden ihn.",
+"HTTPS port people reach from outside": "HTTPS-Port, der von außen erreichbar ist",
+"Only if your router forwards a different port (e.g. 443 → 5001).": "Nur wenn Ihr Router einen anderen Port weiterleitet (z. B. 443 → 5001).",
+"HSTS: browsers that visited your domain will only ever use HTTPS for it": "HSTS: Browser, die Ihre Domäne besucht haben, verwenden dafür nur noch HTTPS",
+"HSTS is sent only when the NAS is opened by the domain name above. Note: it then applies to every port of that name - Web Station sites on it must also use HTTPS.": "HSTS wird nur gesendet, wenn das NAS über den obigen Domänennamen geöffnet wird. Hinweis: Es gilt dann für jeden Port dieses Namens - Web-Station-Seiten darauf müssen ebenfalls HTTPS verwenden.",
+"HSTS needs a trusted certificate for your domain (Let's Encrypt or your own, Control Panel > Security).": "HSTS braucht ein vertrauenswürdiges Zertifikat für Ihre Domäne (Let's Encrypt oder ein eigenes, Systemsteuerung > Sicherheit)."
 });

@@ -12,6 +12,7 @@ const CP_SECTIONS = {
   vpn: { label: "VPN Server", group: "Connectivity", icon: "cp_vpn", desc: "WireGuard: reach the NAS and your home network from anywhere", render: (p) => cpVpn(p) },
   external: { label: "External Access", group: "Connectivity", icon: "cp_external", desc: "DDNS host name for reaching the NAS from the internet", render: (p) => cpExternal(p) },
   general: { label: "General", group: "System", icon: "cp_general", desc: "Server name, time zone", render: (p) => cpGeneral(p) },
+  portal: { label: "Login Portal", group: "System", icon: "cp_portal", desc: "Sign-in page, your domain name, HTTPS and HSTS", render: (p) => cpPortal(p) },
   info: { label: "Info Center", group: "System", icon: "cp_info", desc: "Hardware and system details", render: (p) => cpInfo(p) },
   notify: { label: "Notifications", group: "System", icon: "cp_notify", desc: "Email alerts", render: (p) => cpNotify(p) },
   hardware: { label: "Hardware & Power", group: "System", icon: "cp_power", desc: "Drive hibernation, power schedule, Wake-on-LAN, temperatures", render: (p) => cpHardware(p) },
@@ -1404,5 +1405,66 @@ async function cpPrivileges(p) {
       } catch (e) { err.textContent = e.message; }
     }, "primary"]]);
   }
+}
+
+// Login Portal: the sign-in page (title, message, background), the NAS's own domain, HTTPS redirect and HSTS.
+async function cpPortal(p) {
+  const s = await API.get("/api/portal/settings");
+  const v = { ...s };
+  const title = h("input", { value: s.title, maxlength: 60, placeholder: "Cynthology" });
+  const msg = h("textarea", { rows: 3, maxlength: 400, placeholder: t("e.g. Welcome! Sign in with your family account.") }, s.message);
+  const showHost = h("input", { type: "checkbox", checked: s.show_host });
+  const domain = h("input", { value: s.domain, placeholder: "nas.example.com" });
+  const extPort = h("input", { type: "number", min: 0, max: 65535, value: s.external_port || "", placeholder: String(s.https_port), style: "max-width:140px" });
+  const hsts = h("input", { type: "checkbox", checked: s.hsts, disabled: !s.trusted_cert });
+  const redirect = h("input", { type: "checkbox", checked: s.https_redirect });
+  const walls = h("div", { class: "wall-grid" });
+  const fileIn = h("input", { type: "file", accept: "image/*", style: "display:none", onchange: async () => {
+    const f = fileIn.files[0]; if (!f) return;
+    try {
+      await API.raw("PUT", "/api/portal/background", await shrinkImage(f, 2560, 1600));
+      v.background = "custom"; v.has_background = true; drawWalls(); toast(t("Picture uploaded - click Save to use it"));
+    } catch (e) { toast(e.message); }
+  } });
+  const drawWalls = () => walls.replaceChildren(
+    ...Object.entries(WALLPAPERS).map(([k, bg]) => h("button", { class: "wall" + (v.background === k ? " on" : ""), title: t(k[0].toUpperCase() + k.slice(1)),
+      style: `background:${bg || "linear-gradient(135deg, var(--bg1), var(--bg2))"}`, onclick: () => { v.background = k; drawWalls(); } })),
+    h("button", { class: "wall add" + (v.background === "custom" ? " on" : ""), title: t("Your own picture"),
+      style: v.has_background ? `background:center/cover url("/api/portal/background?${Date.now()}")` : "",
+      onclick: () => (v.has_background && v.background !== "custom" ? (v.background = "custom", drawWalls()) : fileIn.click()) }, v.has_background ? "" : "+"));
+  drawWalls();
+  const save = async () => {
+    await act(() => API.put("/api/portal/settings", { title: title.value, message: msg.value, background: v.background, show_host: showHost.checked,
+      domain: domain.value.trim(), external_port: +extPort.value || 0, hsts: hsts.checked }), "Saved");
+  };
+  p.append(h("h2", {}, "Login Portal"),
+    h("h3", { class: "pc-group" }, "Sign-in page"),
+    h("div", { class: "form" },
+      h("label", {}, "Title", title),
+      h("label", {}, "Welcome message", msg),
+      h("label", { class: "check" }, showHost, t("Show the server's address under the title"))),
+    h("div", { style: "font-size:13px;color:var(--muted);margin:12px 0 6px" }, t("Background")), walls, fileIn,
+    h("div", { class: "toolbar", style: "margin-top:12px" }, h("button", { class: "btn primary", onclick: save }, "Save"),
+      h("a", { class: "btn", href: "/", target: "_blank", rel: "noopener", onclick: (e) => { e.preventDefault(); window.open(location.origin + "/?preview-login", "_blank", "noopener"); } }, "Preview"),
+      v.has_background ? h("button", { class: "btn", onclick: async () => { await act(() => API.del("/api/portal/background"), "Picture removed"); p.replaceChildren(); cpPortal(p); } }, "Remove picture") : null),
+    h("h3", { class: "pc-group", style: "margin-top:22px" }, "Your domain"),
+    h("div", { class: "form" },
+      h("label", {}, "Domain name of this NAS", domain,
+        h("span", { class: "muted", style: "font-size:12px" }, t("The name you reach the NAS by from the internet (your DDNS name or your own domain). Sharing links use it."))),
+      h("label", {}, "HTTPS port people reach from outside", extPort,
+        h("span", { class: "muted", style: "font-size:12px" }, t("Only if your router forwards a different port (e.g. 443 → 5001)."))),
+      h("label", { class: "check" }, redirect, t("Redirect HTTP connections to HTTPS")),
+      h("label", { class: "check" }, hsts, t("HSTS: browsers that visited your domain will only ever use HTTPS for it")),
+      h("div", { class: "muted", style: "font-size:12px" }, s.trusted_cert
+        ? t("HSTS is sent only when the NAS is opened by the domain name above. Note: it then applies to every port of that name - Web Station sites on it must also use HTTPS.")
+        : t("HSTS needs a trusted certificate for your domain (Let's Encrypt or your own, Control Panel > Security).")),
+      h("div", { class: "toolbar" }, h("button", { class: "btn primary", onclick: async () => {
+        await save();
+        if (redirect.checked !== s.https_redirect) {
+          await act(() => API.put("/api/security", { https_redirect: redirect.checked }));
+          s.https_redirect = redirect.checked;
+          if (redirect.checked && location.protocol === "http:") switchToHttps(false);
+        }
+      } }, "Save"))));
 }
 

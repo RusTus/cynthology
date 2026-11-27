@@ -27,6 +27,7 @@ async function boot() {
   }
   translatePage();
   document.getElementById("login-host").textContent = location.hostname;
+  applyPortal();
   let ticket = null;
   document.getElementById("login-form").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -59,6 +60,24 @@ async function boot() {
       startDesktop(r);
     } catch (ex) { err.textContent = ex.message; }
   });
+}
+
+// Control Panel > Login Portal: title, welcome message and background of the sign-in page.
+async function applyPortal() {
+  let p;
+  try { p = await (await fetch("/api/portal")).json(); } catch { return; }
+  const card = document.querySelector("#login .login-card");
+  if (p.title) card.querySelector(".logo").lastChild.textContent = " " + p.title;
+  if (!p.show_host) document.getElementById("login-host").textContent = "";
+  if (p.message) {
+    const m = document.createElement("div");
+    m.className = "login-msg";
+    m.textContent = p.message;                       // (text only - never HTML)
+    card.querySelector(".logo").after(m);
+  }
+  const login = document.getElementById("login");
+  if (p.background === "custom" && p.has_background) login.style.background = 'center / cover no-repeat url("/api/portal/background")';
+  else if (WALLPAPERS[p.background]) login.style.background = WALLPAPERS[p.background];
 }
 
 function launcher(id) {

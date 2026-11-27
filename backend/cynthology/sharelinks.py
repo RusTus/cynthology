@@ -177,8 +177,13 @@ def addresses(_=Depends(current_user)):
             out += [x.removeprefix("DNS:") for x in ci.get("san", []) if x.startswith("DNS:") and "*" not in x]
     except Exception:
         pass
-    from . import settings
-    return {"names": sorted(set(out)), "https_port": int(settings.get_all()["https_port"])}
+    from . import portal, settings
+    p = portal.get()
+    https_port = int(settings.get_all()["https_port"])
+    return {"names": sorted(set(out)), "https_port": https_port,
+            # (Control Panel > Login Portal: the NAS's own domain comes first in the list)
+            "preferred": f"https://{p['domain']}" + ("" if (p["external_port"] or https_port) == 443 else f":{p['external_port'] or https_port}")
+            if p["domain"] else ""}
 
 
 @router.post("")

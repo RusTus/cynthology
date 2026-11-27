@@ -310,7 +310,7 @@ WM.register("files", {
     async function linkBase() {
       const a = await API.get("/api/sharelinks/addresses").catch(() => ({ names: [] }));
       const port = a.https_port === 443 ? "" : `:${a.https_port}`;
-      return [location.origin, ...a.names.map((n) => `https://${n}${port}`)].filter((v, i, all) => all.indexOf(v) === i);
+      return [a.preferred, location.origin, ...a.names.map((n) => `https://${n}${port}`)].filter((v, i, all) => v && all.indexOf(v) === i);
     }
     function linkResult(link, bases) {
       const sel = h("select", {}, bases.map((b) => h("option", { value: b }, b.replace(/^https?:\/\//, ""))));
