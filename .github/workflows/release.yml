@@ -10,12 +10,23 @@ on:
       version:
         description: "Version (e.g. 0.1.1-alpha) - creates tag v<version>"
         required: true
+      skip_e2e:
+        description: "Skip the end-to-end tests (emergency fixes only)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
 
 jobs:
+  # a fresh VM installs this commit and is driven through the UI/API first (tests/e2e)
+  e2e:
+    if: ${{ !inputs.skip_e2e }}
+    uses: ./.github/workflows/e2e.yml
+
   build:
+    needs: e2e
+    if: ${{ !cancelled() && (needs.e2e.result == 'success' || needs.e2e.result == 'skipped') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
