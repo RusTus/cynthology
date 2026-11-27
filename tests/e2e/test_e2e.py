@@ -145,21 +145,22 @@ def test_every_page_opens_without_errors(api):
         page.fill("#login-user", USER)
         page.fill("#login-pass", PASS)
         page.click("button[type=submit]")
-        page.wait_for_function("window.WM && document.querySelector('.taskbar')", timeout=60000)
+        page.wait_for_function("typeof WM === 'object' && !document.querySelector('#desktop').classList.contains('hidden')",
+                               timeout=60000)
         page.evaluate("document.querySelectorAll('.wiz').forEach(w => w.remove())")
-        apps = page.evaluate("Object.keys(WM.apps || {})") or ["files", "storage", "control", "appcenter", "containers",
-                                                                "backup", "monitor", "snapshots", "logs", "san"]
+        close_all = "document.querySelectorAll('.wiz').forEach((w) => w.remove()); Object.keys(WM.wins).forEach((k) => WM.close(k))"
+        apps = page.evaluate("Object.keys(WM.apps)")
+        assert len(apps) > 5, apps
         for app in apps:
-            page.evaluate(f"document.querySelectorAll('.win').forEach(w => w.remove()); WM.open({json.dumps(app)})")
+            page.evaluate(f"{close_all}; WM.open({json.dumps(app)})")
             page.wait_for_timeout(2500)
             page.evaluate("document.querySelectorAll('.wiz').forEach(w => w.remove())")
             page.screenshot(path=f"{ART}/app-{app}.png")
-        page.evaluate("document.querySelectorAll('.win').forEach(w => w.remove()); WM.open('control')")
-        page.wait_for_timeout(1500)
         keys = page.evaluate("Object.keys(CP_SECTIONS)")
         for k in keys:
-            page.evaluate(f"document.querySelectorAll('.win').forEach(w => w.remove()); WM.open('control')")
+            page.evaluate(f"{close_all}; WM.open('control')")
             page.wait_for_timeout(800)
+            page.evaluate("document.querySelectorAll('.wiz').forEach(w => w.remove())")
             page.click(f".cp-item[data-k={json.dumps(k)}]")
             page.wait_for_timeout(2500)
             page.screenshot(path=f"{ART}/cp-{k}.png")
