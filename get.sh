@@ -13,7 +13,7 @@ set -euo pipefail
 REPO="RusTus/cynthology"
 # Release signing key (minisign public key). When set, only releases signed with the matching
 # secret key are installed - a tampered or unsigned download is refused. See SIGNING.md.
-CYN_RELEASE_KEY=""
+CYN_RELEASE_KEY="RWQHL7Rt9zntymIp3Nx7OIwucg8wXizgbOGZRXDiBW/c0pdLUgWRcCZA"
 die() { echo "Error: $*" >&2; exit 1; }
 
 [ "$(id -u)" = 0 ] || die "run as root:  wget -qO- https://raw.githubusercontent.com/$REPO/main/get.sh | sudo bash"
