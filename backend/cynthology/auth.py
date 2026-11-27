@@ -156,7 +156,9 @@ def _new_session(user: str, ip: str = "", agent: str = "") -> dict:
     s = {"user": user, "admin": _is_admin(user), "exp": now + SESSION_TTL,
          "created": int(now), "seen": int(now), "ip": ip[:64], "agent": agent[:300]}
     if twofa.enforced_for(s) and not twofa.enabled(user):
-        s["enroll_required"] = True
+        from . import passkeys                    # (a passkey with fingerprint/face/PIN counts too)
+        if not passkeys.has(user):
+            s["enroll_required"] = True
     SESSIONS[token] = s
     _save_sessions()
     return {"token": token, "user": user, "admin": s["admin"], "enroll_required": bool(s.get("enroll_required"))}

@@ -1121,5 +1121,19 @@
 "Only if your router forwards a different port (e.g. 443 → 5001).": "Solo si su router reenvía otro puerto (p. ej. 443 → 5001).",
 "HSTS: browsers that visited your domain will only ever use HTTPS for it": "HSTS: los navegadores que hayan visitado su dominio solo usarán HTTPS con él",
 "HSTS is sent only when the NAS is opened by the domain name above. Note: it then applies to every port of that name - Web Station sites on it must also use HTTPS.": "HSTS solo se envía cuando el NAS se abre con el dominio de arriba. Nota: entonces se aplica a todos los puertos de ese nombre; los sitios de Web Station también deben usar HTTPS.",
-"HSTS needs a trusted certificate for your domain (Let's Encrypt or your own, Control Panel > Security).": "HSTS necesita un certificado de confianza para su dominio (Let's Encrypt o propio, Panel de control > Seguridad)."
+"HSTS needs a trusted certificate for your domain (Let's Encrypt or your own, Control Panel > Security).": "HSTS necesita un certificado de confianza para su dominio (Let's Encrypt o propio, Panel de control > Seguridad).",
+"Sign in with a passkey": "Iniciar sesión con una llave de acceso",
+"Use a passkey instead": "Usar una llave de acceso en su lugar",
+"Passkeys and security keys": "Llaves de acceso y llaves de seguridad",
+"Sign in with Face ID, Touch ID, Windows Hello, your phone or a security key (YubiKey…) instead of a password. ": "Inicie sesión con Face ID, Touch ID, Windows Hello, su teléfono o una llave de seguridad (YubiKey…) en lugar de una contraseña. ",
+"It also replaces the 6-digit code.": "También sustituye al código de 6 dígitos.",
+"added": "añadida",
+"last used": "último uso",
+"Remove this passkey? You can't sign in with it afterwards.": "¿Quitar esta llave de acceso? Después no podrá iniciar sesión con ella.",
+"A name for this passkey (e.g. iPhone, YubiKey):": "Un nombre para esta llave de acceso (p. ej. iPhone, YubiKey):",
+"Passkey added": "Llave de acceso añadida",
+"Passkey removed": "Llave de acceso quitada",
+"Add a passkey": "Añadir una llave de acceso",
+"Passkeys work when the NAS is opened by its name over HTTPS with a trusted certificate (e.g. your domain from Control Panel > Login Portal) - not by an IP address. You're on": "Las llaves de acceso funcionan cuando el NAS se abre por su nombre con HTTPS y un certificado de confianza (p. ej. su dominio de Panel de control > Portal de inicio de sesión), no por una dirección IP. Está en",
+"Your passkeys belong to other addresses: they work when you open the NAS there.": "Sus llaves de acceso pertenecen a otras direcciones: funcionan cuando abre el NAS allí."
 }

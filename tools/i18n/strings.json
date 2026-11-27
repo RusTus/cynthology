@@ -1121,5 +1121,19 @@
 "Only if your router forwards a different port (e.g. 443 → 5001).",
 "HSTS: browsers that visited your domain will only ever use HTTPS for it",
 "HSTS is sent only when the NAS is opened by the domain name above. Note: it then applies to every port of that name - Web Station sites on it must also use HTTPS.",
-"HSTS needs a trusted certificate for your domain (Let's Encrypt or your own, Control Panel > Security)."
+"HSTS needs a trusted certificate for your domain (Let's Encrypt or your own, Control Panel > Security).",
+"Sign in with a passkey",
+"Use a passkey instead",
+"Passkeys and security keys",
+"Sign in with Face ID, Touch ID, Windows Hello, your phone or a security key (YubiKey…) instead of a password. ",
+"It also replaces the 6-digit code.",
+"added",
+"last used",
+"Remove this passkey? You can't sign in with it afterwards.",
+"A name for this passkey (e.g. iPhone, YubiKey):",
+"Passkey added",
+"Passkey removed",
+"Add a passkey",
+"Passkeys work when the NAS is opened by its name over HTTPS with a trusted certificate (e.g. your domain from Control Panel > Login Portal) - not by an IP address. You're on",
+"Your passkeys belong to other addresses: they work when you open the NAS there."
 ]

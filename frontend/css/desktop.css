@@ -357,3 +357,6 @@ audio.viewer-media { width: min(600px, 90vw); }
 .login-msg { white-space: pre-line; color: var(--muted); font-size: 14px; line-height: 1.45; margin-top: -4px; }
 
 a.btn { text-decoration: none; display: inline-flex; align-items: center; }
+.login-card .login-alt { background: transparent; color: var(--accent); border: 1px solid var(--line); padding: 9px; border-radius: 6px; }
+.login-card .login-alt:hover { border-color: var(--accent); }
+

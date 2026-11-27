@@ -22,7 +22,7 @@ apt-get install -y -q --no-install-recommends \
   python3 python3-fastapi python3-uvicorn python3-psutil python3-qrcode libpam0g ca-certificates curl sudo rsync util-linux acl openssl restic openssh-client openssh-server exfatprogs ntfs-3g dosfstools psmisc ifenslave nut-client nut-server \
   mdadm lvm2 thin-provisioning-tools btrfs-progs e2fsprogs gdisk parted smartmontools \
   samba smbclient nfs-kernel-server avahi-daemon \
-  docker.io initramfs-tools targetcli-fb python3-rtslib-fb nftables certbot gocryptfs fuse3 winbind libnss-winbind libpam-winbind krb5-user wireguard-tools restic-rest-server python3-bcrypt hd-idle hdparm ethtool python3-pil ffmpeg poppler-utils libjs-pdf rclone
+  docker.io initramfs-tools targetcli-fb python3-rtslib-fb nftables certbot gocryptfs fuse3 winbind libnss-winbind libpam-winbind krb5-user wireguard-tools restic-rest-server python3-bcrypt hd-idle hdparm ethtool python3-pil ffmpeg poppler-utils libjs-pdf rclone python3-fido2
 # optional packages whose names differ between Debian releases
 for alts in "wsdd2 wsdd" "docker-cli" "docker-compose docker-compose-plugin"; do
   for p in $alts; do

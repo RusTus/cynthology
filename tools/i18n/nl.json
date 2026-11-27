@@ -1121,5 +1121,19 @@
 "Only if your router forwards a different port (e.g. 443 → 5001).": "Alleen als uw router een andere poort doorstuurt (bijv. 443 → 5001).",
 "HSTS: browsers that visited your domain will only ever use HTTPS for it": "HSTS: browsers die uw domein bezochten, gebruiken er voortaan alleen HTTPS voor",
 "HSTS is sent only when the NAS is opened by the domain name above. Note: it then applies to every port of that name - Web Station sites on it must also use HTTPS.": "HSTS wordt alleen verstuurd als de NAS via de domeinnaam hierboven wordt geopend. Let op: het geldt dan voor elke poort van die naam - Web Station-sites erop moeten ook HTTPS gebruiken.",
-"HSTS needs a trusted certificate for your domain (Let's Encrypt or your own, Control Panel > Security).": "HSTS heeft een vertrouwd certificaat voor uw domein nodig (Let's Encrypt of eigen, Configuratiescherm > Beveiliging)."
+"HSTS needs a trusted certificate for your domain (Let's Encrypt or your own, Control Panel > Security).": "HSTS heeft een vertrouwd certificaat voor uw domein nodig (Let's Encrypt of eigen, Configuratiescherm > Beveiliging).",
+"Sign in with a passkey": "Aanmelden met een passkey",
+"Use a passkey instead": "In plaats daarvan een passkey gebruiken",
+"Passkeys and security keys": "Passkeys en beveiligingssleutels",
+"Sign in with Face ID, Touch ID, Windows Hello, your phone or a security key (YubiKey…) instead of a password. ": "Meld u aan met Face ID, Touch ID, Windows Hello, uw telefoon of een beveiligingssleutel (YubiKey…) in plaats van een wachtwoord. ",
+"It also replaces the 6-digit code.": "Hij vervangt ook de 6-cijferige code.",
+"added": "toegevoegd",
+"last used": "laatst gebruikt",
+"Remove this passkey? You can't sign in with it afterwards.": "Deze passkey verwijderen? U kunt er daarna niet meer mee aanmelden.",
+"A name for this passkey (e.g. iPhone, YubiKey):": "Een naam voor deze passkey (bijv. iPhone, YubiKey):",
+"Passkey added": "Passkey toegevoegd",
+"Passkey removed": "Passkey verwijderd",
+"Add a passkey": "Passkey toevoegen",
+"Passkeys work when the NAS is opened by its name over HTTPS with a trusted certificate (e.g. your domain from Control Panel > Login Portal) - not by an IP address. You're on": "Passkeys werken als de NAS via zijn naam over HTTPS met een vertrouwd certificaat wordt geopend (bijv. uw domein uit Configuratiescherm > Aanmeldportaal) - niet via een IP-adres. U zit op",
+"Your passkeys belong to other addresses: they work when you open the NAS there.": "Uw passkeys horen bij andere adressen: ze werken als u de NAS daar opent."
 }

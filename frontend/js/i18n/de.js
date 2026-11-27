@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 1070 entries.
+// Generated from the English UI strings (see i18n.js). 1084 entries.
 i18nAdd("de", {
 "Error: ": "Fehler: ",
 "Settings and data are kept.": "Einstellungen und Daten bleiben erhalten.",
@@ -1069,5 +1069,19 @@ i18nAdd("de", {
 "Only if your router forwards a different port (e.g. 443 → 5001).": "Nur wenn Ihr Router einen anderen Port weiterleitet (z. B. 443 → 5001).",
 "HSTS: browsers that visited your domain will only ever use HTTPS for it": "HSTS: Browser, die Ihre Domäne besucht haben, verwenden dafür nur noch HTTPS",
 "HSTS is sent only when the NAS is opened by the domain name above. Note: it then applies to every port of that name - Web Station sites on it must also use HTTPS.": "HSTS wird nur gesendet, wenn das NAS über den obigen Domänennamen geöffnet wird. Hinweis: Es gilt dann für jeden Port dieses Namens - Web-Station-Seiten darauf müssen ebenfalls HTTPS verwenden.",
-"HSTS needs a trusted certificate for your domain (Let's Encrypt or your own, Control Panel > Security).": "HSTS braucht ein vertrauenswürdiges Zertifikat für Ihre Domäne (Let's Encrypt oder ein eigenes, Systemsteuerung > Sicherheit)."
+"HSTS needs a trusted certificate for your domain (Let's Encrypt or your own, Control Panel > Security).": "HSTS braucht ein vertrauenswürdiges Zertifikat für Ihre Domäne (Let's Encrypt oder ein eigenes, Systemsteuerung > Sicherheit).",
+"Sign in with a passkey": "Mit einem Passkey anmelden",
+"Use a passkey instead": "Stattdessen einen Passkey verwenden",
+"Passkeys and security keys": "Passkeys und Sicherheitsschlüssel",
+"Sign in with Face ID, Touch ID, Windows Hello, your phone or a security key (YubiKey…) instead of a password. ": "Melden Sie sich mit Face ID, Touch ID, Windows Hello, Ihrem Telefon oder einem Sicherheitsschlüssel (YubiKey…) statt mit einem Passwort an. ",
+"It also replaces the 6-digit code.": "Er ersetzt auch den 6-stelligen Code.",
+"added": "hinzugefügt",
+"last used": "zuletzt verwendet",
+"Remove this passkey? You can't sign in with it afterwards.": "Diesen Passkey entfernen? Danach können Sie sich damit nicht mehr anmelden.",
+"A name for this passkey (e.g. iPhone, YubiKey):": "Ein Name für diesen Passkey (z. B. iPhone, YubiKey):",
+"Passkey added": "Passkey hinzugefügt",
+"Passkey removed": "Passkey entfernt",
+"Add a passkey": "Passkey hinzufügen",
+"Passkeys work when the NAS is opened by its name over HTTPS with a trusted certificate (e.g. your domain from Control Panel > Login Portal) - not by an IP address. You're on": "Passkeys funktionieren, wenn das NAS über seinen Namen per HTTPS mit vertrauenswürdigem Zertifikat geöffnet wird (z. B. Ihre Domäne aus Systemsteuerung > Anmeldeportal) - nicht über eine IP-Adresse. Sie sind auf",
+"Your passkeys belong to other addresses: they work when you open the NAS there.": "Ihre Passkeys gehören zu anderen Adressen: Sie funktionieren, wenn Sie das NAS dort öffnen."
 });

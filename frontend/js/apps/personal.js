@@ -120,6 +120,33 @@ async function personalSecurity(p) {
   };
   void s; render2fa();
 
+  // passkeys / security keys
+  const pkBox = h("div");
+  const renderPasskeys = async () => {
+    const pk = await API.get("/api/passkeys");
+    const here = pk.keys.filter((k) => k.rp_id === pk.host);
+    pkBox.replaceChildren(
+      h("p", { class: "muted" }, "Sign in with Face ID, Touch ID, Windows Hello, your phone or a security key (YubiKey…) instead of a password. ",
+        "It also replaces the 6-digit code."),
+      pk.keys.length ? h("table", { class: "kv" }, pk.keys.map((k) => h("tr", {},
+        h("td", {}, h("b", {}, k.name), h("div", { class: "muted", style: "font-size:12px", translate: "no" },
+          `${k.rp_id} · ${t("added")} ${fmtWhen(k.created)}` + (k.last_used ? ` · ${t("last used")} ${fmtWhen(k.last_used)}` : ""))),
+        h("td", { style: "text-align:right;white-space:nowrap" }, h("button", { class: "btn danger", onclick: async () => {
+          if (!confirm(t("Remove this passkey? You can't sign in with it afterwards."))) return;
+          await act(() => API.del(`/api/passkeys/${k.id}`), "Removed"); renderPasskeys();
+        } }, "Remove"))))) : null,
+      pk.usable_here && window.PublicKeyCredential ? h("div", { class: "toolbar", style: "margin-top:8px" }, h("button", { class: "btn primary", onclick: async () => {
+        const name = prompt(t("A name for this passkey (e.g. iPhone, YubiKey):"), "");
+        if (name === null) return;
+        try { await passkeyAdd(name); toast(t("Passkey added")); renderPasskeys(); }
+        catch (e) { if (e.name !== "NotAllowedError") toast(e.message); }
+      } }, "Add a passkey"))
+        : h("div", { class: "note warn" }, t("Passkeys work when the NAS is opened by its name over HTTPS with a trusted certificate (e.g. your domain from Control Panel > Login Portal) - not by an IP address. You're on"), ` ${pk.host}.`),
+      here.length || !pk.keys.length ? null : h("p", { class: "muted", style: "font-size:12px" }, t("Your passkeys belong to other addresses: they work when you open the NAS there.")));
+  };
+  p.append(h("h3", { class: "pc-group", style: "margin-top:22px" }, "Passkeys and security keys"), pkBox);
+  renderPasskeys();
+
   const sess = h("table", { class: "kv" });
   const renderSessions = async () => {
     const x = await API.get("/api/account");
@@ -139,11 +166,11 @@ async function personalSecurity(p) {
   renderSessions();
 
   const label = { login: "Signed in", failed: "Failed sign-in", "2fa-failed": "Wrong verification code", locked: "Blocked: too many attempts",
-                  blocked: "Blocked", logout: "Signed out", password: "Password changed" };
+                  blocked: "Blocked", logout: "Signed out", password: "Password changed", "passkey-added": "Passkey added", "passkey-removed": "Passkey removed" };
   p.append(h("h3", { class: "pc-group", style: "margin-top:22px" }, "Recent sign-ins"),
     a.history.length ? h("table", { class: "kv" }, a.history.map((e) => h("tr", {},
       h("td", { style: "width:190px" }, fmtWhen(e.time)),
-      h("td", {}, h("span", { class: "pill " + (e.event === "login" || e.event === "password" ? "ok" : e.event === "logout" ? "" : "warn") }, t(label[e.event] || e.event)),
+      h("td", {}, h("span", { class: "pill " + (e.event === "login" || e.event === "password" || e.event === "passkey-added" ? "ok" : e.event === "logout" ? "" : "warn") }, t(label[e.event] || e.event)),
         h("span", { class: "muted", translate: "no" }, `  ${e.ip}`))))) : h("p", { class: "muted" }, "Nothing yet."));
 }
 

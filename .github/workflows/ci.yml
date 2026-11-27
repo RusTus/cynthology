@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - run: pip install pytest fastapi psutil httpx qrcode
+      - run: pip install pytest fastapi psutil httpx qrcode "fido2==1.2.*"
       - run: cd backend && python -m pytest -q tests
       - run: for f in frontend/js/*.js frontend/js/apps/*.js; do node --check "$f"; done
       - run: bash -n install.sh && bash -n get.sh && bash -n image/build-iso.sh
