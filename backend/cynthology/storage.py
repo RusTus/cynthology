@@ -3,6 +3,7 @@
 Every pool uses the same stack: GPT partitions -> mdadm array(s) -> LVM -> Btrfs (or ext4),
 mounted at /volumeN. SHR uses several md arrays (one per size tier) - see raidplan.py. Shared folders are Btrfs subvolumes, which gives cheap snapshots.
 """
+import glob
 import json
 import os
 import re
@@ -257,13 +258,56 @@ class PoolCreate(BaseModel):
     fs: str = "btrfs"          # btrfs (snapshots, checksums, compression) | ext4
 
 
+def mdadm_conf_lines(scan: str) -> list[str]:
+    """ARRAY lines for mdadm.conf from `mdadm --detail --scan` (pure; unit tested).
+    Only ARRAY lines (mdadm prints warnings on stdout too), and our arrays always under their
+    plain name - /dev/md/cyn1t2, never /dev/md/<hostname>:cyn1t2 - so device names stay the
+    same across reboots and after the NAS is renamed."""
+    out = []
+    for ln in scan.splitlines():
+        if not ln.startswith("ARRAY "):
+            continue
+        out.append(re.sub(r"^ARRAY /dev/md/[^ /:]+:(cyn\d+[a-z]\d*)\b", r"ARRAY /dev/md/\1", ln))
+    return out
+
+
 def _save_mdadm_conf(initramfs: bool = False) -> None:
     """Rewrite the ARRAY lines of mdadm.conf (keeping the rest) so arrays assemble at boot."""
-    cmd = ("grep -v '^ARRAY' /etc/mdadm/mdadm.conf > /etc/mdadm/mdadm.conf.new 2>/dev/null || true; "
-           "mdadm --detail --scan >> /etc/mdadm/mdadm.conf.new && mv /etc/mdadm/mdadm.conf.new /etc/mdadm/mdadm.conf")
+    if DEV:
+        return
+    scan = subprocess.run(["mdadm", "--detail", "--scan"], capture_output=True, text=True).stdout
+    lines = mdadm_conf_lines(scan)
+    try:
+        keep = [ln for ln in open("/etc/mdadm/mdadm.conf").read().splitlines()
+                if not ln.startswith("ARRAY") and not ln.startswith("mdadm:")]
+    except OSError:
+        keep = []
+    with open("/etc/mdadm/mdadm.conf.new", "w") as f:
+        f.write("\n".join(keep + lines) + "\n")
+    os.replace("/etc/mdadm/mdadm.conf.new", "/etc/mdadm/mdadm.conf")
+    # the plain name must work right now too, not only after the next boot
+    for ln in lines:
+        m = re.match(r"ARRAY (/dev/md/cyn\d+[a-z]\d*) .*UUID=(\S+)", ln)
+        if not m or os.path.exists(m.group(1)):
+            continue
+        for dev in glob.glob("/dev/md[0-9]*"):
+            if m.group(2) in subprocess.run(["mdadm", "--detail", "--export", dev], capture_output=True, text=True).stdout:
+                os.makedirs("/dev/md", exist_ok=True)
+                os.symlink(os.path.relpath(dev, "/dev/md"), m.group(1))
+                break
     if initramfs:
-        cmd += " && update-initramfs -u"
-    run(["sh", "-c", cmd])
+        run(["update-initramfs", "-u"], check=False)
+
+
+def _blank(md: str) -> None:
+    """A new array built on drives that were in an earlier pool can expose that pool's old LVM
+    label at the same offset - LVM then sees a duplicate of a live volume and refuses. Blank the
+    start of the new array (and drop old signatures) before LVM looks at it."""
+    if DEV:
+        return
+    run(["wipefs", "-a", md], check=False)
+    run(["dd", "if=/dev/zero", f"of={md}", "bs=1M", "count=16", "oflag=direct", "status=none"], check=False)
+    run(["pvscan", "--cache"], check=False)
 
 
 def _part(dev: str, n: int) -> str:
@@ -327,8 +371,10 @@ def create_pool(body: PoolCreate, _=Depends(require_admin)):
             job["state"] = "done"
         except HTTPException as e:
             job.update(state="failed", error=e.detail)
+            _undo_failed_pool(job.get("made"))
         except Exception as e:
             job.update(state="failed", error=str(e))
+            _undo_failed_pool(job.get("made"))
         job["finished"] = time.time()
 
     threading.Thread(target=work, daemon=True).start()
@@ -341,6 +387,23 @@ def pool_job(jid: str, _=Depends(current_user)):
     if not j:
         raise HTTPException(404, "no such job")
     return j
+
+
+def _undo_failed_pool(made: dict | None) -> None:
+    """A pool that failed half-way: take down what was built so the drives are free again."""
+    if not made or DEV:
+        return
+    subprocess.run(["umount", made["mount"]], capture_output=True)
+    run(["vgremove", "-ff", "-y", made["vg"]], check=False)
+    for md in made["mds"]:
+        run(["pvremove", "-ff", "-y", md], check=False)
+        run(["mdadm", "--stop", md], check=False)
+    for d in made["disks"]:
+        try:
+            _scrub_disk(f"/dev/{d}")
+        except Exception as e:
+            print(f"cleanup of {d} failed:", e)
+    _save_mdadm_conf()
 
 
 def _build_pool(body: "PoolCreate", p, job: dict) -> dict:
@@ -372,16 +435,19 @@ def _build_pool(body: "PoolCreate", p, job: dict) -> dict:
     for i, t in enumerate(p.tiers, start=1):
         md = f"/dev/md/cyn{n}t{i}"
         parts = [_part(f"/dev/{m}", i) for m in t.members]
-        run(["mdadm", "--create", md, "--run", "--force", "--metadata=1.2", f"--level={t.level}",
+        run(["mdadm", "--create", md, "--run", "--force", "--metadata=1.2", "--homehost=<none>", f"--level={t.level}",
              f"--raid-devices={len(parts)}", *(["--bitmap=internal"] if t.level in ("1", "5", "6", "10") else []),
              f"--name=cyn{n}t{i}", *parts])
         arrays.append({"md": md, "level": t.level, "members": t.members, "part": i})
+        job["made"] = {"vg": vg, "mds": [a["md"] for a in arrays], "disks": list(body.disks), "mount": mount}
     step(2)
     _save_mdadm_conf(initramfs=True)
 
     # 3. LVM joins the tier arrays into one volume (lets SHR volumes grow later)
     step(3)
     mds = [a["md"] for a in arrays]
+    for md in mds:
+        _blank(md)
     run(["pvcreate", "-ff", "-y", *mds])
     run(["vgcreate", vg, *mds])
     run(["lvcreate", "-y", "-l", "100%FREE", "-n", "data", vg])
@@ -1033,9 +1099,10 @@ def create_cache(pool_id: int, body: CacheCreate, _=Depends(require_admin)):
             run(["partprobe", dev], check=False)
             parts.append(_part(dev, 1))
         run(["udevadm", "settle"], check=False)
-        run(["mdadm", "--create", md, "--run", "--force", "--metadata=1.2", f"--level={level}",
+        run(["mdadm", "--create", md, "--run", "--force", "--metadata=1.2", "--homehost=<none>", f"--level={level}",
              f"--raid-devices={len(parts)}", f"--name=cyn{n}c", *parts])
         try:
+            _blank(md)
             run(["pvcreate", "-ff", "-y", md])
             run(["vgextend", vg, md])
             run(["lvcreate", "-y", "-n", "cache", "-l", "100%PVS", vg, md])
@@ -1275,8 +1342,9 @@ def _expand_steps(pool: dict, steps: list[dict], by_part: dict) -> None:
             md = f"/dev/md/cyn{pool['id']}t{s['part']}"
             for p in parts:
                 run(["mdadm", "--zero-superblock", "--force", p], check=False)
-            run(["mdadm", "--create", md, "--run", "--force", "--metadata=1.2", f"--level={s['level']}",
+            run(["mdadm", "--create", md, "--run", "--force", "--metadata=1.2", "--homehost=<none>", f"--level={s['level']}",
                  f"--raid-devices={len(parts)}", "--bitmap=internal", f"--name=cyn{pool['id']}t{s['part']}", *parts])
+            _blank(md)
             run(["pvcreate", "-ff", "-y", md])
             run(["vgextend", pool["vg"], md])
             pool["arrays"].append({"md": md, "level": s["level"], "part": s["part"], "members": s["disks"]})
@@ -1341,8 +1409,8 @@ def replace_disk(pool_id: int, body: Replace, _=Depends(require_admin)):
     run(["systemd-run", f"--unit=cyn-replace-{body.old}-{int(time.time())}", "--collect",
          "--description", f"Cynthology: replace {body.old} with {body.new}", "sh", "-c",
          f"for md in {mds}; do mdadm --wait $md; done; sleep 2; {clean}; {wipe}"
-         "grep -v '^ARRAY' /etc/mdadm/mdadm.conf > /etc/mdadm/mdadm.conf.new; mdadm --detail --scan >> /etc/mdadm/mdadm.conf.new; "
-         "mv /etc/mdadm/mdadm.conf.new /etc/mdadm/mdadm.conf"])
+         "cd /opt/cynthology/backend && CYN_STATE=/var/lib/cynthology python3 -c "
+         "'from cynthology.storage import _save_mdadm_conf; _save_mdadm_conf()'"])
     return {"ok": True, "note": f"Copying {body.old} to {body.new} in the background. The pool stays protected throughout. "
                                 f"When it's done, {body.old} is free to remove."}
 

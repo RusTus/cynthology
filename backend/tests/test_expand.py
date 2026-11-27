@@ -63,3 +63,14 @@ def test_interrupted_expansion_is_finished():
     assert {"do": "activate", "disk": "b", "part": 2, "size": 2 * G} in plan["steps"]
     assert not [s for s in plan["steps"] if s["do"] == "join"]
     assert [s["disks"] for s in plan["steps"] if s["do"] == "new_tier"] == [["a", "b"]]
+
+
+def test_mdadm_conf_lines_clean_and_stable():
+    from cynthology.storage import mdadm_conf_lines
+    scan = ('mdadm: Value "cyntest:cyn1t3" cannot be set as devname. Reason: Not POSIX compatible. Value ignored.\n'
+            "ARRAY /dev/md/cyn1t1 metadata=1.2 UUID=aa\n"
+            "ARRAY /dev/md/cyntest:cyn1t3 metadata=1.2 UUID=bb\n"
+            "ARRAY /dev/md/oldname:cyn2c metadata=1.2 UUID=cc\n"
+            "ARRAY /dev/md/other:data metadata=1.2 UUID=dd\n")
+    assert mdadm_conf_lines(scan) == ["ARRAY /dev/md/cyn1t1 metadata=1.2 UUID=aa", "ARRAY /dev/md/cyn1t3 metadata=1.2 UUID=bb",
+                                      "ARRAY /dev/md/cyn2c metadata=1.2 UUID=cc", "ARRAY /dev/md/other:data metadata=1.2 UUID=dd"]

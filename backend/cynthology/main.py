@@ -67,6 +67,8 @@ def regenerate_share_configs():
     try:
         for p in storage.load_pools():   # keep each volume's own record up to date (used when importing it later)
             storage.write_pool_meta(p)
+        if storage.load_pools():         # clean ARRAY lines with stable names (older versions could write warnings)
+            storage._save_mdadm_conf()
         if shares.load():
             shares.write_configs(shares.load())
         from . import containers

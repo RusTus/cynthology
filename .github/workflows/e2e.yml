@@ -1,0 +1,68 @@
+# End-to-end: install this commit into a fresh Debian 13 VM with the real installer, then drive it
+# through its web API, SMB, WebDAV and a browser (tests/e2e). Runs on every push to main, before
+# every release (release.yml calls it), and by hand from the Actions tab.
+name: End-to-end
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["**.md", "tools/i18n/**"]
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm || echo "no KVM on this runner"
+
+      - name: Tools
+        run: |
+          sudo apt-get update -q || true
+          sudo apt-get install -y -q qemu-system-x86 qemu-utils cloud-image-utils smbclient
+          pip install pytest httpx pillow playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Cache the Debian cloud image
+        uses: actions/cache@v4
+        with:
+          path: /tmp/e2e/base.qcow2
+          key: debian-13-generic-${{ github.run_id }}
+          restore-keys: debian-13-generic-
+
+      - name: Boot a VM and install Cynthology
+        run: tests/e2e/vm.sh
+
+      - name: End-to-end tests
+        run: |
+          . /tmp/e2e/env
+          CYN_E2E_ARTIFACTS=e2e-artifacts pytest -q tests/e2e -x --junitxml=e2e-artifacts/results.xml
+
+      - name: Collect logs
+        if: always()
+        run: |
+          mkdir -p e2e-artifacts
+          cp /tmp/e2e/serial.log e2e-artifacts/ 2>/dev/null || true
+          if [ -f /tmp/e2e/env ]; then
+            . /tmp/e2e/env
+            $CYN_E2E_SSH -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null 'cat /tmp/install.log; sudo journalctl -u cynthology-ui --no-pager -n 300' > e2e-artifacts/vm-logs.txt 2>&1 || true
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-${{ github.sha }}
+          path: e2e-artifacts
+          retention-days: 14
