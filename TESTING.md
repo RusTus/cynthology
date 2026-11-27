@@ -60,6 +60,7 @@ Already installed an older version? Run the same command again - it upgrades in 
 | 44 | Phone notifications | Notifications → + Add service → ntfy (keep the suggested topic) → subscribe to that topic in the ntfy app → Save & send test | Test arrives on the phone; pulling a drive later sends a critical alert |
 | 45 | Resource Monitor history | Leave the NAS on for a few hours → Resource Monitor → History → 24 hours; copy a big file meanwhile | Network/disk show the copy at the right time; hovering shows the values |
 | 46 | Sharing links | File Station → right-click a folder → Share link… → password, 7 days → Create → open the link on your phone (or a private window) | Password asked; files listed; Download all (zip) works; deleting the link makes it stop working |
+| 47 | Configuration backup | Update & Restore → Download configuration backup (password) → reinstall Cynthology → import the pool → Open the file → Restore | Users sign in with their old passwords, shared folders and permissions are back |
 | 19 | Synology alternatives | Package Center → Synology alternatives → MariaDB → Install, then phpMyAdmin → Install → Open (server: NAS IP, user root, password from Info) | phpMyAdmin logs in |
 
 Logs if something breaks: `sudo journalctl -u cynthology-ui -n 100`

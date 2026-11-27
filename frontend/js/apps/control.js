@@ -15,7 +15,7 @@ const CP_SECTIONS = {
   ups: { label: "UPS", group: "System", icon: "cp_ups", desc: "Power failure protection", render: (p) => cpUps(p) },
   usb: { label: "External Devices", group: "System", icon: "cp_usb", desc: "USB drives", render: (p) => cpUsb(p) },
   tasks: { label: "Task Scheduler", group: "System", icon: "cp_tasks", desc: "Scripts, drive tests and clean-ups on a schedule", render: (p) => cpTasks(p) },
-  update: { label: "Update", group: "System", icon: "cp_update", desc: "Cynthology and Debian updates", render: (p) => cpUpdate(p) },
+  update: { label: "Update & Restore", group: "System", icon: "cp_update", desc: "Cynthology and Debian updates, configuration backup", render: (p) => cpUpdate(p) },
 };
 
 WM.register("control", {
@@ -637,6 +637,62 @@ async function cpNetwork(p) {
   draw();
 }
 
+// Configuration backup / restore (backend configbackup.py)
+function configBackupCard() {
+  const pw = () => h("input", { type: "password", autocomplete: "new-password" });
+  const out = h("div", {});
+  const exportPw = pw(), exportPw2 = pw();
+  const file = h("input", { type: "file", accept: ".cyncfg" }), restorePw = pw();
+  const doExport = async () => {
+    if (exportPw.value.length < 8) return toast(t("Choose a password of at least 8 characters"));
+    if (exportPw.value !== exportPw2.value) return toast(t("The passwords don't match"));
+    const res = await fetch("/api/config/backup", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${API.token}` },
+      body: JSON.stringify({ password: exportPw.value }) });
+    if (!res.ok) return toast("Error: " + ((await res.json().catch(() => ({}))).detail || res.statusText));
+    const blob = await res.blob();
+    const name = (res.headers.get("Content-Disposition") || "").match(/filename="([^"]+)"/)?.[1] || "cynthology.cyncfg";
+    const a = h("a", { href: URL.createObjectURL(blob), download: name });
+    document.body.append(a); a.click(); a.remove();
+    toast("Configuration saved - keep the file and its password somewhere safe");
+  };
+  const inspect = async () => {
+    if (!file.files[0]) return toast(t("Choose the .cyncfg file first"));
+    const res = await fetch("/api/config/restore/upload", { method: "POST", headers: { Authorization: `Bearer ${API.token}` }, body: file.files[0] });
+    if (!res.ok) return toast("Error: " + ((await res.json().catch(() => ({}))).detail || res.statusText));
+    const d = await act(() => API.post("/api/config/restore/inspect", { password: restorePw.value }));
+    const pick = new Set(Object.keys(d.categories));
+    const stateTxt = { new: "will be created", exists: "already here - left as it is", ready: "will be restored", missing: "folder not found - import its pool first" };
+    const list = (items, label) => items.length ? h("details", {}, h("summary", {}, `${t(label)}: ${items.length}`),
+      h("table", {}, items.map((x) => h("tr", {}, h("td", { translate: "no" }, x.name), h("td", { class: "muted" }, t(stateTxt[x.state] || x.state)))))) : null;
+    out.replaceChildren(h("div", { class: "card", style: "max-width:720px;margin-top:10px" },
+      h("div", {}, h("b", {}, t("Backup of") + " " + d.manifest.hostname), " ",
+        h("span", { class: "muted" }, `${new Date(d.manifest.created * 1000).toLocaleString()} · Cynthology ${d.manifest.version}`)),
+      list(d.users, "Users"), list(d.shares, "Shared folders"),
+      d.settings.length ? h("div", { class: "muted", style: "font-size:12px" }, t("Settings") + ": " + d.settings.join(", ")) : null,
+      h("div", { style: "margin-top:8px" }, Object.entries(d.categories).map(([k, label]) => h("label", { class: "check" },
+        h("input", { type: "checkbox", checked: true, onchange: (e) => (e.target.checked ? pick.add(k) : pick.delete(k)) }), label))),
+      h("div", { class: "muted", style: "font-size:12px" }, "Network settings and iSCSI are not part of the backup. Restored firewall rules start switched off."),
+      h("div", { class: "toolbar" }, h("button", { class: "btn primary", onclick: async () => {
+        if (!pick.size || !confirm(t("Restore the selected parts now?"))) return;
+        const r = await act(() => API.post("/api/config/restore/apply", { password: restorePw.value, categories: [...pick] }), "Configuration restored");
+        out.replaceChildren(h("div", { class: "card", style: "max-width:720px;margin-top:10px" }, h("b", {}, "Restored"),
+          h("ul", {}, r.report.map((x) => h("li", { translate: "no" }, x)))));
+      } }, "Restore"))));
+  };
+  return h("div", {},
+    h("h3", { class: "section-title", style: "max-width:720px" }, "Configuration backup"),
+    h("div", { class: "card", style: "max-width:720px" },
+      h("div", { class: "muted", style: "font-size:12px" }, "One file with your users and passwords, shared folders and permissions, and the settings of all services - to set up a reinstalled or new NAS in minutes. It is encrypted with the password you choose here."),
+      h("div", { style: "display:flex;gap:10px;flex-wrap:wrap" }, h("label", { style: "display:grid;gap:4px" }, "Password", exportPw), h("label", { style: "display:grid;gap:4px" }, "Repeat password", exportPw2)),
+      h("div", { class: "toolbar" }, h("button", { class: "btn primary", onclick: () => doExport() }, "Download configuration backup"))),
+    h("div", { class: "card", style: "max-width:720px;margin-top:10px" },
+      h("b", {}, "Restore a configuration"),
+      h("div", { class: "muted", style: "font-size:12px" }, "After a reinstall: first import your storage pools (Storage Manager), then restore - shared folders come back where their folders exist."),
+      h("div", { style: "display:flex;gap:10px;flex-wrap:wrap;align-items:end" }, h("label", { style: "display:grid;gap:4px" }, "Configuration file", file), h("label", { style: "display:grid;gap:4px" }, "Its password", restorePw)),
+      h("div", { class: "toolbar" }, h("button", { class: "btn", onclick: () => inspect() }, "Open"))),
+    out);
+}
+
 async function cpUpdate(p) {
   const s = await API.get("/api/update?refresh=1");
   const logBox = h("pre", { class: "mono update-log hidden" });
@@ -681,7 +737,8 @@ async function cpUpdate(p) {
       h("div", { class: "muted", style: "font-size:12px" }, "Command line on the NAS: ", h("span", { class: "mono" }, "sudo cynthology update"))),
     logBox,
     h("h3", { class: "section-title", style: "max-width:720px" }, "Debian system updates"),
-    h("div", { id: "deb-box", class: "muted" }, "Checking Debian packages…"));
+    h("div", { id: "deb-box", class: "muted" }, "Checking Debian packages…"),
+    configBackupCard());
   if (s.running) follow("/api/update/log", () => setTimeout(() => location.reload(), 2500));
   const deb = await API.get("/api/update/debian").catch((e) => ({ error: e.message }));
   const box = p.querySelector("#deb-box");

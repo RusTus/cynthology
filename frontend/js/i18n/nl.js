@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 690 entries.
+// Generated from the English UI strings (see i18n.js). 710 entries.
 i18nAdd("nl", {
 "Error: ": "Fout: ",
 "Settings and data are kept.": "Instellingen en gegevens blijven behouden.",
@@ -689,5 +689,25 @@ i18nAdd("nl", {
 "this link doesn't exist or has expired": "Deze link bestaat niet of is verlopen",
 "this link is no longer available": "Deze link is niet meer beschikbaar",
 "wrong password": "Verkeerd wachtwoord",
-"This link is protected with a password.": "Deze link is beveiligd met een wachtwoord."
+"This link is protected with a password.": "Deze link is beveiligd met een wachtwoord.",
+"Cynthology and Debian updates, configuration backup": "Cynthology- en Debian-updates, configuratieback-up",
+"Configuration backup": "Configuratieback-up",
+"One file with your users and passwords, shared folders and permissions, and the settings of all services - to set up a reinstalled or new NAS in minutes. It is encrypted with the password you choose here.": "Eén bestand met je gebruikers en wachtwoorden, gedeelde mappen en rechten, en de instellingen van alle diensten - om een opnieuw geïnstalleerde of nieuwe NAS in minuten in te richten. Het wordt versleuteld met het wachtwoord dat je hier kiest.",
+"Download configuration backup": "Configuratieback-up downloaden",
+"Restore a configuration": "Een configuratie herstellen",
+"After a reinstall: first import your storage pools (Storage Manager), then restore - shared folders come back where their folders exist.": "Na een herinstallatie: importeer eerst je opslagpools (Opslagbeheer) en herstel dan - gedeelde mappen komen terug waar hun mappen bestaan.",
+"Configuration file": "Configuratiebestand",
+"Its password": "Het wachtwoord",
+"Choose a password of at least 8 characters": "Kies een wachtwoord van minstens 8 tekens",
+"Configuration saved - keep the file and its password somewhere safe": "Configuratie opgeslagen - bewaar het bestand en het wachtwoord op een veilige plek",
+"Choose the .cyncfg file first": "Kies eerst het .cyncfg-bestand",
+"will be created": "wordt aangemaakt",
+"already here - left as it is": "al aanwezig - blijft zoals het is",
+"will be restored": "wordt hersteld",
+"folder not found - import its pool first": "map niet gevonden - importeer eerst de pool",
+"Backup of": "Back-up van",
+"Users": "Gebruikers",
+"Network settings and iSCSI are not part of the backup. Restored firewall rules start switched off.": "Netwerkinstellingen en iSCSI zitten niet in de back-up. Herstelde firewallregels staan eerst uit.",
+"Restore the selected parts now?": "De gekozen onderdelen nu herstellen?",
+"Configuration restored": "Configuratie hersteld"
 });

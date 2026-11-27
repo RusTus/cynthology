@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 702 entries.
+// Generated from the English UI strings (see i18n.js). 722 entries.
 i18nAdd("fr", {
 "Error: ": "Erreur : ",
 "Settings and data are kept.": "Les réglages et les données sont conservés.",
@@ -701,5 +701,25 @@ i18nAdd("fr", {
 "this link doesn't exist or has expired": "Ce lien n'existe pas ou a expiré",
 "this link is no longer available": "Ce lien n'est plus disponible",
 "wrong password": "Mot de passe incorrect",
-"This link is protected with a password.": "Ce lien est protégé par un mot de passe."
+"This link is protected with a password.": "Ce lien est protégé par un mot de passe.",
+"Cynthology and Debian updates, configuration backup": "Mises à jour Cynthology et Debian, sauvegarde de configuration",
+"Configuration backup": "Sauvegarde de la configuration",
+"One file with your users and passwords, shared folders and permissions, and the settings of all services - to set up a reinstalled or new NAS in minutes. It is encrypted with the password you choose here.": "Un fichier avec vos utilisateurs et mots de passe, dossiers partagés et autorisations, et les réglages de tous les services - pour configurer un NAS réinstallé ou neuf en quelques minutes. Il est chiffré avec le mot de passe choisi ici.",
+"Download configuration backup": "Télécharger la sauvegarde de configuration",
+"Restore a configuration": "Restaurer une configuration",
+"After a reinstall: first import your storage pools (Storage Manager), then restore - shared folders come back where their folders exist.": "Après une réinstallation : importez d'abord vos pools de stockage (Gestionnaire de stockage), puis restaurez - les dossiers partagés reviennent là où leurs dossiers existent.",
+"Configuration file": "Fichier de configuration",
+"Its password": "Son mot de passe",
+"Choose a password of at least 8 characters": "Choisissez un mot de passe d'au moins 8 caractères",
+"Configuration saved - keep the file and its password somewhere safe": "Configuration enregistrée - conservez le fichier et son mot de passe en lieu sûr",
+"Choose the .cyncfg file first": "Choisissez d'abord le fichier .cyncfg",
+"will be created": "sera créé",
+"already here - left as it is": "déjà présent - laissé tel quel",
+"will be restored": "sera restauré",
+"folder not found - import its pool first": "dossier introuvable - importez d'abord son pool",
+"Backup of": "Sauvegarde de",
+"Users": "Utilisateurs",
+"Network settings and iSCSI are not part of the backup. Restored firewall rules start switched off.": "Les réglages réseau et l'iSCSI ne font pas partie de la sauvegarde. Les règles de pare-feu restaurées démarrent désactivées.",
+"Restore the selected parts now?": "Restaurer maintenant les éléments choisis ?",
+"Configuration restored": "Configuration restaurée"
 });
