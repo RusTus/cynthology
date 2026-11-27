@@ -292,7 +292,17 @@ function t(s) {
   const m = s.match(/^(\s*)(.*?)(\s*)$/s);
   return m && d[m[2]] ? m[1] + d[m[2]] + m[3] : s;
 }
-const T_TAGS = new Set(["BUTTON", "H1", "H2", "H3", "H4", "TH", "LABEL", "OPTION", "SUMMARY", "LEGEND", "A"]);
+const T_TAGS = new Set(["BUTTON", "H1", "H2", "H3", "H4", "TH", "LABEL", "OPTION", "SUMMARY", "LEGEND", "A", "P", "LI"]);
+// help texts and notes are translated too (DIV/SPAN with one of these classes); <b>, <td> and
+// plain spans hold data (names, sizes...) and are left alone
+const T_CLASSES = /(^|\s)(muted|note|hero-title|err|cp-group-title|section-title|pc-group)(\s|$)/;
+function translatable(el, attrs) {
+  return T_TAGS.has(el.tagName) || ((el.tagName === "DIV" || el.tagName === "SPAN") && T_CLASSES.test(attrs?.class || ""));
+}
+
+// Longer texts live in one file per language (js/i18n/<lang>.js), loaded only for the chosen language.
+function i18nAdd(lang, table) { I18N[lang] = Object.assign(I18N[lang] || {}, table); }
+if (LANG !== "en") document.write(`<script src="/static/js/i18n/${LANG}.js"><\/script>`);
 
 // Static parts of index.html (sign-in form, menus)
 function translatePage(root = document) {

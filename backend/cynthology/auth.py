@@ -51,6 +51,9 @@ def _pam_ok(user: str, pw: str) -> bool:
 def _is_admin(user: str) -> bool:
     if DEV or user == "root":
         return True
+    if "\\" in user:                 # domain account (CORP\\alice): the configured domain admin group
+        from .directory import is_domain_admin
+        return is_domain_admin(user)
     for g in ADMIN_GROUPS:
         try:
             if user in grp.getgrnam(g).gr_mem:
@@ -136,7 +139,8 @@ def login(body: Login, request: Request):
     if not _pam_ok(body.username, body.password):
         _fail(*keys)
         raise HTTPException(401, "Invalid username or password")
-    _ensure_smb_password(body.username, body.password)
+    if "\\" not in body.username:      # domain accounts authenticate against the domain
+        _ensure_smb_password(body.username, body.password)
     try:
         from .shares import ensure_home
         ensure_home(body.username)

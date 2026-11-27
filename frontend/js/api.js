@@ -33,9 +33,9 @@ function h(tag, attrs = {}, ...kids) {
     else if (k === "class") el.className = v;
     else if (k === "html") el.innerHTML = v;
     else if (v === true) el.setAttribute(k, "");
-    else if (v !== false && v != null) el.setAttribute(k, tr && (k === "placeholder" || k === "title") ? t(v) : v);
+    else if (v !== false && v != null) el.setAttribute(k, tr && (k === "placeholder" || k === "title" || k === "label") ? t(v) : v);
   }
-  const trKids = tr && T_TAGS.has(el.tagName);
+  const trKids = tr && translatable(el, attrs);
   for (const kid of kids.flat()) if (kid != null && kid !== false) el.append(kid.nodeType ? kid : trKids && typeof kid === "string" ? t(kid) : String(kid));
   return el;
 }
@@ -51,6 +51,9 @@ function fmtUptime(s) {
   return `${d}d ${hr}h ${m}m`;
 }
 function toast(msg) {
+  if (typeof window.t === "function" && typeof msg === "string") {
+    msg = msg.startsWith("Error: ") ? window.t("Error: ") + msg.slice(7) : window.t(msg);
+  }
   const t = h("div", { class: "toast" }, msg);
   document.body.append(t);
   setTimeout(() => t.remove(), 3500);

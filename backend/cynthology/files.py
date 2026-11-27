@@ -37,8 +37,8 @@ def _in_group(user: str, group: str) -> bool:
 
 
 def _matches(user: str, entries: list[str]) -> bool:
-    for e in entries:
-        if e == user or (e.startswith("@") and (DEV or _in_group(user, e[1:]))):
+    for e in entries:   # (domain names are case-insensitive: CORP\\Alice == corp\\alice)
+        if e.lower() == user.lower() or (e.startswith("@") and (DEV or _in_group(user, e[1:]))):
             return True
     return False
 

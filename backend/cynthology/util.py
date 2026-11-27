@@ -40,3 +40,12 @@ def valid_name(name: str, kind: str = "name") -> str:
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", name or ""):
         raise HTTPException(400, f"invalid {kind}: {name!r}")
     return name
+
+
+def valid_principal(entry: str) -> str:
+    """A user or @group for share permissions: local (alice, @users) or domain (CORP\\alice,
+    @CORP\\Domain Users). No quotes, % or other characters Samba would interpret."""
+    import re
+    if not re.fullmatch(r"@?([A-Za-z0-9][A-Za-z0-9_.-]{0,63}|[A-Za-z0-9][A-Za-z0-9_.-]{0,14}\\[A-Za-z0-9][A-Za-z0-9 _.$-]{0,63})", entry or ""):
+        raise HTTPException(400, f"not a user or @group name: {entry!r}")
+    return entry

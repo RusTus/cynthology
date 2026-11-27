@@ -3,6 +3,7 @@ const CP_SECTIONS = {
   shares: { label: "Shared Folders", group: "File Sharing", icon: "cp_shares", desc: "Folders on your storage pools", render: (p) => cpShares(p) },
   services: { label: "File Services", group: "File Sharing", icon: "cp_services", desc: "SMB, NFS, Time Machine, SSH", render: (p) => cpServices(p) },
   users: { label: "Users & Groups", group: "File Sharing", icon: "cp_users", desc: "Accounts and 2-step status", render: (p) => cpUsers(p) },
+  domain: { label: "Domain/LDAP", group: "File Sharing", icon: "cp_domain", desc: "Join an Active Directory domain", render: (p) => cpDomain(p) },
   network: { label: "Network", group: "Connectivity", icon: "cp_network", desc: "IP address, DNS, link aggregation", render: (p) => cpNetwork(p) },
   security: { label: "Security", group: "Connectivity", icon: "cp_security", desc: "HTTPS certificate, Let's Encrypt, 2-step policy", render: (p) => cpSecurity(p) },
   firewall: { label: "Firewall", group: "Connectivity", icon: "cp_firewall", desc: "Allow or block services and addresses, auto-block", render: (p) => cpFirewall(p) },
@@ -83,6 +84,7 @@ async function cpShares(p) {
                   if (!confirm(`Lock ${s.name}? It disappears from the network until it is unlocked again.` + (s.auto_unlock ? "\n\nThe key stored on the NAS is removed too (no automatic unlock at boot)." : ""))) return;
                   await act(() => API.post(`/api/shares/${s.name}/lock`), "Locked"); reload();
                 } }, "Lock")) : null, " ",
+            s.homes || s.usb ? null : h("button", { class: "btn", onclick: () => permsDialog(s, reload) }, "Permissions"), " ",
             s.usb ? h("span", { class: "pill" }, "USB") : h("button", { class: "btn", onclick: async () => {
               const v = prompt(`Size limit for ${s.name} in GB (0 = no limit):`, String(s.quota_gb || 0)); if (v === null) return;
               await act(() => API.put(`/api/shares/${s.name}/quota`, { quota_gb: +v || 0 }), "Size limit saved"); reload();
@@ -855,4 +857,95 @@ function taskEditor(p, t, ctx, done) {
     try { await API.post("/api/tasks", f); close(); toast("Task saved"); done(); }
     catch (ex) { err.textContent = ex.message; e.target.disabled = false; }
   }, "primary"]]);
+}
+
+// Who may use a shared folder: read/write and read-only lists of users and @groups (local or domain).
+async function permsDialog(s, done) {
+  const [users, groups] = await Promise.all([API.get("/api/users").catch(() => []), API.get("/api/users/groups").catch(() => [])]);
+  const v = { write: s.write_users.join("\n"), read: s.read_users.join("\n") };
+  const err = h("div", { class: "err" });
+  const wTa = h("textarea", { rows: 4, class: "mono", style: "font-size:13px", oninput: (e) => (v.write = e.target.value) }, v.write);
+  const rTa = h("textarea", { rows: 3, class: "mono", style: "font-size:13px", oninput: (e) => (v.read = e.target.value) }, v.read);
+  const add = (ta, key, name) => { const lines = ta.value.split("\n").map((x) => x.trim()).filter(Boolean); if (!lines.includes(name)) lines.push(name); ta.value = v[key] = lines.join("\n"); };
+  const names = [...groups.filter((g) => ["users", "cynthology-admin"].includes(g.name) || g.members.length).map((g) => "@" + g.name), ...users.map((u) => u.name)];
+  const chips = (ta, key) => h("div", { style: "display:flex;gap:4px;flex-wrap:wrap" },
+    names.map((n) => h("button", { class: "btn", type: "button", translate: "no", style: "padding:1px 8px;font-size:12px", onclick: () => add(ta, key, n) }, "+ " + n)));
+  const close = modal(`Permissions: ${s.name}`, h("div", { class: "form", style: "padding:0" },
+    h("div", { class: "muted", style: "font-size:12px" }, "One per line. A name starting with @ is a group (e.g. @users = all local users). ",
+      "On a domain: CORP\\alice or @CORP\\Domain Users."),
+    domainSearch((n) => add(wTa, "write", n)),
+    h("label", {}, "Read/write", wTa), chips(wTa, "write"),
+    h("label", {}, "Read-only", rTa), chips(rTa, "read"),
+    err), [["Cancel", () => close()], ["Save", async (e) => {
+      err.textContent = ""; e.target.disabled = true;
+      const split = (x) => x.split("\n").map((y) => y.trim()).filter(Boolean);
+      try { await API.put(`/api/shares/${s.name}/permissions`, { write_users: split(v.write), read_users: split(v.read) }); close(); toast("Permissions saved"); done(); }
+      catch (ex) { err.textContent = ex.message; e.target.disabled = false; }
+    }, "primary"]]);
+}
+
+// Search domain users/groups (only shown when the NAS is joined to a domain); click adds to read/write.
+function domainSearch(onPick) {
+  const box = h("div");
+  API.get("/api/directory").then((d) => {
+    if (!d.joined) return;
+    const res = h("div", { style: "display:flex;gap:4px;flex-wrap:wrap" });
+    let timer;
+    box.append(h("label", {}, `Find in domain ${d.domain}`, h("input", { placeholder: "name of a user or group", oninput: (e) => {
+      clearTimeout(timer);
+      timer = setTimeout(async () => {
+        const r = await API.get(`/api/directory/lookup?q=${encodeURIComponent(e.target.value)}`).catch(() => ({ users: [], groups: [] }));
+        res.replaceChildren(...r.groups.map((g) => h("button", { class: "btn", type: "button", translate: "no", style: "padding:1px 8px;font-size:12px", onclick: () => onPick("@" + g) }, "+ @" + g)),
+          ...r.users.map((u) => h("button", { class: "btn", type: "button", translate: "no", style: "padding:1px 8px;font-size:12px", onclick: () => onPick(u) }, "+ " + u)));
+      }, 300);
+    } })), res);
+  }).catch(() => {});
+  return box;
+}
+
+// ---------- Domain/LDAP ----------
+async function cpDomain(p) {
+  const d = await API.get("/api/directory");
+  const reload = () => { p.replaceChildren(); cpDomain(p); };
+  p.append(h("h2", {}, "Domain/LDAP"));
+  if (!d.available) p.append(h("div", { class: "note warn" }, "The domain software isn't installed yet - update Cynthology (Control Panel → Update)."));
+  if (d.joined) {
+    const row = (k, v) => h("tr", {}, h("th", { style: "width:200px" }, k), h("td", {}, v));
+    p.append(h("table", { class: "kv" },
+        row("Domain", h("b", { translate: "no" }, d.domain)), row("NetBIOS name", h("span", { translate: "no" }, d.workgroup)),
+        row("Status", h("span", { class: "pill " + (d.healthy ? "ok" : "bad") }, d.healthy ? "Connected" : "Problem")),
+        d.detail && !d.healthy ? row("", h("span", { class: "err" }, d.detail)) : null,
+        d.dc ? row("Domain controller", d.dc) : null,
+        row("NAS administrators", h("span", { translate: "no" }, `${d.workgroup}\\${d.admin_group}`))),
+      h("div", { class: "note", style: "margin-top:12px" }, "Domain users sign in here as ", h("b", { translate: "no" }, `${d.workgroup}\\name`),
+        " and on Windows with their usual domain login. Give them access in Shared Folders → Permissions (e.g. ",
+        h("span", { class: "mono", translate: "no" }, `@${d.workgroup}\\Domain Users`), ")."),
+      h("div", { class: "toolbar", style: "margin-top:14px" }, h("button", { class: "btn danger", onclick: async () => {
+        const user = prompt("Leave the domain.\n\nTo also remove this NAS's computer account from the domain, enter a domain admin user name (or leave empty):", "");
+        if (user === null) return;
+        const pw = user ? prompt(`Password for ${user}:`) : "";
+        if (!confirm("Domain users lose access to this NAS. Continue?")) return;
+        await act(() => API.post("/api/directory/leave", { username: user, password: pw || "" }), "Left the domain"); reload();
+      } }, "Leave domain")));
+    return;
+  }
+  const f = { domain: "", workgroup: "", username: "Administrator", password: "", admin_group: "Domain Admins", dns: "" };
+  const err = h("div", { class: "err" });
+  const inp = (label, k, attrs = {}) => h("label", {}, label, h("input", { value: f[k], oninput: (e) => (f[k] = e.target.value.trim()), ...attrs }));
+  p.append(h("div", { class: "note" }, "Join an Active Directory domain (Windows Server or Samba AD) so domain users can use this NAS with their domain accounts. ",
+      "This NAS's clock must be within 5 minutes of the domain controller's."),
+    h("div", { class: "form", style: "max-width:600px;margin-top:12px" },
+      inp("Domain (DNS name)", "domain", { placeholder: "corp.example.com" }),
+      inp("NetBIOS domain name (optional)", "workgroup", { placeholder: "CORP" }),
+      inp("Domain controller's IP address as DNS server (optional)", "dns", { placeholder: "192.168.1.10" }),
+      inp("Domain account allowed to join computers", "username"),
+      h("label", {}, "Password", h("input", { type: "password", autocomplete: "off", oninput: (e) => (f.password = e.target.value) })),
+      inp("Domain group whose members administer this NAS", "admin_group"),
+      err,
+      h("div", {}, h("button", { class: "btn primary", onclick: async (e) => {
+        err.textContent = ""; e.target.disabled = true; e.target.textContent = "Joining…";
+        try { await API.post("/api/directory/join", f); toast(`Joined ${f.domain}`); reload(); }
+        catch (ex) { err.textContent = ex.message; e.target.disabled = false; e.target.textContent = "Join"; }
+      } }, "Join"))),
+    h("p", { class: "muted", style: "font-size:12px" }, "Plain LDAP servers (without Samba support) can't provide Windows file sharing logins, so only Active Directory is offered."));
 }

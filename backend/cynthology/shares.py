@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from .auth import current_user, require_admin
 from .storage import load_pools
-from .util import DEV, STATE_DIR, read_only, run, valid_name
+from .util import DEV, STATE_DIR, read_only, run, valid_name, valid_principal
 
 router = APIRouter(prefix="/api/shares", tags=["shares"])
 SHARES_FILE = os.path.join(STATE_DIR, "shares.json")
@@ -52,6 +52,15 @@ FRUIT = ["   fruit:metadata = stream", "   fruit:model = MacSamba", "   fruit:po
          "   fruit:delete_empty_adfiles = yes"]
 
 
+def _smb_names(entries: list[str]) -> list[str]:
+    """Samba wants names with spaces quoted: @"CORP\\Domain Users"."""
+    out = []
+    for e in entries:
+        at, name = ("@", e[1:]) if e.startswith("@") else ("", e)
+        out.append(f'{at}"{name}"' if " " in name else e)
+    return out
+
+
 def smb_block(s: dict) -> str:
     """One share's smb.conf section (pure; unit tested)."""
     # Apple's SMB extensions (fruit) must be loaded on EVERY share once any share uses them (Time Machine).
@@ -60,8 +69,8 @@ def smb_block(s: dict) -> str:
     vfs = ["catia", "fruit", streams] + (["btrfs", "shadow_copy2"] if snaps else []) + (["recycle"] if s.get("recycle_bin") else [])
     block = [f"[{s['name']}]", f"   path = {s['path']}", f"   comment = {s.get('description', '')}",
              "   browseable = yes", "   read only = yes",
-             f"   valid users = {' '.join(s['read_users'] + s['write_users'])}",
-             f"   write list = {' '.join(s['write_users'])}",
+             f"   valid users = {' '.join(_smb_names(s['read_users'] + s['write_users']))}",
+             f"   write list = {' '.join(_smb_names(s['write_users']))}",
              "   vfs objects = " + " ".join(vfs), *FRUIT, "   hide dot files = yes"]
     if snaps:
         # snapshots (see snapshots.py) appear as Windows "Previous Versions"
@@ -167,7 +176,7 @@ def list_shares(_=Depends(current_user)):
 def create_share(body: Share, _=Depends(require_admin)):
     valid_name(body.name, "share name")
     for u in body.read_users + body.write_users:
-        valid_name(u.lstrip("@"), "user/group")
+        valid_principal(u)
     if body.name.lower() in ("home", "homes"):
         raise HTTPException(400, "'home' and 'homes' are used by the user home service - choose another name")
     shares = load()
@@ -611,5 +620,55 @@ def set_user_quota(user: str, body: UserQuota, _=Depends(require_admin)):
     path = ensure_home(user)
     set_quota(path, max(0, body.quota_gb))
     h.setdefault("user_quota", {})[user] = max(0, body.quota_gb)
+    write_configs(shares)
+    return {"ok": True}
+
+
+# ---------- permissions ----------
+
+class Permissions(BaseModel):
+    read_users: list[str] = []
+    write_users: list[str] = []
+
+
+def _acl_spec(entry: str, write: bool) -> str:
+    kind, name = ("g", entry[1:]) if entry.startswith("@") else ("u", entry)
+    return f"{kind}:{name}:{'rwX' if write else 'rX'}"
+
+
+def apply_acls(path: str, old: dict, new: dict) -> None:
+    """Give the listed users/groups matching POSIX ACLs (plus inherited defaults) on the folder,
+    and take them away from entries that were removed. ACLs set by packages are left alone."""
+    if DEV:
+        return
+    before = set(old.get("read_users", [])) | set(old.get("write_users", []))
+    after = set(new["read_users"]) | set(new["write_users"])
+    for e in before - after - {"@users", "@cynthology-admin"}:
+        kind, name = ("g", e[1:]) if e.startswith("@") else ("u", e)
+        run(["setfacl", "-R", "-x", f"{kind}:{name},d:{kind}:{name}", path], check=False)
+    for e in after - {"@users"}:                       # @users: already the folder's group (2775)
+        spec = _acl_spec(e, e in new["write_users"])
+        r = subprocess.run(["setfacl", "-R", "-m", f"{spec},d:{spec}", path], capture_output=True, text=True)
+        if r.returncode != 0:
+            raise HTTPException(400, f"{e.lstrip('@')}: no such user or group on this NAS" if "Invalid argument" in r.stderr or "invalid" in r.stderr.lower()
+                                else r.stderr.strip().splitlines()[-1])
+
+
+@router.put("/{name}/permissions")
+def put_permissions(name: str, body: Permissions, _=Depends(require_admin)):
+    for e in body.read_users + body.write_users:
+        valid_principal(e)
+    if not body.write_users and not body.read_users:
+        raise HTTPException(400, "give at least one user or group access")
+    shares = load()
+    share = next((s for s in shares if s["name"] == name), None)
+    if not share or share.get("homes"):
+        raise HTTPException(404, "no such shared folder")
+    if share.get("encrypted") and not unlocked(share):
+        raise HTTPException(423, "unlock the folder first")
+    new = {"read_users": [e for e in dict.fromkeys(body.read_users) if e not in body.write_users],
+           "write_users": list(dict.fromkeys(body.write_users))}
+    apply_acls(share["path"], share, new)
+    share.update(new)
     write_configs(shares)
     return {"ok": True}

@@ -41,3 +41,20 @@ def test_homes_block():
     b = homes_smb_block({**BASE, "name": "homes", "path": "/volume1/homes", "homes": True})
     assert "[home]\n   path = /volume1/homes/%U" in b and "valid users = %U" in b
     assert "[homes]\n   path = /volume1/homes/%S" in b and "browseable = no" in b
+
+
+def test_domain_names_are_quoted():
+    b = smb_block({**BASE, "read_users": ["CORP\\alice"], "write_users": ["@CORP\\Domain Users", "@users"]})
+    assert 'valid users = CORP\\alice @"CORP\\Domain Users" @users' in b
+    assert 'write list = @"CORP\\Domain Users" @users' in b
+
+
+def test_principals():
+    import pytest
+    from fastapi import HTTPException
+    from cynthology.util import valid_principal
+    for ok in ["alice", "@users", "CORP\\alice", "@CORP\\Domain Users", "@CORP\\Domain Admins"]:
+        valid_principal(ok)
+    for bad in ['@"x"', "a%b", "CORP\\a;b", "", "@", "x y"]:
+        with pytest.raises(HTTPException):
+            valid_principal(bad)
