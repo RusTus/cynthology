@@ -6,6 +6,11 @@ No-CoW for steady performance. VMware VAAI block primitives are native in ESXi a
 implements them: ATS (COMPARE AND WRITE), XCOPY (full copy), WRITE SAME (block zeroing) and
 UNMAP (space reclamation) - no plugin is needed on the ESXi hosts.
 
+LUNs are exposed through a loop device (/dev/loop<N>, fixed number per LUN, direct I/O) so they
+can be expanded while hosts stay connected: LIO reads a block device's size live, but fixes the
+size of a plain file at creation. (LUNs made by v0.20/0.21 use the file directly; the first
+expand converts them, which needs the hosts disconnected once.)
+
 Changes are applied to the running target incrementally (connected hosts stay connected) and
 saved to /etc/rtslib-fb-target/saveconfig.json, which rtslib-fb-targetctl.service restores at
 boot once the storage pools are mounted (see systemd drop-in).
@@ -146,6 +151,44 @@ def _persist() -> None:
 
 def lun_path(pool: dict, name: str) -> str:
     return os.path.join(pool["mount"], LUN_DIR, f"{name}.img")
+
+
+LOOP_BASE = 100
+
+
+def _loop_add(n: int) -> None:
+    import fcntl
+    subprocess.run(["modprobe", "loop"], capture_output=True)
+    fd = os.open("/dev/loop-control", os.O_RDWR)
+    try:
+        fcntl.ioctl(fd, 0x4C80, n)          # LOOP_CTL_ADD (EEXIST when it's already there)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+    run(["udevadm", "settle"], check=False)
+
+
+def attach_loop(lun: dict, st: dict) -> str:
+    """Make sure the LUN's image is attached to its loop device; returns the device path."""
+    if lun.get("loop") is None:
+        used = {l.get("loop") for l in st["luns"]}
+        lun["loop"] = next(n for n in range(LOOP_BASE, LOOP_BASE + 4000) if n not in used)
+    dev = f"/dev/loop{lun['loop']}"
+    if DEV:
+        return dev
+    _loop_add(lun["loop"])
+    back = read_only(["losetup", "-n", "-O", "BACK-FILE", dev]).strip()
+    if back != lun["path"]:
+        if back:
+            raise HTTPException(500, f"{dev} is in use by {back}")
+        run(["losetup", "--direct-io=on", dev, lun["path"]])
+    return dev
+
+
+def detach_loop(lun: dict) -> None:
+    if lun.get("loop") is not None and not DEV:
+        run(["losetup", "-d", f"/dev/loop{lun['loop']}"], check=False)
 
 
 def _vaai(so) -> None:
@@ -357,7 +400,7 @@ def create_lun(body: LunBody, _=Depends(require_admin)):
                     run(["fallocate", "-l", str(size), path])
             os.chmod(path, 0o600)
             from rtslib_fb import FileIOStorageObject
-            so = FileIOStorageObject(body.name, path, size=size, write_back=False)
+            so = FileIOStorageObject(body.name, attach_loop(lun, st), write_back=False)
             _vaai(so)
             if body.target:
                 _map(st, lun, body.target)
@@ -367,6 +410,7 @@ def create_lun(body: LunBody, _=Depends(require_admin)):
                 _so(body.name).delete()
             except Exception:
                 pass
+            detach_loop(lun)
             if os.path.exists(path):
                 os.remove(path)
             raise
@@ -415,6 +459,7 @@ def delete_lun(name: str, _=Depends(require_admin)):
         except Exception:
             pass
         _persist()
+        detach_loop(lun)
         if os.path.exists(lun["path"]):
             os.remove(lun["path"])
         for n in list_lun_snaps(lun):
@@ -634,7 +679,7 @@ def _new_lun_from_image(st: dict, new_name: str, pool: dict, image: str, size: i
         run(["cp", "--reflink=auto", image, path])
         os.chmod(path, 0o600)
         from rtslib_fb import FileIOStorageObject
-        so = FileIOStorageObject(new_name, path, size=size, write_back=False)
+        so = FileIOStorageObject(new_name, attach_loop(lun, st), write_back=False)
         _vaai(so)
         _persist()
     st["luns"].append(lun)
@@ -664,3 +709,63 @@ def lun_from_replica(body: FromReplica, _=Depends(require_admin)):
     pool = load_pools()[0]           # replicas are received on the first pool
     size = os.path.getsize(image) if not DEV else 10 ** 10
     return _new_lun_from_image(load(), body.new_name, pool, image, size, True)
+
+
+# ---------- expand ----------
+
+class Expand(BaseModel):
+    size_gb: int
+
+
+@router.post("/luns/{name}/expand")
+def expand_lun(name: str, body: Expand, _=Depends(require_admin)):
+    """Grow a LUN. Loop-backed LUNs grow while in use; older file-backed ones are converted first
+    (same serial/WWN, so hosts recognise the disk), which needs the hosts disconnected."""
+    _need()
+    st = load()
+    lun = _lun(st, name)
+    new = body.size_gb * 1000 ** 3
+    if new <= lun["size"]:
+        raise HTTPException(400, f"the new size must be larger than {lun['size'] // 1000 ** 3} GB (LUNs can't shrink)")
+    if new > 1000 ** 5:
+        raise HTTPException(400, "at most 1 PB")
+    online = lun.get("loop") is not None
+    if DEV:
+        lun["size"] = new
+        save(st)
+        return {"ok": True, "online": online}
+    pool = _pool_of(lun)
+    if not lun["thin"]:
+        f = os.statvfs(pool["mount"])
+        if new - lun["size"] > f.f_bavail * f.f_frsize:
+            raise HTTPException(400, "not enough free space on the pool to grow this thick LUN")
+    tgt = next((t for t in st["targets"] if t["name"] == lun.get("target")), None)
+    if not online and tgt and _sessions(tgt["iqn"]):
+        raise HTTPException(409, "this LUN was made by an older version and has to be converted once to grow: "
+                                 "unmount the datastore and disconnect the hosts, then expand. Later expansions work while in use.")
+    # grow the image
+    if lun["thin"]:
+        with open(lun["path"], "r+b") as f:
+            f.truncate(new)
+    else:
+        run(["fallocate", "-l", str(new), lun["path"]])
+    if online:
+        run(["losetup", "-c", f"/dev/loop{lun['loop']}"])     # the loop device (and so the LUN) picks up the new size
+    else:
+        from rtslib_fb import LUN, FileIOStorageObject
+        old = _so(name)
+        wwn = old.wwn
+        places = [(l.parent_tpg, l.lun) for l in old.attached_luns]
+        for l in list(old.attached_luns):
+            l.delete()
+        old.delete()
+        so = FileIOStorageObject(name, attach_loop(lun, st), wwn=wwn, write_back=False)
+        _vaai(so)
+        for tpg, idx in places:
+            LUN(tpg, lun=idx, storage_object=so)
+            if tgt:
+                _apply_access(tpg, tgt, [])
+        _persist()
+    lun["size"] = new
+    save(st)
+    return {"ok": True, "online": online}

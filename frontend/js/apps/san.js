@@ -59,6 +59,15 @@ async function sanLuns(p) {
         h("td", { style: "white-space:nowrap" },
           h("button", { class: "btn", onclick: () => { p.replaceChildren(); sanLunSnaps(p, l, reload); } }, "Snapshots"), " ",
           h("button", { class: "btn", onclick: async () => {
+            const cur = Math.round(l.size / 1e9);
+            const v = prompt(`Expand ${l.name} to how many GB? (now ${cur} GB; LUNs can grow but not shrink)` +
+              (l.loop == null ? "\n\nThis LUN was made by an older version: the first expansion converts it, so unmount the datastore and disconnect the hosts first. After that it can grow while in use." : ""), String(cur * 2));
+            if (!v) return;
+            const r = await act(() => API.post(`/api/san/luns/${l.name}/expand`, { size_gb: +v }), `${l.name} is now ${v} GB`);
+            if (r) alert(`${l.name} is now ${v} GB.\n\nIn vSphere: Storage Adapters → Rescan, then the datastore → Increase Datastore Capacity → pick this disk and use the free space.`);
+            reload();
+          } }, "Expand"), " ",
+          h("button", { class: "btn", onclick: async () => {
             const name = prompt(`Clone ${l.name} as (new LUN name):`, `${l.name}-clone`); if (!name) return;
             await act(() => API.post("/api/san/luns", { name, pool_id: l.pool_id, size_gb: 1, clone_of: l.name }), "LUN cloned"); reload();
           } }, "Clone"), " ",

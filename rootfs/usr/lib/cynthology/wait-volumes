@@ -1,7 +1,9 @@
 #!/usr/bin/python3
-"""Wait (up to 4 minutes) until every Cynthology storage pool is mounted. Used before services
-whose data lives on the pools start (e.g. the iSCSI target)."""
-import json, os, time
+"""Run before the iSCSI target is restored at boot: wait (up to 4 minutes) until every Cynthology
+storage pool is mounted, then attach each LUN image to its loop device (/dev/loop<N>, fixed per
+LUN in /var/lib/cynthology/san.json) so the saved target configuration finds them."""
+import fcntl, json, os, subprocess, time
+
 try:
     mounts = [p["mount"] for p in json.load(open("/var/lib/cynthology/pools.json"))]
 except (OSError, ValueError):
@@ -14,3 +16,26 @@ while time.time() < deadline:
     time.sleep(2)
 else:
     print("still not mounted:", " ".join(missing))
+
+try:
+    luns = [l for l in json.load(open("/var/lib/cynthology/san.json")).get("luns", []) if l.get("loop") is not None]
+except (OSError, ValueError):
+    luns = []
+if luns:
+    subprocess.run(["modprobe", "loop"])
+    ctl = os.open("/dev/loop-control", os.O_RDWR)
+    for l in luns:
+        dev = f"/dev/loop{l['loop']}"
+        try:
+            fcntl.ioctl(ctl, 0x4C80, l["loop"])        # LOOP_CTL_ADD
+        except OSError:
+            pass
+        subprocess.run(["udevadm", "settle"])
+        back = subprocess.run(["losetup", "-n", "-O", "BACK-FILE", dev], capture_output=True, text=True).stdout.strip()
+        if back == l["path"]:
+            continue
+        if not os.path.exists(l["path"]):
+            print(f"LUN {l['name']}: {l['path']} is missing")
+            continue
+        r = subprocess.run(["losetup", "--direct-io=on", dev, l["path"]], capture_output=True, text=True)
+        print(f"LUN {l['name']}: {dev} ->", l["path"] if r.returncode == 0 else r.stderr.strip())

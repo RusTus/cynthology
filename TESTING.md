@@ -41,6 +41,7 @@ Already installed an older version? Run the same command again - it upgrades in 
 | 25 | iSCSI + VAAI (ESXi) | SAN Manager → LUN → Create (thin, new target) → vSphere: iSCSI adapter → Dynamic Discovery → NAS:3260 → rescan → New Datastore (VMFS) | Datastore created; Hardware Acceleration = Supported |
 | 26 | LUN snapshots | SAN Manager → LUN → Snapshots → Take snapshot; change a file in a VM; Clone as new LUN → map it, mount in ESXi (resignature) | Clone shows the old state |
 | 27 | LUN replication | Snapshots → Replication → + Replicate → choose "LUN …" → Sync now (twice) | Second run "changes only"; on the other NAS: Receive replicas → Use as LUN |
+| 28 | Expand LUN | SAN Manager → LUN → Expand (bigger size) → vSphere: rescan adapter → datastore → Increase Datastore Capacity | Datastore grows; VMs keep running (LUNs from v0.20/0.21: unmount first, one time) |
 | 19 | Synology alternatives | Package Center → Synology alternatives → MariaDB → Install, then phpMyAdmin → Install → Open (server: NAS IP, user root, password from Info) | phpMyAdmin logs in |
 
 Logs if something breaks: `sudo journalctl -u cynthology-ui -n 100`
