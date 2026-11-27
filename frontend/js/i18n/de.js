@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 608 entries.
+// Generated from the English UI strings (see i18n.js). 636 entries.
 i18nAdd("de", {
 "Error: ": "Fehler: ",
 "Settings and data are kept.": "Einstellungen und Daten bleiben erhalten.",
@@ -607,5 +607,33 @@ i18nAdd("de", {
 "rsync password for": "rsync-Passwort für",
 "Password (at least 8 characters)": "Passwort (mindestens 8 Zeichen)",
 "rsync password saved": "rsync-Passwort gespeichert",
-"rsync access removed": "rsync-Zugriff entfernt"
+"rsync access removed": "rsync-Zugriff entfernt",
+"Phone notifications": "Benachrichtigungen aufs Handy",
+"Get alerts on your phone or in a chat as well: drive failures, degraded pools, full volumes, failed backups, power events.": "Warnungen auch aufs Handy oder in einen Chat: defekte Laufwerke, beeinträchtigte Pools, volle Volumes, fehlgeschlagene Sicherungen, Stromereignisse.",
+"No phone notifications yet.": "Noch keine Handy-Benachrichtigungen.",
+"+ Add service": "+ Dienst hinzufügen",
+"Add a phone notification service": "Benachrichtigungsdienst hinzufügen",
+"Service": "Dienst",
+"Topic": "Thema (Topic)",
+"Access token (only for protected topics)": "Zugriffstoken (nur für geschützte Topics)",
+"Bot token": "Bot-Token",
+"Chat ID": "Chat-ID",
+"Webhook URL": "Webhook-URL",
+"Application API token": "API-Token der Anwendung",
+"User key": "Benutzerschlüssel",
+"Send": "Senden",
+"Everything": "Alles",
+"Warnings and critical": "Warnungen und Kritisches",
+"Critical only": "Nur Kritisches",
+"Save & send test": "Speichern & Test senden",
+"Test notification sent": "Testbenachrichtigung gesendet",
+"Pause": "Pausieren",
+"Resume": "Fortsetzen",
+"Paused": "Pausiert",
+"Resumed": "Fortgesetzt",
+"Remove this service?": "Diesen Dienst entfernen?",
+"Install the ntfy app, subscribe to a topic name that is hard to guess (anyone who knows it can read it). Your own ntfy server works too.": "Installieren Sie die ntfy-App und abonnieren Sie einen schwer zu erratenden Topic-Namen (wer ihn kennt, kann mitlesen). Ein eigener ntfy-Server geht auch.",
+"In Telegram, create a bot with @BotFather (you get the token), send your bot a message, then get your chat ID from @userinfobot.": "Erstellen Sie in Telegram mit @BotFather einen Bot (Sie erhalten das Token), schreiben Sie dem Bot eine Nachricht und holen Sie Ihre Chat-ID bei @userinfobot.",
+"Discord channel → Edit channel → Integrations → Webhooks → New webhook → Copy webhook URL.": "Discord-Kanal → Kanal bearbeiten → Integrationen → Webhooks → Neuer Webhook → Webhook-URL kopieren.",
+"pushover.net → Create an application (API token); your user key is on the dashboard.": "pushover.net → Anwendung erstellen (API-Token); Ihr Benutzerschlüssel steht im Dashboard."
 });

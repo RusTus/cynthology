@@ -157,16 +157,12 @@ def run_check() -> list[dict]:
         json.dump(now, f)
     if changes:
         _log(changes)
-        cfg = load_smtp()
-        if cfg.get("enabled") and cfg.get("host"):
-            worst = "critical" if any(c["level"] == "critical" for c in changes) else "warning"
-            subject = changes[0]["title"] if len(changes) == 1 else f"{len(changes)} health changes ({worst})"
-            body = "\n\n".join(f"{'⚠' if c['level'] != 'info' else '✓'} {c['title']}\n{c.get('detail', '')}" for c in changes)
-            try:
-                send_mail(subject, body, cfg)
-            except Exception as e:  # mail trouble must never break monitoring
-                _log([{"level": "warning", "title": "Could not send notification email", "detail": str(e),
-                       "event": "mail", "time": int(time.time())}])
+        order = {"info": 0, "warning": 1, "critical": 2}
+        worst = max((c["level"] for c in changes), key=lambda lv: order.get(lv, 1))
+        subject = changes[0]["title"] if len(changes) == 1 else f"{len(changes)} health changes ({worst})"
+        body = "\n\n".join(f"{'⚠' if c['level'] != 'info' else '✓'} {c['title']}\n{c.get('detail', '')}" for c in changes)
+        from .notify import notify
+        notify(worst, subject, body, event="health", log=False)    # email + phone (mail/push trouble never breaks monitoring)
     return changes
 
 

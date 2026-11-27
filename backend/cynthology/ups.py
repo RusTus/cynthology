@@ -306,14 +306,8 @@ def event(name: str) -> None:
 
 
 def _notify(level: str, title: str, detail: str) -> None:
-    from . import health
-    health._log([{"level": level, "title": title, "detail": detail, "event": "ups", "time": int(time.time())}])
-    cfg = health.load_smtp()
-    if cfg.get("enabled") and cfg.get("host"):
-        try:
-            health.send_mail(title, detail, cfg)
-        except Exception:
-            pass
+    from .notify import notify
+    notify(level, title, detail, event="ups")
 
 
 if __name__ == "__main__":

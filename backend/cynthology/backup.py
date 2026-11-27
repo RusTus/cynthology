@@ -298,14 +298,9 @@ def _unmount_if_ours(t: dict) -> None:
 
 
 def _alert(t: dict, level: str, title: str, detail: str) -> None:
-    from . import health
-    health._log([{"level": level, "title": title, "detail": detail, "event": "backup", "time": int(time.time())}])
-    cfg = health.load_smtp()
-    if cfg.get("enabled") and cfg.get("host"):
-        try:
-            health.send_mail(title, detail, cfg)
-        except Exception:
-            pass
+    """Log + email + push (see notify.py). Used by several modules."""
+    from .notify import notify
+    notify(level, title, detail, event="backup" if t.get("id") else t.get("name", "alert"))
 
 
 def start(tid: str, action: str = "run") -> None:

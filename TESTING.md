@@ -57,6 +57,7 @@ Already installed an older version? Run the same command again - it upgrades in 
 | 41 | WebDAV | File Services → WebDAV → Enable (HTTPS 5006) → Mac: Finder → Connect to Server → https://NAS:5006/ (Windows: needs Let's Encrypt or HTTP 5005) | Your shared folders appear; a user without write permission can't save into a read-only folder |
 | 42 | SFTP for users | File Services → Let users connect with SFTP → FileZilla/WinSCP to the NAS, port 22, as a normal user | Files work as over SMB; ssh in a terminal says "sftp connections only" |
 | 43 | rsync server | File Services → Enable the rsync server → Set password for a user → `rsync -av folder/ rsync://USER@NAS/SHARE/folder/` | Files arrive, owned by that user |
+| 44 | Phone notifications | Notifications → + Add service → ntfy (keep the suggested topic) → subscribe to that topic in the ntfy app → Save & send test | Test arrives on the phone; pulling a drive later sends a critical alert |
 | 19 | Synology alternatives | Package Center → Synology alternatives → MariaDB → Install, then phpMyAdmin → Install → Open (server: NAS IP, user root, password from Info) | phpMyAdmin logs in |
 
 Logs if something breaks: `sudo journalctl -u cynthology-ui -n 100`

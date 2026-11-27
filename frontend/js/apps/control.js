@@ -357,12 +357,66 @@ async function cpNotify(p) {
       h("div", { class: "toolbar" },
         h("button", { class: "btn primary", onclick: () => act(save, "Saved") }, "Save"),
         h("button", { class: "btn", onclick: async () => { await save(); await act(() => API.post("/api/health/smtp/test"), "Test email sent"); } }, "Save & send test email"))),
+    await pushServices(() => { p.replaceChildren(); cpNotify(p); }),
     h("h3", { class: "pc-group", style: "margin-top:22px" }, "Recent alerts"),
     alerts.length ? h("table", {}, alerts.slice(0, 30).map((a) => h("tr", {},
       h("td", { class: "muted", style: "white-space:nowrap" }, new Date(a.time * 1000).toLocaleString()),
       h("td", {}, h("span", { class: "pill " + (a.level === "critical" ? "bad" : a.level === "warning" ? "warn" : "ok") }, a.event === "resolved" ? "resolved" : a.level)),
       h("td", {}, h("b", {}, a.title), h("div", { class: "muted" }, a.detail || "")))))
       : h("p", { class: "muted" }, "No alerts so far."));
+}
+
+// Phone notifications: ntfy, Telegram, Discord, Pushover (backend notify.py)
+const PUSH_HELP = {
+  ntfy: "Install the ntfy app, subscribe to a topic name that is hard to guess (anyone who knows it can read it). Your own ntfy server works too.",
+  telegram: "In Telegram, create a bot with @BotFather (you get the token), send your bot a message, then get your chat ID from @userinfobot.",
+  discord: "Discord channel → Edit channel → Integrations → Webhooks → New webhook → Copy webhook URL.",
+  pushover: "pushover.net → Create an application (API token); your user key is on the dashboard.",
+};
+async function pushServices(reload) {
+  const { types, channels } = await API.get("/api/notify");
+  const levelName = { info: "Everything", warning: "Warnings and critical", critical: "Critical only" };
+  const edit = (c) => {
+    const f = c ? { ...c } : { type: "ntfy", name: "", enabled: true, min_level: "warning", server: "https://ntfy.sh", topic: "" };
+    const body = h("div", { class: "form" });
+    const inp = (label, key, attrs = {}) => h("label", {}, label, h("input", { value: f[key] ?? "", oninput: (e) => (f[key] = e.target.value.trim()), ...attrs }));
+    const secret = (label, key) => inp(label, key, { type: "password", autocomplete: "new-password", value: "", placeholder: c && c["has_" + key] ? t("(unchanged)") : "" });
+    const draw = () => body.replaceChildren(
+      c ? null : h("label", {}, "Service", h("select", { onchange: (e) => { f.type = e.target.value; draw(); } },
+        Object.entries(types).map(([k, l]) => h("option", { value: k, selected: f.type === k }, l)))),
+      h("div", { class: "muted", style: "font-size:12px" }, PUSH_HELP[f.type]),
+      inp("Name (optional)", "name", { placeholder: types[f.type] }),
+      ...(f.type === "ntfy" ? [inp("Server", "server"), inp("Topic", "topic", { placeholder: "nas-" + Math.random().toString(36).slice(2, 10) }), secret("Access token (only for protected topics)", "token")]
+        : f.type === "telegram" ? [secret("Bot token", "bot_token"), inp("Chat ID", "chat_id")]
+        : f.type === "discord" ? [secret("Webhook URL", "webhook_url")]
+        : [secret("Application API token", "app_token"), secret("User key", "user_key")]),
+      h("label", {}, "Send", h("select", { onchange: (e) => (f.min_level = e.target.value) },
+        Object.entries(levelName).map(([k, l]) => h("option", { value: k, selected: f.min_level === k }, l)))));
+    draw();
+    const close = modal(c ? t("Edit") + " " + (c.name || types[c.type]) : "Add a phone notification service", body, [
+      ["Cancel", null, ""],
+      ["Save & send test", async () => {
+        if (f.type === "ntfy" && !f.topic) f.topic = body.querySelector("input[placeholder^='nas-']")?.placeholder || "";
+        const saved = await act(() => API.post("/api/notify", f), "Saved");
+        if (!saved) return;
+        close();
+        await act(() => API.post(`/api/notify/${saved.id}/test`), "Test notification sent");
+        reload();
+      }, "primary"]]);
+  };
+  return h("div", { style: "margin-top:22px" },
+    h("h3", { class: "pc-group" }, "Phone notifications"),
+    h("div", { class: "muted", style: "font-size:12px;margin-bottom:8px" }, "Get alerts on your phone or in a chat as well: drive failures, degraded pools, full volumes, failed backups, power events."),
+    channels.length ? h("table", {}, channels.map((c) => h("tr", {},
+      h("td", {}, h("b", {}, c.name || types[c.type]), h("div", { class: "muted" }, types[c.type] + (c.type === "ntfy" ? ` · ${c.topic}` : ""))),
+      h("td", {}, h("span", { class: "pill " + (c.enabled ? "ok" : "") }, c.enabled ? levelName[c.min_level] : t("Off"))),
+      h("td", { style: "white-space:nowrap" },
+        h("button", { class: "btn", onclick: () => act(() => API.post(`/api/notify/${c.id}/test`), "Test notification sent") }, "Test"),
+        h("button", { class: "btn", onclick: () => edit(c) }, "Edit"),
+        h("button", { class: "btn", onclick: async () => { await act(() => API.post("/api/notify", { ...c, enabled: !c.enabled }), c.enabled ? "Paused" : "Resumed"); reload(); } }, c.enabled ? "Pause" : "Resume"),
+        h("button", { class: "btn", onclick: async () => { if (confirm(t("Remove this service?"))) { await act(() => API.del(`/api/notify/${c.id}`), "Removed"); reload(); } } }, "Remove")))))
+      : h("p", { class: "muted" }, "No phone notifications yet."),
+    h("button", { class: "btn", onclick: () => edit(null) }, "+ Add service"));
 }
 
 async function cpUps(p) {
