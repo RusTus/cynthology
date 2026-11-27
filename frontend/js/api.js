@@ -67,6 +67,7 @@ function sectioned(sections, body) {
   const side = h("nav", { class: "side" });
   const show = (key) => {
     side.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.k === key));
+    side.querySelector("button.on")?.scrollIntoView?.({ block: "nearest", inline: "nearest" });   // (phones: the tab strip)
     // fresh container per visit: a slow, earlier section that finishes loading late
     // writes into its own (now detached) box instead of the page being shown
     const box = h("div");

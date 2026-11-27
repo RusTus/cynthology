@@ -1,3 +1,4 @@
+const TOUCH = matchMedia("(pointer: coarse)").matches;
 // File Station: folder tree, back/forward, path bar, search, list or icon view, sortable columns,
 // Create / Upload / Action menus, right-click menu, keyboard shortcuts, drag & drop upload,
 // zip download of folders and multiple items, Copy to / Move to.
@@ -15,7 +16,8 @@ WM.register("files", {
       onkeydown: (e) => { if (e.key === "Enter") runSearch(searchBox.value); if (e.key === "Escape") { searchBox.value = ""; closeSearch(); } } });
     const navBtn = (icon, title, fn) => h("button", { class: "btn fs-nav", title, onclick: fn }, icon);
     const bBack = navBtn("‹", "Back", () => history(-1)), bFwd = navBtn("›", "Forward", () => history(1));
-    const top = h("div", { class: "fs-top" }, bBack, bFwd, navBtn("⟳", "Refresh", () => (st.search ? runSearch(st.search.q) : go(st.path, true))), pathbar, searchBox);
+    const treeBtn = h("button", { class: "btn fs-nav fs-tree-btn", title: "Folders", onclick: (e) => { e.stopPropagation(); body.classList.toggle("fs-tree-open"); } }, "☰");
+    const top = h("div", { class: "fs-top" }, treeBtn, bBack, bFwd, navBtn("⟳", "Refresh", () => (st.search ? runSearch(st.search.q) : go(st.path, true))), pathbar, searchBox);
     const menuBtn = (label, items) => h("button", { class: "btn fs-menu-btn", onclick: (e) => { e.stopPropagation(); popup(e.currentTarget, items()); } }, label, h("span", { class: "fs-caret" }, "▾"));
     const viewBtn = h("button", { class: "btn fs-nav", title: "List / icons", onclick: () => { st.view = st.view === "list" ? "grid" : "list"; try { localStorage.setItem("cyn-fs-view", st.view); } catch {} render(); } });
     const cmd = h("div", { class: "fs-cmd" },
@@ -30,6 +32,20 @@ WM.register("files", {
     const fileInput = h("input", { type: "file", multiple: true, style: "display:none", onchange: (e) => { uploadFiles([...e.target.files]); e.target.value = ""; } });
     const folderInput = h("input", { type: "file", multiple: true, webkitdirectory: true, style: "display:none", onchange: (e) => { uploadFiles([...e.target.files]); e.target.value = ""; } });
     body.append(tree, h("div", { class: "fs-main" }, top, cmd, list, status, fileInput, folderInput));
+    // touch: a long press opens the item's menu (iPhones never send a right-click)
+    let hold = null;
+    list.addEventListener("pointerdown", (e) => {
+      if (e.pointerType !== "touch") return;
+      const row = e.target.closest(".fs-tile, .fs-table tr");
+      if (!row) return;
+      hold = setTimeout(() => { hold = null; row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: e.clientX, clientY: e.clientY })); }, 550);
+    });
+    for (const ev of ["pointerup", "pointermove", "pointercancel"]) list.addEventListener(ev, (e) => {
+      if (hold && (ev !== "pointermove" || Math.abs(e.movementX) + Math.abs(e.movementY) > 6)) { clearTimeout(hold); hold = null; }
+    });
+    // phones: the folder tree slides over the list - close it once a folder is chosen or the list is tapped
+    tree.addEventListener("click", (e) => { if (e.target.closest(".fs-node")) body.classList.remove("fs-tree-open"); });
+    list.addEventListener("click", () => body.classList.remove("fs-tree-open"));
 
     const parent = (p) => p.split("/").slice(0, -1).join("/");
     const join = (a, b) => (a ? `${a}/${b}` : b);
@@ -145,6 +161,11 @@ WM.register("files", {
         if (!(e.ctrlKey || e.metaKey)) st.sel.clear();
         rows.slice(a, b + 1).forEach((x) => st.sel.add(itemPath(x)));
       } else if (e.ctrlKey || e.metaKey) {
+        st.sel.has(p) ? st.sel.delete(p) : st.sel.add(p);
+        st.last = idx;
+      } else if (TOUCH) {
+        // phones/tablets: a tap opens a folder; files are picked one by one (then use Action)
+        if (it.dir) return open(it);
         st.sel.has(p) ? st.sel.delete(p) : st.sel.add(p);
         st.last = idx;
       } else {

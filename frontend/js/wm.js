@@ -21,7 +21,7 @@ const WM = {
       h("div", { class: "win-title" },
         appTile(id, 20), h("span", {}, t(app.name)), h("span", { class: "sp" }),
         h("button", { title: "Minimise", onclick: () => el.classList.add("hidden") }, "–"),
-        h("button", { title: "Maximise", onclick: () => el.classList.toggle("max") }, "□"),
+        h("button", { class: "max", title: "Maximise", onclick: () => el.classList.toggle("max") }, "□"),
         h("button", { class: "close", title: "Close", onclick: () => this.close(id) }, "✕")),
       body);
     el.addEventListener("mousedown", () => this.focus(id));

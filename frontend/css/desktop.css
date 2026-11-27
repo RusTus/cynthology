@@ -281,3 +281,37 @@ table.kv th { text-transform: none; letter-spacing: 0; font-size: 13px; font-wei
 .chart-tip { position: absolute; top: 0; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
   padding: 6px 8px; font-size: 12px; color: var(--text); box-shadow: 0 4px 14px rgba(0,0,0,.25); white-space: nowrap; z-index: 2; }
 .chart-tip b { font-variant-numeric: tabular-nums; }
+
+/* ---------- phones (≤ 700 px): every window full screen, side navigation as a tab strip ---------- */
+.fs-tree-btn { display: none; }
+@media (max-width: 700px) {
+  .win { min-width: 0; min-height: 0; resize: none; }
+  .win-title { cursor: default; }
+  .win-title button.max { display: none; }
+  .tasks { overflow-x: auto; scrollbar-width: none; }
+  .win-body:has(> .side:not(.fs-tree)) { flex-direction: column; }
+  .win-body > .side:not(.fs-tree) { width: auto; display: flex; gap: 4px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line);
+    padding: 6px; scrollbar-width: none; flex-shrink: 0; }
+  .win-body > .side:not(.fs-tree) button { width: auto; flex: none; white-space: nowrap; padding: 7px 12px; }
+  .win-body > .side:not(.fs-tree) .cp-back { order: -1; }
+  .pane { padding: 12px; }
+  .pane table { display: block; overflow-x: auto; }
+  .toolbar, .fs-top, .fs-cmd { flex-wrap: wrap; }
+  .fs-top input[type=search], .fs-top .fs-search { flex: 1 1 100%; order: 9; }
+  .fs-tree-btn { display: inline-flex; }
+  .win-body > .fs-tree { position: absolute; z-index: 5; top: 0; bottom: 0; left: 0; width: min(300px, 82%); background: var(--panel-2);
+    box-shadow: var(--shadow); transform: translateX(-105%); transition: transform .2s; }
+  .win-body.fs-tree-open > .fs-tree { transform: none; }
+  .win-body { position: relative; }
+  .wiz-card { padding: 18px; width: calc(100vw - 24px); max-height: calc(100vh - 60px); overflow: auto; }
+  .menu { grid-template-columns: repeat(3, 1fr); left: 6px; right: 6px; }
+  input, select, textarea { font-size: 16px; }          /* (smaller text makes iPhones zoom in on focus) */
+  .card { max-width: none !important; }
+  .fs-pop { max-width: calc(100vw - 16px); }
+  #clock { display: none; }
+  .fs-table th:nth-child(n+3), .fs-table td:nth-child(n+3) { display: none; }   /* phones: name and size only */
+  .fs-table { width: 100%; table-layout: fixed; }
+  .fs-table th:first-child, .fs-table td:first-child { width: auto; }
+  .fs-table th:nth-child(2), .fs-table td:nth-child(2) { width: 84px; }
+  #user-btn .user-name { display: none; }
+}
