@@ -149,10 +149,12 @@ def _fail(*keys: str, counted: bool = False) -> None:
     time.sleep(1)
 
 
-def _new_session(user: str) -> dict:
+def _new_session(user: str, ip: str = "", agent: str = "") -> dict:
     from . import twofa
     token = secrets.token_urlsafe(32)
-    s = {"user": user, "admin": _is_admin(user), "exp": time.time() + SESSION_TTL}
+    now = time.time()
+    s = {"user": user, "admin": _is_admin(user), "exp": now + SESSION_TTL,
+         "created": int(now), "seen": int(now), "ip": ip[:64], "agent": agent[:300]}
     if twofa.enforced_for(s) and not twofa.enabled(user):
         s["enroll_required"] = True
     SESSIONS[token] = s
@@ -195,12 +197,13 @@ def login(body: Login, request: Request):
         pass
     if twofa.enabled(body.username):
         ticket = secrets.token_urlsafe(24)
-        PENDING[ticket] = {"user": body.username, "exp": time.time() + 300, "keys": keys, "ip": ip}
+        PENDING[ticket] = {"user": body.username, "exp": time.time() + 300, "keys": keys, "ip": ip,
+                           "agent": request.headers.get("user-agent", "")}
         return {"need_otp": True, "ticket": ticket}
     for k in keys:
         FAILS.pop(k, None)
     _log("login", body.username, ip)
-    return _new_session(body.username)
+    return _new_session(body.username, ip, request.headers.get("user-agent", ""))
 
 
 class Otp(BaseModel):
@@ -224,7 +227,7 @@ def otp(body: Otp):
     for k in p["keys"]:
         FAILS.pop(k, None)
     _log("login", p["user"], p.get("ip", "?"), "with 2-step verification")
-    return _new_session(p["user"])
+    return _new_session(p["user"], p.get("ip", ""), p.get("agent", ""))
 
 
 def current_user(request: Request, authorization: str = Header(default="")) -> dict:
@@ -236,7 +239,24 @@ def current_user(request: Request, authorization: str = Header(default="")) -> d
     if s.get("enroll_required") and not (request.url.path.startswith("/api/auth/") or
                                          request.url.path in ("/api/2fa", "/api/2fa/setup", "/api/2fa/enable")):
         raise HTTPException(403, "Set up 2-step verification first")
+    s["seen"] = int(time.time())          # (kept in memory; written with the next save)
     return s
+
+
+def session_id(token: str) -> str:
+    """A public handle for a session (the token itself is the password of the session)."""
+    import hashlib
+    return hashlib.sha256(token.encode()).hexdigest()[:16]
+
+
+def sessions_of(user: str) -> list[tuple[str, dict]]:
+    now = time.time()
+    return [(t, s) for t, s in list(SESSIONS.items()) if s["user"].lower() == user.lower() and s["exp"] > now]
+
+
+def end_session(token: str) -> None:
+    if SESSIONS.pop(token, None) is not None:
+        _save_sessions()
 
 
 def require_admin(user: dict = Depends(current_user)) -> dict:

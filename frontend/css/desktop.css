@@ -48,6 +48,15 @@ input, select { font: inherit; padding: 7px 9px; border: 1px solid var(--line); 
 .icons { position: fixed; top: 56px; left: 16px; display: grid; grid-auto-flow: column; grid-template-rows: repeat(auto-fill, 104px); gap: 6px; height: calc(100% - 70px); }
 .icons .launch { color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.6); width: 92px; }
 .icons .launch:hover { background: rgba(255,255,255,.14); }
+body.icons-small .icons { grid-template-rows: repeat(auto-fill, 82px); }
+body.icons-small .icons .launch { width: 76px; font-size: 12px; }
+body.icons-small .icons .app-tile { transform: scale(.78); margin: -5px 0; }
+body.icons-large .icons { grid-template-rows: repeat(auto-fill, 128px); }
+body.icons-large .icons .launch { width: 110px; font-size: 14px; }
+body.icons-large .icons .app-tile { transform: scale(1.25); margin: 6px 0; }
+.wall-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+.wall { width: 96px; height: 60px; border-radius: 10px; border: 2px solid var(--line); cursor: pointer; padding: 0; color: var(--muted); font-size: 24px; background: var(--panel-2); }
+.wall.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-2); }
 .widgets { position: fixed; top: 56px; right: 16px; width: 280px; display: grid; gap: 12px; }
 .widget { background: rgba(255,255,255,.88); color: #1f2a35; border-radius: var(--radius); padding: 12px 14px; box-shadow: 0 4px 16px rgba(0,0,0,.18); }
 .widget h4 { margin: 0 0 8px; font-size: 13px; }

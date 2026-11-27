@@ -23,6 +23,12 @@ const API = {
   post(p, b = {}) { return this.call("POST", p, b); },
   put(p, b = {}) { return this.call("PUT", p, b); },
   del(p) { return this.call("DELETE", p); },
+  async raw(method, path, blob) {          // (binary body, e.g. a picture)
+    const res = await fetch(path, { method, body: blob, headers: { "Content-Type": "application/octet-stream", Authorization: `Bearer ${this.token}` } });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || res.statusText);
+    return data;
+  },
 };
 
 function h(tag, attrs = {}, ...kids) {

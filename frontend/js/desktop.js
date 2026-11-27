@@ -93,6 +93,7 @@ function startDesktop(me) {
   widgets(); setInterval(widgets, 5000);
   usbIndicator(); setInterval(usbIndicator, 5000);
   document.getElementById("usb-btn").onclick = toggle("usb-menu");
+  API.get("/api/account").then(async (a) => { await applyPrefs(a.prefs); if (!boot.after) reopenWindows(); }).catch(() => {});
   if (boot.after) boot.after();
   else if (me.admin) API.get("/api/setup/status").then((s) => s.needs_setup && runSetupWizard());
 }

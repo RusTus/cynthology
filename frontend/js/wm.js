@@ -35,6 +35,7 @@ const WM = {
     this.wins[id] = { el, task, cleanup: [] };
     this.focus(id);
     app.open(body, this.wins[id]);
+    if (typeof rememberWindows === "function") rememberWindows();
   },
   close(id) {
     const w = this.wins[id];
@@ -42,6 +43,7 @@ const WM = {
     w.cleanup.forEach((f) => f());
     w.el.remove(); w.task.remove();
     delete this.wins[id];
+    if (typeof rememberWindows === "function") rememberWindows();
   },
   drag(el) {
     const bar = el.querySelector(".win-title");

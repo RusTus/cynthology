@@ -38,11 +38,35 @@ def list_users(_=Depends(require_admin)):
             for p in pwd.getpwall() if MIN_UID <= p.pw_uid < 60000]
 
 
+def check_password(pw: str) -> None:
+    if len(pw) < 8:
+        raise HTTPException(400, "password must be at least 8 characters")
+    if len(pw) > 256 or any(ord(c) < 32 or ord(c) == 127 for c in pw):
+        # (chpasswd and smbpasswd read lines: a line break would start another account's entry)
+        raise HTTPException(400, "password can't contain line breaks or control characters (max. 256 characters)")
+
+
+def check_full_name(name: str) -> str:
+    name = name.strip()
+    if len(name) > 100 or any(c in name for c in ":,=\\") or any(ord(c) < 32 for c in name):
+        raise HTTPException(400, "full name: up to 100 characters, without : , = or \\")
+    return name
+
+
+def apply_password(name: str, pw: str) -> None:
+    """New password for a local account (Linux + Samba); signs the account out everywhere."""
+    check_password(pw)
+    run(["chpasswd"], input=f"{name}:{pw}\n")
+    run(["smbpasswd", "-s", name], input=f"{pw}\n{pw}\n")
+    from .auth import end_sessions
+    end_sessions(name)
+
+
 @router.post("")
 def create_user(body: UserCreate, _=Depends(require_admin)):
     valid_name(body.name, "username")
-    if len(body.password) < 8:
-        raise HTTPException(400, "password must be at least 8 characters")
+    check_password(body.password)
+    body.full_name = check_full_name(body.full_name)
     groups = "users,cynthology-admin" if body.admin else "users"
     run(["useradd", "-m", "-s", "/usr/sbin/nologin", "-G", groups, "-c", body.full_name, body.name])
     run(["chpasswd"], input=f"{body.name}:{body.password}\n")
@@ -61,14 +85,7 @@ def create_user(body: UserCreate, _=Depends(require_admin)):
 @router.put("/{name}/password")
 def set_password(name: str, body: Password, _=Depends(require_admin)):
     valid_name(name, "username")
-    run(["chpasswd"], input=f"{name}:{body.password}\n")
-    run(["smbpasswd", "-s", name], input=f"{body.password}\n{body.password}\n")
-    from .auth import end_sessions
-    end_sessions(name)
-    from .fileservices import remove_user
-    remove_user(name)
-    from . import sharelinks
-    sharelinks.remove_user(name)                  # a new password signs the account out everywhere
+    apply_password(name, body.password)
     return {"ok": True}
 
 
@@ -81,6 +98,10 @@ def delete_user(name: str, _=Depends(require_admin)):
     run(["userdel", name])
     from .auth import end_sessions
     end_sessions(name)
+    from .fileservices import remove_user       # (their rsync account and sharing links go too)
+    remove_user(name)
+    from . import sharelinks
+    sharelinks.remove_user(name)
     if DEV:
         _DEV_USERS[:] = [u for u in _DEV_USERS if u["name"] != name]
     return {"ok": True}

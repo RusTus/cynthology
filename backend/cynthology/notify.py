@@ -129,9 +129,15 @@ def notify(level: str, title: str, detail: str = "", event: str = "alert", log: 
         if log:
             health._log([{"level": level, "title": title, "detail": detail, "event": event, "time": int(time.time())}])
         cfg = health.load_smtp()
-        if cfg.get("enabled") and cfg.get("host") and LEVELS.get(level, 1) >= LEVELS.get(cfg.get("min_level", "info"), 0):
+        try:
+            from .account import alert_recipients      # (administrators who opted in under Personal)
+            extra = alert_recipients()
+        except Exception:
+            extra = []
+        to = ", ".join(dict.fromkeys([x.strip() for x in (cfg.get("to") or "").split(",") if x.strip()] + extra))
+        if cfg.get("enabled") and cfg.get("host") and to and LEVELS.get(level, 1) >= LEVELS.get(cfg.get("min_level", "info"), 0):
             try:
-                health.send_mail(title, detail, cfg)
+                health.send_mail(title, detail, {**cfg, "to": to})
             except Exception as e:
                 health._log([{"level": "warning", "title": "Could not send notification email", "detail": str(e),
                               "event": "mail", "time": int(time.time())}])
