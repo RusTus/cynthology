@@ -66,7 +66,9 @@ def set_password(name: str, body: Password, _=Depends(require_admin)):
     from .auth import end_sessions
     end_sessions(name)
     from .fileservices import remove_user
-    remove_user(name)                  # a new password signs the account out everywhere
+    remove_user(name)
+    from . import sharelinks
+    sharelinks.remove_user(name)                  # a new password signs the account out everywhere
     return {"ok": True}
 
 

@@ -22,6 +22,7 @@ WM.register("files", {
       menuBtn("Create", () => [["New folder", newFolder, !rw()]]),
       menuBtn("Upload", () => [["Upload files…", () => fileInput.click(), !rw()], ["Upload a folder…", () => folderInput.click(), !rw()]]),
       menuBtn("Action", actionItems),
+      h("button", { class: "btn", onclick: () => sharedLinks() }, "Shared links"),
       h("span", { style: "flex:1" }), viewBtn,
       menuBtn("Settings", () => [[(st.hidden ? "✓ " : "") + "Show hidden files", () => { st.hidden = !st.hidden; go(st.path, true); }]]));
     const list = h("div", { class: "fs-list", tabindex: 0 });
@@ -204,6 +205,7 @@ WM.register("files", {
       return [
         ["Open", () => (one.dir ? go(itemPath(one)) : openFile(one)), !one],
         ["Download", downloadSel, !n],
+        ["Share link…", () => shareLink(itemPath(one), one.name), !one || !!st.search && !one],
         null,
         ["Copy to…", () => transferTo(false), !n],
         ["Move to…", () => transferTo(true), !n || !canWrite],
@@ -278,6 +280,62 @@ WM.register("files", {
       const r = await API.post("/api/files/ticket", { path: itemPath(it) });
       window.open(r.url + "&inline=true", "_blank", "noopener");
     }
+    // ---------- sharing links (backend sharelinks.py) ----------
+    async function linkBase() {
+      const a = await API.get("/api/sharelinks/addresses").catch(() => ({ names: [] }));
+      const port = a.https_port === 443 ? "" : `:${a.https_port}`;
+      return [location.origin, ...a.names.map((n) => `https://${n}${port}`)].filter((v, i, all) => all.indexOf(v) === i);
+    }
+    function linkResult(link, bases) {
+      const sel = h("select", {}, bases.map((b) => h("option", { value: b }, b.replace(/^https?:\/\//, ""))));
+      const url = h("input", { readonly: true, value: bases[0] + link.url, style: "width:100%", onfocus: (e) => e.target.select() });
+      sel.onchange = () => (url.value = sel.value + link.url);
+      return h("div", { class: "form" },
+        bases.length > 1 ? h("label", {}, "Address", sel) : null,
+        h("label", {}, "Link", url),
+        h("div", { class: "toolbar" }, h("button", { class: "btn primary", onclick: async () => {
+          try { await navigator.clipboard.writeText(url.value); toast("Link copied"); } catch { url.select(); document.execCommand("copy"); toast("Link copied"); }
+        } }, "Copy link")),
+        h("div", { class: "muted", style: "font-size:12px" },
+          bases[0].includes("://192.168.") || bases[0].includes("://10.") || bases[0].includes("://172.") || bases[0].includes("localhost")
+            ? t("This address only works in your home network. For people outside, set up External Access (DDNS + Let's Encrypt) and forward this port on your router:") + " " + (new URL(bases[0]).port || "443")
+            : t(link.has_password ? "Anyone with this link and the password can open it." : "Anyone with this link can open it.")));
+    }
+    async function shareLink(path, name) {
+      const f = { path, expires_days: 7, password: "", max_downloads: 0 };
+      const body = h("div", { class: "form" },
+        h("label", {}, "Link expires", h("select", { onchange: (e) => (f.expires_days = +e.target.value) },
+          [[1, "after 1 day"], [7, "after 7 days"], [30, "after 30 days"], [90, "after 90 days"], [0, "never"]].map(([v, l]) => h("option", { value: v, selected: v === 7 }, l)))),
+        h("label", {}, "Password (optional)", h("input", { type: "text", autocomplete: "off", oninput: (e) => (f.password = e.target.value) })),
+        h("label", {}, "Download limit (0 = no limit)", h("input", { type: "number", min: 0, value: 0, style: "width:120px", oninput: (e) => (f.max_downloads = +e.target.value) })));
+      const close = modal(t("Share") + " " + name, body, [["Cancel", null, ""], ["Create link", async () => {
+        const link = await act(() => API.post("/api/sharelinks", f));
+        const bases = await linkBase();
+        close();
+        modal(t("Link for") + " " + name, linkResult(link, bases));
+      }, "primary"]]);
+    }
+    async function sharedLinks() {
+      const [links, bases] = await Promise.all([API.get("/api/sharelinks"), linkBase()]);
+      const box = h("div", { style: "max-height:60vh;overflow:auto" });
+      const draw = (items) => box.replaceChildren(items.length ? h("table", {}, items.map((l) => h("tr", {},
+        h("td", {}, h("b", { translate: "no" }, l.name), " ", h("span", { class: "pill " + (l.state === "active" ? "ok" : "") }, t(l.state)),
+          h("div", { class: "muted", translate: "no", style: "font-size:12px" }, l.path),
+          h("div", { class: "muted", style: "font-size:12px" },
+            (l.expires ? t("until") + " " + new Date(l.expires * 1000).toLocaleDateString() : t("no expiry")) +
+            ` · ${t("downloads")}: ${l.downloads}${l.max_downloads ? "/" + l.max_downloads : ""}` + (l.has_password ? " · 🔒 " + t("password") : ""))),
+        h("td", { style: "white-space:nowrap;text-align:right;vertical-align:top" },
+          h("button", { class: "btn", onclick: () => modal(l.name, linkResult(l, bases)) }, "Copy"),
+          h("button", { class: "btn", onclick: async () => {
+            if (!confirm(t("Delete this link? It stops working for everyone who has it."))) return;
+            await act(() => API.del(`/api/sharelinks/${l.id}`), "Link deleted");
+            draw(await API.get("/api/sharelinks"));
+          } }, "Delete")))))
+        : h("p", { class: "muted" }, "You haven't shared anything yet. Right-click a file or folder → Share link…"));
+      draw(links);
+      modal("Shared links", box);
+    }
+
     async function properties() {
       const sel = selected();
       const kv = (k, v) => h("tr", {}, h("td", { class: "muted", style: "width:130px" }, k), h("td", {}, v));
