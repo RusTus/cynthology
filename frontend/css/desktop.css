@@ -347,3 +347,10 @@ audio.viewer-media { width: min(600px, 90vw); }
 .viewer-nav:hover { background: rgba(255,255,255,.16); }
 .viewer-nav.prev { left: 10px; } .viewer-nav.next { right: 10px; }
 @media (max-width: 700px) { .viewer-nav { display: none; } .viewer-bar .btn:first-of-type { padding: 6px 10px; } }
+
+/* Cloud Sync */
+.cs-types { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px; }
+.cs-type { border: 1px solid var(--line); background: var(--panel-2); color: var(--text); border-radius: 8px; padding: 10px 8px; font-size: 13px; text-align: left; }
+.cs-type.on { border-color: var(--accent); background: var(--accent-2); color: var(--accent); font-weight: 600; }
+
+.wiz-card a { color: var(--accent); }

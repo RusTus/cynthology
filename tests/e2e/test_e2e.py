@@ -141,6 +141,8 @@ def test_every_page_opens_without_errors(api):
         b = pw.chromium.launch()
         page = b.new_context(viewport={"width": 1366, "height": 900}, ignore_https_errors=True).new_page()
         page.on("pageerror", lambda e: errors.append(f"{page.url}: {e}"))
+        # (errors inside async code - "Uncaught (in promise)" - only show up on the console)
+        page.on("console", lambda m: m.type == "error" and "Failed to load resource" not in m.text and errors.append(m.text))
         page.goto(URL)
         page.fill("#login-user", USER)
         page.fill("#login-pass", PASS)
