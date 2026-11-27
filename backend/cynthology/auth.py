@@ -84,6 +84,14 @@ FAILS: dict[str, list[float]] = {}
 PENDING: dict[str, dict] = {}      # password OK, waiting for the 2-step code
 
 
+def _log(event: str, user: str, ip: str, detail: str = "") -> None:
+    try:
+        from .logcenter import auth_event
+        auth_event(event, user, ip, detail)
+    except Exception:
+        pass
+
+
 def _check_lock(*keys: str) -> None:
     now = time.time()
     for k in keys:
@@ -134,10 +142,16 @@ def enrollment_done(user: str) -> None:
 @router.post("/login")
 def login(body: Login, request: Request):
     from . import twofa
-    keys = (f"u:{body.username.lower()}", f"ip:{request.client.host if request.client else '?'}")
-    _check_lock(*keys)
+    ip = request.client.host if request.client else "?"
+    keys = (f"u:{body.username.lower()}", f"ip:{ip}")
+    try:
+        _check_lock(*keys)
+    except HTTPException:
+        _log("locked", body.username, ip, "too many failed attempts")
+        raise
     if not _pam_ok(body.username, body.password):
         _fail(*keys)
+        _log("failed", body.username, ip, "wrong user name or password")
         raise HTTPException(401, "Invalid username or password")
     if "\\" not in body.username:      # domain accounts authenticate against the domain
         _ensure_smb_password(body.username, body.password)
@@ -148,10 +162,11 @@ def login(body: Login, request: Request):
         pass
     if twofa.enabled(body.username):
         ticket = secrets.token_urlsafe(24)
-        PENDING[ticket] = {"user": body.username, "exp": time.time() + 300, "keys": keys}
+        PENDING[ticket] = {"user": body.username, "exp": time.time() + 300, "keys": keys, "ip": ip}
         return {"need_otp": True, "ticket": ticket}
     for k in keys:
         FAILS.pop(k, None)
+    _log("login", body.username, ip)
     return _new_session(body.username)
 
 
@@ -170,10 +185,12 @@ def otp(body: Otp):
     _check_lock(*p["keys"])
     if not twofa.verify(p["user"], body.code):
         _fail(*p["keys"])
+        _log("2fa-failed", p["user"], p.get("ip", "?"), "wrong verification code")
         raise HTTPException(401, "Wrong verification code")
     del PENDING[body.ticket]
     for k in p["keys"]:
         FAILS.pop(k, None)
+    _log("login", p["user"], p.get("ip", "?"), "with 2-step verification")
     return _new_session(p["user"])
 
 

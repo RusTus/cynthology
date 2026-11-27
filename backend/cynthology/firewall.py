@@ -359,6 +359,11 @@ def block_ip(ip: str, reason: str = "") -> bool:
     r = subprocess.run(["nft", "add", "element", "inet", "cynthology", s, f"{{ {addr}{timeout} }}"], capture_output=True)
     if r.returncode == 0:
         try:
+            from .logcenter import auth_event
+            auth_event("blocked", "", str(addr), f"auto-blocked after {a['attempts']} failed sign-ins ({reason})")
+        except Exception:
+            pass
+        try:
             from .backup import _alert
             _alert({"name": "auto-block"}, "warning", f"Blocked {addr}",
                    f"{addr} was blocked after {a['attempts']} failed sign-ins{(': ' + reason) if reason else ''}.")

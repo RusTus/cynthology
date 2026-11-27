@@ -66,7 +66,8 @@ def smb_block(s: dict) -> str:
     # Apple's SMB extensions (fruit) must be loaded on EVERY share once any share uses them (Time Machine).
     streams = "streams_depot" if s.get("fstype") in NO_XATTR_FS else "streams_xattr"
     snaps = not s.get("usb") and not s.get("encrypted")
-    vfs = ["catia", "fruit", streams] + (["btrfs", "shadow_copy2"] if snaps else []) + (["recycle"] if s.get("recycle_bin") else [])
+    vfs = ["catia", "fruit", streams] + (["btrfs", "shadow_copy2"] if snaps else []) + (["recycle"] if s.get("recycle_bin") else []) + \
+        (["full_audit"] if s.get("audit") else [])
     block = [f"[{s['name']}]", f"   path = {s['path']}", f"   comment = {s.get('description', '')}",
              "   browseable = yes", "   read only = yes",
              f"   valid users = {' '.join(_smb_names(s['read_users'] + s['write_users']))}",
@@ -78,6 +79,9 @@ def smb_block(s: dict) -> str:
     if s.get("recycle_bin"):
         block += ["   recycle:repository = #recycle", "   recycle:keeptree = yes", "   recycle:versions = yes",
                   "   recycle:touch = yes", "   recycle:exclude_dir = .snapshots"]
+    if s.get("audit"):      # Log Center > File access (syslog identifier smbd_audit)
+        block += ["   full_audit:prefix = %u|%I|%S", "   full_audit:success = openat renameat unlinkat mkdirat",
+                  "   full_audit:failure = none", "   full_audit:facility = LOCAL5", "   full_audit:priority = NOTICE"]
     if s.get("time_machine"):
         block += ["   fruit:time machine = yes", "   durable handles = yes", "   kernel oplocks = no",
                   "   kernel share modes = no", "   posix locking = no"]
@@ -670,5 +674,21 @@ def put_permissions(name: str, body: Permissions, _=Depends(require_admin)):
            "write_users": list(dict.fromkeys(body.write_users))}
     apply_acls(share["path"], share, new)
     share.update(new)
+    write_configs(shares)
+    return {"ok": True}
+
+
+class Audit(BaseModel):
+    enabled: bool
+
+
+@router.put("/{name}/audit")
+def put_audit(name: str, body: Audit, _=Depends(require_admin)):
+    """Log Center: record who opens, changes, renames and deletes files in this folder over SMB."""
+    shares = load()
+    share = next((s for s in shares if s["name"] == name), None)
+    if not share:
+        raise HTTPException(404, "no such shared folder")
+    share["audit"] = body.enabled
     write_configs(shares)
     return {"ok": True}
