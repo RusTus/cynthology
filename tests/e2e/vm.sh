@@ -8,6 +8,8 @@
 set -euo pipefail
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 W=${E2E_DIR:-/tmp/e2e}
+SSH_PORT=${E2E_SSH_PORT:-2222}
+WEB_PORT=${E2E_WEB_PORT:-5101}
 mkdir -p "$W"
 cd "$W"
 BASE_URL=https://cloud.debian.org/images/cloud/trixie/latest/debian-13-generic-amd64.qcow2
@@ -37,26 +39,30 @@ if [ -w /dev/kvm ]; then ACCEL=(-accel kvm -cpu host); else echo "(no KVM - this
 DISKS=()
 for i in 1 2 3 4; do DISKS+=(-drive "file=d$i.qcow2,if=none,id=d$i" -device "ide-hd,drive=d$i,bus=ahci.$((i-1)),serial=E2EDISK$i"); done
 qemu-system-x86_64 -machine q35 "${ACCEL[@]}" -smp 4 -m 6144 \
-  -drive file=boot.qcow2,if=virtio -drive file=seed.img,if=virtio,format=raw \
+  -drive file=boot.qcow2,if=none,id=boot -device virtio-blk-pci,drive=boot,bootindex=0 \
+  -drive file=seed.img,if=none,id=seed,format=raw -device virtio-blk-pci,drive=seed \
   -device ahci,id=ahci "${DISKS[@]}" \
-  -netdev user,id=n0,hostfwd=tcp::2222-:22,hostfwd=tcp::5101-:5001 -device virtio-net,netdev=n0 \
-  -display none -serial file:serial.log -daemonize -pidfile qemu.pid
+  -netdev user,id=n0,hostfwd=tcp::$SSH_PORT-:22,hostfwd=tcp::$WEB_PORT-:5001 -device virtio-net,netdev=n0 \
+  -display none -serial file:serial.log -daemonize -pidfile qemu.pid 2> qemu.err || { cat qemu.err; exit 1; }
 
-SSH=(ssh -i "$W/key" -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5 nasadmin@localhost)
+SSH=(ssh -i "$W/key" -p "$SSH_PORT" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5 nasadmin@localhost)
 echo "==> waiting for the VM"
 for i in $(seq 1 120); do "${SSH[@]}" true 2>/dev/null && break; sleep 5; done
-"${SSH[@]}" true
+if ! "${SSH[@]}" true; then
+  echo "VM didn't come up. qemu running: $(kill -0 "$(cat qemu.pid 2>/dev/null)" 2>/dev/null && echo yes || echo no)"
+  echo "--- console:"; tail -60 serial.log; cat qemu.err; exit 1
+fi
 "${SSH[@]}" 'cloud-init status --wait >/dev/null 2>&1 || true'
 
 echo "==> installing Cynthology from $(git -C "$REPO" rev-parse --short HEAD)"
 git -C "$REPO" archive --format=tar --prefix=src/ HEAD | "${SSH[@]}" 'rm -rf src && tar x'
 "${SSH[@]}" 'cd src && sudo ./install.sh > /tmp/install.log 2>&1; rc=$?; tail -5 /tmp/install.log; exit $rc'
 "${SSH[@]}" 'sudo apt-get install -y -q smbclient >/dev/null 2>&1 || true'
-for i in $(seq 1 60); do curl -sk -o /dev/null -w '%{http_code}' https://localhost:5101/ | grep -q 200 && break; sleep 5; done
+for i in $(seq 1 60); do curl -sk -o /dev/null -w '%{http_code}' "https://localhost:$WEB_PORT/" | grep -q 200 && break; sleep 5; done
 
 cat > env <<EOF
-export CYN_E2E_URL=https://localhost:5101
-export CYN_E2E_SSH="ssh -i $W/key -p 2222 nasadmin@localhost"
+export CYN_E2E_URL=https://localhost:$WEB_PORT
+export CYN_E2E_SSH="ssh -i $W/key -p $SSH_PORT nasadmin@localhost"
 export CYN_E2E_USER=nasadmin
 export CYN_E2E_PASS=$PASS
 EOF
