@@ -2,6 +2,8 @@
 import grp
 import json
 import os
+import tempfile
+import threading
 import secrets
 import time
 
@@ -22,13 +24,25 @@ def _load_sessions() -> dict[str, dict]:
         return {}
 
 
+_SAVE_LOCK = threading.Lock()
+
+
 def _save_sessions() -> None:
-    """Sessions survive service restarts (e.g. after a certificate change). File is root-only."""
-    tmp = SESSIONS_FILE + ".tmp"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as f:
-        json.dump(SESSIONS, f)
-    os.replace(tmp, SESSIONS_FILE)
+    """Sessions survive service restarts (e.g. after a certificate change). File is root-only.
+    (Requests run in parallel threads: one writer at a time, each with its own temporary file.)"""
+    with _SAVE_LOCK:
+        data = json.dumps(dict(SESSIONS))
+        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(SESSIONS_FILE) or ".", prefix=".sessions-")
+        try:
+            with os.fdopen(fd, "w") as f:          # (mkstemp files are 0600)
+                f.write(data)
+            os.replace(tmp, SESSIONS_FILE)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
 
 
 SESSIONS: dict[str, dict] = _load_sessions()

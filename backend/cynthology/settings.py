@@ -1,6 +1,7 @@
 """Small persistent key/value settings (settings.json in the state dir)."""
 import json
 import os
+import threading
 
 from .util import STATE_DIR
 
@@ -20,11 +21,15 @@ def get(key: str):
     return get_all().get(key)
 
 
+_LOCK = threading.Lock()
+
+
 def update(**values) -> dict:
-    s = get_all()
-    s.update(values)
-    tmp = FILE + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(s, f, indent=2)
-    os.replace(tmp, FILE)
-    return s
+    with _LOCK:                      # (parallel requests: read-modify-write one at a time)
+        s = get_all()
+        s.update(values)
+        tmp = FILE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(s, f, indent=2)
+        os.replace(tmp, FILE)
+        return s
