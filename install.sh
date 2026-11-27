@@ -50,7 +50,8 @@ $RS --keep-dirlinks "$SRC/rootfs/" /
 # repair: older installers (run from a user's own git clone) copied that user's ownership onto
 # system folders such as / and /etc. Every folder we install into belongs to root.
 (cd "$SRC/rootfs" && find . -type d) | while read -r d; do
-  t="/${d#./}"; [ -d "$t" ] && [ ! -L "$t" ] && [ "$(stat -c %u "$t")" != 0 ] && chown root:root "$t" && echo "fixed owner of $t"
+  t="/${d#./}"
+  if [ -d "$t" ] && [ ! -L "$t" ] && [ "$(stat -c %u "$t")" != 0 ]; then chown root:root "$t" && echo "fixed owner of $t"; fi
 done
 install -m 755 "$SRC/get.sh" /usr/lib/cynthology/get.sh   # used by "cynthology update" and the Update page
 
@@ -104,6 +105,7 @@ elif [ "$NOSYSTEMD" != 1 ]; then
   systemctl enable --now cynthology-ui cynthology-snapshots.timer cynthology-health.timer cynthology-backup.timer cynthology-pkgupdate.timer cynthology-repl.timer cynthology-scrub.timer cynthology-ddns.timer cynthology-issue cynthology-firewall cynthology-unlock rtslib-fb-targetctl ssh smbd avahi-daemon docker
   systemctl restart cynthology-ui   # pick up new code when upgrading
   sshd -t 2>/dev/null && systemctl reload ssh 2>/dev/null || true   # (our sshd_config.d drop-in)
+  systemctl try-restart cynthology-webdav 2>/dev/null || true       # (only if WebDAV is on)
   systemctl enable --now wsdd2 2>/dev/null || systemctl enable --now wsdd 2>/dev/null || true
 fi
 IP=$(hostname -I 2>/dev/null | awk '{print $1}')
