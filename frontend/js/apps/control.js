@@ -10,6 +10,7 @@ const CP_SECTIONS = {
   advisor: { label: "Security Advisor", group: "Connectivity", icon: "cp_advisor", desc: "Check your settings and see what to fix", render: (p) => cpAdvisor(p) },
   firewall: { label: "Firewall", group: "Connectivity", icon: "cp_firewall", desc: "Allow or block services and addresses, auto-block", render: (p) => cpFirewall(p) },
   vpn: { label: "VPN Server", group: "Connectivity", icon: "cp_vpn", desc: "WireGuard: reach the NAS and your home network from anywhere", render: (p) => cpVpn(p) },
+  snmp: { label: "SNMP", group: "Connectivity", icon: "cp_snmp", desc: "Let monitoring tools read the NAS's status", render: (p) => cpSnmp(p) },
   external: { label: "External Access", group: "Connectivity", icon: "cp_external", desc: "DDNS host name for reaching the NAS from the internet", render: (p) => cpExternal(p) },
   general: { label: "General", group: "System", icon: "cp_general", desc: "Server name, time zone", render: (p) => cpGeneral(p) },
   portal: { label: "Login Portal", group: "System", icon: "cp_portal", desc: "Sign-in page, your domain name, HTTPS and HSTS", render: (p) => cpPortal(p) },
@@ -1466,5 +1467,45 @@ async function cpPortal(p) {
           if (redirect.checked && location.protocol === "http:") switchToHttps(false);
         }
       } }, "Save"))));
+}
+
+// SNMP: read-only status for monitoring tools (v2c community and/or v3 user).
+async function cpSnmp(p) {
+  const s = await API.get("/api/snmp");
+  const en = h("input", { type: "checkbox", checked: s.enabled });
+  const v2 = h("input", { type: "checkbox", checked: s.v2c });
+  const comm = h("input", { value: s.community, placeholder: t("e.g. nas-monitor-7f3"), autocomplete: "off" });
+  const v3 = h("input", { type: "checkbox", checked: s.v3 });
+  const user = h("input", { value: s.user, placeholder: "monitor", autocomplete: "off" });
+  const apw = h("input", { type: "password", autocomplete: "new-password", placeholder: s.has_v3_secrets ? t("(unchanged)") : "" });
+  const ppw = h("input", { type: "password", autocomplete: "new-password", placeholder: s.has_v3_secrets ? t("(unchanged)") : "" });
+  const nets = h("textarea", { rows: 3, placeholder: s.default_networks.join("\n") }, s.networks.join("\n"));
+  const loc = h("input", { value: s.location, maxlength: 100 });
+  const contact = h("input", { value: s.contact, maxlength: 100 });
+  const err = h("div", { class: "err" });
+  p.append(h("h2", {}, "SNMP"),
+    h("p", { class: "muted" }, "Lets monitoring tools (PRTG, LibreNMS, Zabbix, Home Assistant…) read the NAS's status: CPU, memory, network, volumes. ",
+      "Read-only - nothing can be changed over SNMP."),
+    s.enabled ? h("div", { class: "note" + (s.running ? "" : " warn") }, s.running ? t("✓ SNMP is running (UDP port 161).") : t("SNMP is on but not running - save again to restart it.")) : null,
+    h("div", { class: "form" },
+      h("label", { class: "check" }, en, h("b", {}, t("Turn on SNMP"))),
+      h("label", { class: "check" }, v2, t("SNMP v1/v2c (a community name - sent unencrypted, for your local network)")),
+      h("label", {}, "Community", comm),
+      h("label", { class: "check" }, v3, t("SNMP v3 (user name and passwords, encrypted - recommended)")),
+      h("label", {}, "v3 user name", user),
+      h("label", {}, "Authentication password (SHA-256)", apw),
+      h("label", {}, "Encryption password (AES)", ppw),
+      h("label", {}, "Who may ask (networks, one per line; empty = this NAS's local networks)", nets),
+      h("label", {}, "Location", loc),
+      h("label", {}, "Contact", contact), err,
+      h("div", { class: "toolbar" }, h("button", { class: "btn primary", onclick: async (e) => {
+        err.textContent = ""; e.target.disabled = true;
+        try {
+          await API.put("/api/snmp", { enabled: en.checked, v2c: v2.checked, community: comm.value.trim(), v3: v3.checked, user: user.value.trim(),
+            auth_pw: apw.value, priv_pw: ppw.value, networks: nets.value.split(/[\s,]+/).filter(Boolean), location: loc.value, contact: contact.value });
+          toast(t("Saved")); p.replaceChildren(); cpSnmp(p);
+        } catch (x) { err.textContent = x.message; e.target.disabled = false; }
+      } }, "Save")),
+      h("div", { class: "muted", style: "font-size:12px" }, t("If the firewall is on, allow the SNMP service (UDP 161) from your monitoring server."))));
 }
 

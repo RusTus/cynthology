@@ -43,6 +43,7 @@ SERVICES = {
     "webdav": ("WebDAV (network drive over HTTP/HTTPS)", [("tcp", "WEBDAV_HTTP"), ("tcp", "WEBDAV_HTTPS")]),
     "rsync": ("rsync server", [("tcp", "873")]),
     "vault": ("Backup Vault (backups from other NAS boxes)", [("tcp", "VAULT_PORT")]),
+    "snmp": ("SNMP (monitoring tools)", [("udp", "161")]),
 }
 
 

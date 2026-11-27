@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 1133 entries.
+// Generated from the English UI strings (see i18n.js). 1150 entries.
 i18nAdd("fr", {
 "Error: ": "Erreur : ",
 "Settings and data are kept.": "Les réglages et les données sont conservés.",
@@ -1132,5 +1132,22 @@ i18nAdd("fr", {
 "Move it to quarantine (recommended)": "Le mettre en quarantaine (recommandé)",
 "Only report it": "Seulement le signaler",
 "Skip files larger than (MB)": "Ignorer les fichiers de plus de (Mo)",
-"Installing": "Installation"
+"Installing": "Installation",
+"Let monitoring tools read the NAS's status": "Permettre aux outils de supervision de lire l'état du NAS",
+"Lets monitoring tools (PRTG, LibreNMS, Zabbix, Home Assistant…) read the NAS's status: CPU, memory, network, volumes. ": "Permet aux outils de supervision (PRTG, LibreNMS, Zabbix, Home Assistant…) de lire l'état du NAS : CPU, mémoire, réseau, volumes. ",
+"Read-only - nothing can be changed over SNMP.": "Lecture seule - rien ne peut être modifié via SNMP.",
+"✓ SNMP is running (UDP port 161).": "✓ SNMP fonctionne (port UDP 161).",
+"SNMP is on but not running - save again to restart it.": "SNMP est activé mais ne fonctionne pas - enregistrez à nouveau pour le relancer.",
+"Turn on SNMP": "Activer SNMP",
+"SNMP v1/v2c (a community name - sent unencrypted, for your local network)": "SNMP v1/v2c (un nom de communauté - envoyé en clair, pour votre réseau local)",
+"Community": "Communauté",
+"e.g. nas-monitor-7f3": "ex. nas-monitor-7f3",
+"SNMP v3 (user name and passwords, encrypted - recommended)": "SNMP v3 (nom d'utilisateur et mots de passe, chiffré - recommandé)",
+"v3 user name": "Nom d'utilisateur v3",
+"Authentication password (SHA-256)": "Mot de passe d'authentification (SHA-256)",
+"Encryption password (AES)": "Mot de passe de chiffrement (AES)",
+"Who may ask (networks, one per line; empty = this NAS's local networks)": "Qui peut interroger (réseaux, un par ligne ; vide = les réseaux locaux de ce NAS)",
+"Location": "Emplacement",
+"If the firewall is on, allow the SNMP service (UDP 161) from your monitoring server.": "Si le pare-feu est activé, autorisez le service SNMP (UDP 161) depuis votre serveur de supervision.",
+"SNMP (monitoring tools)": "SNMP (outils de supervision)"
 });
