@@ -7,6 +7,7 @@ const CP_SECTIONS = {
   network: { label: "Network", group: "Connectivity", icon: "cp_network", desc: "IP address, DNS, link aggregation", render: (p) => cpNetwork(p) },
   security: { label: "Security", group: "Connectivity", icon: "cp_security", desc: "HTTPS certificate, Let's Encrypt, 2-step policy", render: (p) => cpSecurity(p) },
   firewall: { label: "Firewall", group: "Connectivity", icon: "cp_firewall", desc: "Allow or block services and addresses, auto-block", render: (p) => cpFirewall(p) },
+  vpn: { label: "VPN Server", group: "Connectivity", icon: "cp_vpn", desc: "WireGuard: reach the NAS and your home network from anywhere", render: (p) => cpVpn(p) },
   external: { label: "External Access", group: "Connectivity", icon: "cp_external", desc: "DDNS host name for reaching the NAS from the internet", render: (p) => cpExternal(p) },
   general: { label: "General", group: "System", icon: "cp_general", desc: "Server name, time zone", render: (p) => cpGeneral(p) },
   info: { label: "Info Center", group: "System", icon: "cp_info", desc: "Hardware and system details", render: (p) => cpInfo(p) },
@@ -948,4 +949,71 @@ async function cpDomain(p) {
         catch (ex) { err.textContent = ex.message; e.target.disabled = false; e.target.textContent = "Join"; }
       } }, "Join"))),
     h("p", { class: "muted", style: "font-size:12px" }, "Plain LDAP servers (without Samba support) can't provide Windows file sharing logins, so only Active Directory is offered."));
+}
+
+// ---------- VPN Server (WireGuard) ----------
+async function cpVpn(p) {
+  const d = await API.get("/api/vpn");
+  const reload = () => { p.replaceChildren(); cpVpn(p); };
+  const f = { enabled: d.enabled, subnet: d.subnet, port: d.port, endpoint: d.endpoint || d.suggested_endpoint || "", dns: d.dns || "" };
+  const ago = (t) => { if (!t) return "never"; const s = Math.round(Date.now() / 1000 - t); return s < 120 ? `${s} s ago` : s < 7200 ? `${Math.round(s / 60)} min ago` : new Date(t * 1000).toLocaleString(); };
+  const inp = (label, k, attrs = {}) => h("label", {}, label, h("input", { value: f[k], oninput: (e) => (f[k] = attrs.type === "number" ? +e.target.value : e.target.value.trim()), ...attrs }));
+  p.append(h("h2", {}, "VPN Server"),
+    !d.available ? h("div", { class: "note warn" }, "WireGuard isn't installed yet - update Cynthology (Control Panel → Update).") : null,
+    h("div", { class: "note" }, "WireGuard lets your phone and laptop reach this NAS and your home network from anywhere, encrypted - ",
+      "safer than opening ports for each service. On your router, forward ", h("b", {}, `UDP port ${d.port}`), " to this NAS; that is the only port needed."),
+    d.firewall_warning ? h("div", { class: "note warn", style: "margin-top:8px" }, d.firewall_warning) : null,
+    h("div", { class: "form", style: "max-width:640px;margin-top:12px" },
+      h("label", { class: "check" }, h("input", { type: "checkbox", checked: f.enabled, onchange: (e) => (f.enabled = e.target.checked) }), h("b", {}, "Turn on the VPN server"),
+        d.enabled ? h("span", { class: "pill " + (d.running ? "ok" : "bad"), style: "margin-left:8px" }, d.running ? "running" : "not running") : null),
+      inp("Public address devices connect to (your DDNS name or public IP)", "endpoint", { placeholder: "mynas.duckdns.org" }),
+      h("div", { class: "toolbar", style: "margin:0" }, inp("UDP port", "port", { type: "number", style: "width:110px" }), inp("VPN subnet", "subnet", { style: "width:160px" })),
+      inp("DNS server for devices (optional; default: the one this NAS uses)", "dns", { placeholder: "192.168.1.1" }),
+      h("div", {}, h("button", { class: "btn primary", onclick: async () => { await act(() => API.put("/api/vpn", f), "VPN settings saved"); reload(); } }, "Save"))),
+    h("h3", { class: "pc-group", style: "margin-top:20px" }, "Devices"),
+    d.peers.length ? h("table", {},
+      h("tr", {}, h("th", {}, "Device"), h("th", {}, "Address"), h("th", {}, "Mode"), h("th", {}, "Last seen"), h("th", {}, "Traffic"), h("th", {})),
+      d.peers.map((x) => h("tr", {},
+        h("td", {}, h("b", { translate: "no" }, x.name), x.enabled ? null : h("span", { class: "pill", style: "margin-left:6px" }, "off")),
+        h("td", { class: "mono" }, x.address),
+        h("td", {}, x.full_tunnel ? "All traffic" : "Home network"),
+        h("td", {}, x.online ? h("span", { class: "pill ok" }, "connected") : h("span", { class: "muted" }, ago(x.handshake)),
+          x.endpoint && x.online ? h("div", { class: "muted mono", style: "font-size:11px" }, x.endpoint) : null),
+        h("td", { class: "muted", style: "font-size:12px" }, `↓ ${fmtBytes(x.tx)} ↑ ${fmtBytes(x.rx)}`),
+        h("td", { style: "white-space:nowrap" },
+          h("button", { class: "btn", onclick: () => vpnConfigDialog(x.id) }, "Show config"), " ",
+          h("button", { class: "btn", onclick: async () => { await act(() => API.put(`/api/vpn/peers/${x.id}`, { enabled: !x.enabled }), x.enabled ? "Device turned off" : "Device turned on"); reload(); } }, x.enabled ? "Turn off" : "Turn on"), " ",
+          h("button", { class: "btn danger", onclick: async () => { if (!confirm(`Remove ${x.name}? It can't connect any more.`)) return; await act(() => API.del(`/api/vpn/peers/${x.id}`), "Device removed"); reload(); } }, "Remove")))))
+      : h("p", { class: "muted" }, "No devices yet."),
+    h("div", { class: "toolbar" }, h("button", { class: "btn primary", disabled: !d.enabled, onclick: () => {
+      const v = { name: "", full_tunnel: false };
+      const err = h("div", { class: "err" });
+      const close = modal("Add a device", h("div", { class: "form", style: "padding:0" },
+        h("label", {}, "Device name", h("input", { placeholder: "Alice's phone", oninput: (e) => (v.name = e.target.value) })),
+        h("label", { class: "check" }, h("input", { type: "radio", name: "tun", checked: true, onchange: () => (v.full_tunnel = false) }),
+          h("div", {}, h("b", {}, "Home network only"), h("div", { class: "muted" }, "Reach the NAS and devices at home; everything else uses the device's own internet."))),
+        h("label", { class: "check" }, h("input", { type: "radio", name: "tun", onchange: () => (v.full_tunnel = true) }),
+          h("div", {}, h("b", {}, "All traffic through home"), h("div", { class: "muted" }, "Safer on public Wi-Fi: the device browses as if it were at home."))),
+        err), [["Cancel", () => close()], ["Add", async (e) => {
+          err.textContent = ""; e.target.disabled = true;
+          try { const r = await API.post("/api/vpn/peers", v); close(); reload(); vpnConfigDialog(r.id); }
+          catch (ex) { err.textContent = ex.message; e.target.disabled = false; }
+        }, "primary"]]);
+    } }, "+ Add device")));
+}
+
+async function vpnConfigDialog(id) {
+  const c = await API.get(`/api/vpn/peers/${id}/config`);
+  modal(`VPN for ${c.name}`, h("div", { class: "form", style: "padding:0" },
+    h("ol", { class: "wiz-list" },
+      h("li", {}, "Install the WireGuard app (iPhone/Android: app store; Windows/Mac/Linux: wireguard.com)."),
+      h("li", {}, "Phone: tap + → Scan from QR code. Computer: import the downloaded file.")),
+    c.qr_svg ? h("div", { class: "qr", html: c.qr_svg, style: "background:#fff;padding:10px;border-radius:8px;width:max-content;margin:auto" }) : null,
+    h("details", {}, h("summary", { class: "muted" }, "Show the configuration text"),
+      h("pre", { class: "mono", style: "white-space:pre-wrap;font-size:12px;background:var(--panel-2);padding:10px;border-radius:8px", translate: "no" }, c.config)),
+    h("div", { class: "toolbar" }, h("button", { class: "btn", onclick: () => {
+      const a = h("a", { href: URL.createObjectURL(new Blob([c.config], { type: "text/plain" })), download: `${c.name.replace(/[^A-Za-z0-9._-]/g, "_")}.conf` });
+      document.body.append(a); a.click(); a.remove();
+    } }, "Download .conf")),
+    h("div", { class: "note warn" }, "This contains the device's private key - anyone with it can connect. Don't share it.")), [["Done", null, "primary"]]);
 }

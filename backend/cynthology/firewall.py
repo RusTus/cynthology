@@ -39,7 +39,20 @@ SERVICES = {
     "iscsi": ("iSCSI (SAN Manager)", [("tcp", "3260")]),
     "webstation": ("Web Station websites (HTTP/HTTPS)", [("tcp", "80"), ("tcp", "443")]),
     "ups": ("UPS server (other NAS devices)", [("tcp", "3493")]),
+    "vpn": ("WireGuard VPN", [("udp", "VPN_PORT")]),
 }
+
+
+def _service_ports(key: str) -> list[tuple[str, str]]:
+    ports = SERVICES[key][1]
+    if key == "vpn":            # whatever port the VPN server is set to
+        try:
+            from .vpn import load as vpn_load
+            port = str(vpn_load().get("port", 51820))
+        except Exception:
+            port = "51820"
+        return [(proto, port) for proto, _ in ports]
+    return ports
 
 
 class Rule(BaseModel):
@@ -141,7 +154,7 @@ def render(cfg: dict) -> str:
                 src = f"{'ip' if net.version == 4 else 'ip6'} saddr {net} "
             by_proto: dict[str, list[str]] = {}
             for s in r.get("services", []):
-                for proto, port in SERVICES[s][1]:
+                for proto, port in _service_ports(s):
                     by_proto.setdefault(proto, []).append(port)
             protos = ["tcp", "udp"] if r.get("protocol") == "both" else [r.get("protocol", "tcp")]
             for port in _ports(r.get("ports", "")):
@@ -189,7 +202,7 @@ def _allowed(cfg: dict, ip: str, port: int) -> bool:
             continue
         if r.get("source") and addr not in ipaddress.ip_network(r["source"], strict=False):
             continue
-        ports = [p for s in r.get("services", []) for proto, p in SERVICES[s][1] if proto == "tcp"]
+        ports = [p for s in r.get("services", []) for proto, p in _service_ports(s) if proto == "tcp"]
         if r.get("protocol") in ("tcp", "both"):
             ports += _ports(r.get("ports", ""))
         match = not r.get("services") and not r.get("ports")

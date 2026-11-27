@@ -1,0 +1,34 @@
+#!/bin/sh
+# PostUp/PostDown of wg0 (see vpn.py): $1 = up|down, $2 = interface, $3 = VPN subnet.
+# Forwarding + NAT so VPN devices reach the home network, and Docker's DOCKER-USER chain opened
+# for the VPN interface (Docker sets the forward policy to drop).
+set -u
+ACTION=$1 IF=$2 NET=$3
+if [ "$ACTION" = up ]; then
+  sysctl -q -w net.ipv4.ip_forward=1
+  nft -f - <<NFT
+table ip cynthology-vpn
+delete table ip cynthology-vpn
+table ip cynthology-vpn {
+  chain forward {
+    type filter hook forward priority filter; policy accept;
+    iifname "$IF" accept
+    oifname "$IF" ct state established,related accept
+  }
+  chain postrouting {
+    type nat hook postrouting priority srcnat; policy accept;
+    ip saddr $NET oifname != "$IF" masquerade
+  }
+}
+NFT
+  if iptables -L DOCKER-USER -n >/dev/null 2>&1; then
+    iptables -C DOCKER-USER -i "$IF" -j ACCEPT 2>/dev/null || iptables -I DOCKER-USER -i "$IF" -j ACCEPT
+    iptables -C DOCKER-USER -o "$IF" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || \
+      iptables -I DOCKER-USER -o "$IF" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+  fi
+else
+  nft delete table ip cynthology-vpn 2>/dev/null
+  iptables -D DOCKER-USER -i "$IF" -j ACCEPT 2>/dev/null
+  iptables -D DOCKER-USER -o "$IF" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT 2>/dev/null
+fi
+exit 0

@@ -51,6 +51,7 @@ Already installed an older version? Run the same command again - it upgrades in 
 | 35 | Task Scheduler | Control Panel → Task Scheduler → + Create → S.M.A.R.T. test (short) → Run now → Results | Test started on every drive; Storage Manager → Drives shows the result |
 | 36 | Permissions | Shared Folders → Permissions → only your user read/write → try another user over SMB | Other user is refused |
 | 37 | Domain (if you have AD) | Domain/LDAP → Join → Permissions: @DOMAIN\\Domain Users → sign in on Windows with a domain account | Domain user opens the share; DOMAIN\\admin signs in to the web interface |
+| 38 | VPN | Control Panel → VPN Server → On → + Add device → scan the QR code with the WireGuard app; router: forward UDP 51820; phone on mobile data | Phone opens https://<NAS LAN IP>:5001 and the shares |
 | 19 | Synology alternatives | Package Center → Synology alternatives → MariaDB → Install, then phpMyAdmin → Install → Open (server: NAS IP, user root, password from Info) | phpMyAdmin logs in |
 
 Logs if something breaks: `sudo journalctl -u cynthology-ui -n 100`
