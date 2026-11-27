@@ -46,6 +46,8 @@ DSM_ONLY = {"WebStation", "PHP7.4", "PHP8.0", "PHP8.1", "PHP8.2", "PHP8.3", "PHP
             "MariaDB10", "Node.js_v18", "Node.js_v20", "ContainerManager", "Docker", "PythonModule", "Perl"}
 
 ROOT = os.path.join(STATE_DIR, "root") if DEV else "/"
+from . import pkgweb                                    # noqa: E402
+from .pkgweb import STANDINS                            # noqa: E402
 PKG_DIR = os.path.join(ROOT, "var/packages")
 STAGING = os.path.join(STATE_DIR, "spk-staging")
 SOURCES_FILE = os.path.join(STATE_DIR, "package-sources.json")
@@ -108,7 +110,8 @@ def fetch_feed(src: dict) -> list[dict]:
     out = []
     for p in pkgs:
         deps = [d.split(">")[0].split("<")[0].strip() for d in re.split(r"[:,]", p.get("deppkgs") or "") if d.strip()]
-        blocked = sorted(set(deps) & DSM_ONLY)
+        blocked = sorted(set(deps) & DSM_ONLY - set(STANDINS))
+        provided = sorted(set(deps) & set(STANDINS))
         out.append({
             "source": src["name"], "package": p.get("package"), "dname": p.get("dname") or p.get("package"),
             "version": p.get("version"), "desc": p.get("desc", ""), "link": p.get("link"), "md5": p.get("md5"),
@@ -116,6 +119,7 @@ def fetch_feed(src: dict) -> list[dict]:
             "maintainer": p.get("maintainer"), "deppkgs": deps,
             "compatible": not blocked,
             "why_not": f"needs DSM-only package(s): {', '.join(blocked)}" if blocked else None,
+            "provided": provided,      # DSM packages Cynthology stands in for (installed with it)
         })
     _feed_cache[src["url"]] = (time.time(), out)
     return out
@@ -205,13 +209,17 @@ def installed_list() -> list[dict]:
                 info = parse_info(f.read())
         except OSError:
             continue
+        standin = os.path.exists(os.path.join(PKG_DIR, name, "cynthology-standin"))
         out.append({"package": name, "dname": info.get("displayname") or name, "version": info.get("version"),
-                    "desc": info.get("description", ""), "running": _running(name), "url": _open_url(name, info),
-                    "startable": info.get("startable", "yes") != "no"})
+                    "desc": info.get("description", ""), "running": standin or _running(name), "url": _open_url(name, info),
+                    "startable": not standin and info.get("startable", "yes") != "no", "standin": standin})
     return out
 
 
 def _open_url(name: str, info: dict) -> dict | None:
+    ws = pkgweb.load().get(name)
+    if ws and ws["portals"]:                 # published by Web Station at http://<nas>/<alias>/
+        return {"protocol": "http", "port": 80, "path": f"/{ws['portals'][0]['alias']}/"}
     cfg = _read_json(_pkg_path(name, "target", "app", "config")).get(".url", {})
     for v in cfg.values():
         if v.get("port") or v.get("url", "").startswith("http"):
@@ -292,9 +300,9 @@ def _stage(spk_path: str) -> dict:
     if not arches & X86_ARCHES:
         problems.append(f"built for {info.get('arch')}, not x86-64")
     deps = [x.split(">")[0].strip() for x in re.split(r"[:,]", info.get("install_dep_packages", "")) if x.strip()]
-    if set(deps) & DSM_ONLY:
-        problems.append(f"needs DSM-only package(s): {', '.join(sorted(set(deps) & DSM_ONLY))}")
-    missing = [x for x in deps if x not in DSM_ONLY and not os.path.isdir(_pkg_path(x))]
+    if set(deps) & DSM_ONLY - set(STANDINS):
+        problems.append(f"needs DSM-only package(s): {', '.join(sorted(set(deps) & DSM_ONLY - set(STANDINS)))}")
+    missing = [x for x in deps if x not in DSM_ONLY and x not in STANDINS and not os.path.isdir(_pkg_path(x))]
     auto_deps = []
     for x in missing:
         offer = find_in_sources(x)
@@ -501,6 +509,7 @@ def install_staged(d: str, wizard: dict, depth: int = 0) -> dict:
         with open(os.path.join(d, "INFO")) as f:
             info = parse_info(f.read())
         name = info.get("package")
+        wizard = {**_static_wizard_defaults(d, os.path.exists(_pkg_path(name, "INFO"))), **(wizard or {})}
         _install_dependencies(info, depth)
         if os.path.exists(_pkg_path(name, "INFO")):
             return _upgrade(d, info, wizard)
@@ -513,6 +522,10 @@ def _install_dependencies(info: dict, depth: int) -> None:
     deps = [x.split(">")[0].split("<")[0].split("=")[0].strip()
             for x in re.split(r"[:,]", info.get("install_dep_packages", "")) if x.strip()]
     for dep in deps:
+        if dep in STANDINS:                       # Synology's PHP/Apache/WebStation...: provided by Cynthology
+            if not os.path.exists(_pkg_path(dep, "cynthology-standin")):
+                pkgweb.ensure_standin(dep)
+            continue
         if dep in DSM_ONLY or os.path.isdir(_pkg_path(dep)):
             continue
         if depth >= 3:
@@ -526,12 +539,21 @@ def _install_dependencies(info: dict, depth: int) -> None:
         install_staged(os.path.join(STAGING, staged["staging"]), _wizard_defaults(staged["wizard"]), depth + 1)
 
 
+def _static_wizard_defaults(d: str, upgrade: bool) -> dict:
+    """Questions the caller didn't answer get the package's own default (an API install without the wizard)."""
+    for f in (("upgrade_uifile",) if upgrade else ("install_uifile",)):
+        w = _read_json(os.path.join(d, "WIZARD_UIFILES", f))
+        if isinstance(w, list):
+            return _wizard_defaults(w)
+    return {}
+
+
 def _wizard_defaults(wizard: list) -> dict:
     out = {}
     for step in wizard or []:
-        for item in step.get("items", []):
-            for sub in item.get("subitems", []):
-                if "key" in sub:
+        for item in (step.get("items", []) if isinstance(step, dict) else []):
+            for sub in (item.get("subitems", []) if isinstance(item, dict) else []):
+                if isinstance(sub, dict) and "key" in sub:
                     out[sub["key"]] = sub.get("defaultValue", "")
     return out
 
@@ -579,7 +601,9 @@ def _fresh_install(d: str, info: dict, wizard: dict) -> dict:
         _link_usr_local(name, create=True)
         _script(name, "postinst", env, run_user)
         _write_unit(name, info, run_user)
+        pkgweb.apply_package(name, base)
     except Exception:
+        pkgweb.remove_package(name)
         _remove(name, keep_data=False)
         raise
     if info.get("startable", "yes") != "no":
@@ -664,6 +688,10 @@ def _upgrade(d: str, new_info: dict, wizard: dict) -> dict:
     shutil.rmtree(saved_meta, ignore_errors=True)
     shutil.rmtree(saved_target, ignore_errors=True)
     shutil.rmtree(upg, ignore_errors=True)
+    try:
+        pkgweb.apply_package(name, base)
+    except Exception as e:
+        print(f"{name}: web service:", e)
     if new_info.get("startable", "yes") != "no":
         _service(name, "start")
     return {"ok": True, "package": name, "version": new_info.get("version"), "upgraded_from": old_ver}
@@ -800,8 +828,15 @@ def uninstall(name: str, keep_data: bool = True, _=Depends(require_admin)):
     base = _pkg_path(name)
     if not os.path.isdir(base):
         raise HTTPException(404, "not installed")
+    if os.path.exists(os.path.join(base, "cynthology-standin")):
+        users = [p for p in os.listdir(PKG_DIR) if name in _deps_of(p)]
+        if users:
+            raise HTTPException(409, f"{', '.join(users)} need{'s' if len(users) == 1 else ''} {name} - uninstall {'it' if len(users) == 1 else 'them'} first")
+        shutil.rmtree(base)
+        return {"ok": True}
     with open(os.path.join(base, "INFO")) as f:
         info = parse_info(f.read())
+    pkgweb.remove_package(name)
     _service(name, "stop")
     user, group, as_root = _privilege(base, name)
     ru = None if as_root else f"{user}:{group}"
@@ -826,3 +861,13 @@ if __name__ == "__main__":
             if not r["ok"]:
                 from .backup import _alert
                 _alert({"name": r["package"]}, "warning", f"Package update failed: {r['package']}", r["error"])
+
+
+def _deps_of(pkg: str) -> set[str]:
+    try:
+        with open(_pkg_path(pkg, "INFO")) as f:
+            info = parse_info(f.read())
+    except (OSError, HTTPException):
+        return set()
+    return {x.split(">")[0].split("<")[0].split("=")[0].strip()
+            for x in re.split(r"[:,]", info.get("install_dep_packages", "")) if x.strip()}

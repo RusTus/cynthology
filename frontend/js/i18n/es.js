@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 885 entries.
+// Generated from the English UI strings (see i18n.js). 910 entries.
 i18nAdd("es", {
 "Settings and data are kept.": "Se conservan la configuración y los datos.",
 "Also installs required package(s): ": "También instala los paquetes necesarios: ",
@@ -884,5 +884,30 @@ i18nAdd("es", {
 "Storage pool removed": "Pool eliminado",
 "days": "días",
 "years": "años",
-"in use": "en uso"
+"in use": "en uso",
+"Uses": "Usa",
+"Synology's own packages are provided by Cynthology (Debian's PHP, Apache, Perl... and Web Station) and installed automatically": "Cynthology proporciona los paquetes propios de Synology (PHP, Apache, Perl de Debian... y Web Station) y los instala automáticamente",
+"(asks an internet service)": "(consulta un servicio de Internet)",
+"Show": "Mostrar",
+"connected": "conectado",
+"cores": "núcleos",
+"no address": "sin dirección",
+"none yet": "ninguno todavía",
+"not connected": "no conectado",
+"not synchronised": "no sincronizada",
+"since": "desde",
+"synchronised": "sincronizada",
+"threads": "hilos",
+"up to date": "actualizado",
+"update available": "actualización disponible",
+"Full domain name": "Nombre de dominio completo",
+"Time": "Hora",
+"Public IP": "IP pública",
+"Internet name (DDNS)": "Nombre en Internet (DDNS)",
+"Gateway": "Puerta de enlace",
+"Web interface ports": "Puertos de la interfaz web",
+"Mainboard": "Placa base",
+"Storage pools": "Grupos de almacenamiento",
+"Data drives": "Unidades de datos",
+"Services": "Servicios"
 });

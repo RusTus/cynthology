@@ -52,6 +52,8 @@ WM.register("appcenter", {
       return h("div", { class: "pc-tile", title: p.desc },
         p.thumbnail ? h("img", { src: p.thumbnail, loading: "lazy", alt: "" }) : h("div", { class: "pc-noimg" }, "📦"),
         h("div", { style: "min-width:0" }, h("b", {}, p.dname), h("div", { class: "muted pc-desc" }, p.why_not || p.desc),
+          !p.why_not && p.provided?.length ? h("div", { class: "muted", style: "font-size:11px", title: t("Synology's own packages are provided by Cynthology (Debian's PHP, Apache, Perl... and Web Station) and installed automatically") },
+            "✓ " + t("Uses") + " " + p.provided.join(", ")) : null,
           h("div", { class: "muted", style: "font-size:11px" }, `v${p.version}`), action));
     }
 

@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 866 entries.
+// Generated from the English UI strings (see i18n.js). 889 entries.
 i18nAdd("nl", {
 "Error: ": "Fout: ",
 "Settings and data are kept.": "Instellingen en gegevens blijven behouden.",
@@ -865,5 +865,28 @@ i18nAdd("nl", {
 "Storage pool removed": "Opslagpool verwijderd",
 "days": "dagen",
 "years": "jaar",
-"in use": "in gebruik"
+"in use": "in gebruik",
+"Uses": "Gebruikt",
+"Synology's own packages are provided by Cynthology (Debian's PHP, Apache, Perl... and Web Station) and installed automatically": "Synology's eigen pakketten levert Cynthology zelf (PHP, Apache, Perl van Debian ... en Web Station) en installeert ze automatisch",
+"(asks an internet service)": "(vraagt een internetdienst)",
+"Show": "Tonen",
+"connected": "verbonden",
+"cores": "kernen",
+"no address": "geen adres",
+"none yet": "nog geen",
+"not connected": "niet verbonden",
+"not synchronised": "niet gesynchroniseerd",
+"since": "sinds",
+"synchronised": "gesynchroniseerd",
+"up to date": "up-to-date",
+"update available": "update beschikbaar",
+"Full domain name": "Volledige domeinnaam",
+"Time": "Tijd",
+"Public IP": "Openbaar IP",
+"Internet name (DDNS)": "Internetnaam (DDNS)",
+"Web interface ports": "Poorten webinterface",
+"Mainboard": "Moederbord",
+"Storage pools": "Opslagpools",
+"Data drives": "Gegevensschijven",
+"Services": "Diensten"
 });

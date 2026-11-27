@@ -94,6 +94,8 @@ server, or VM (VMware, Proxmox, Hyper-V, VirtualBox).
 | **File Station**: folder tree, back/forward, path bar, search, list/icon view, sortable columns, Create/Upload/Action menus, right-click menu, shortcuts, zip download of folders, Copy/Move to, folder upload | ✅ |
 | **Languages**: English, Deutsch, Français, Español, Nederlands, including help texts (Personal settings → Language) | ✅ |
 | **Import existing pools** after a reinstall or when moving drives to a new box (arrays re-assembled, volume mounted, shared folders restored), or **erase** drives that hold old data | ✅ tested: SHR with hot spare, reinstall, reboot |
+| **DSM package stand-ins**: packages needing WebStation, PHP 8.x, Apache 2.4, Perl, Node.js v20 or Container Manager install (Debian's versions, set up automatically); their web services (e.g. Adminer, AriaNg) are published at `http://<nas>/<name>/` | ✅ tested on a VM (Adminer, AriaNg) |
+| **Immich** (one-click app): the closest thing to Synology Photos - phone backup, timeline, faces, places, shared albums; photos in the `immich` shared folder, existing `photo` folder addable read-only | ✅ tested on a VM |
 | **Synology alternatives** (Package Center): open-source replacements for DSM's own apps in one place (Photos → PhotoPrism, Drive → Nextcloud, Surveillance Station → Frigate, Active Backup → UrBackup, Office → ONLYOFFICE, MariaDB/phpMyAdmin, DNS → Pi-hole/AdGuard, …), installed as SynoCommunity packages, one-click containers or built-in apps | ✅ |
 | **Web Station**: nginx + PHP 8.4 (FPM, common extensions) installed on demand; websites from the `web` shared folder, name- or port-based virtual hosts, HTTPS with the NAS certificate, reverse proxy, PHP settings | ✅ tested on Debian 13 |
 | **Container Manager**: containers (start/stop/logs/details, live CPU & memory), images (pull, Docker Hub search, run wizard with ports, shared-folder mappings, env, restart policy), **Compose projects** in the `docker` shared folder (create/edit/start/stop/update/logs), Docker data on a storage pool | ✅ |
@@ -114,9 +116,17 @@ and reproduces the DSM 7 environment on Debian: `/var/packages/<pkg>` with
 scripted (`install_uifile.sh`) wizards, and a systemd unit per package. Small shims for
 `synopkg`, `synoshare` and friends are in `rootfs/usr/lib/cynthology/syno-shims`.
 
+Packages that depend on Synology's own building blocks get **stand-ins** (`pkgweb.py`):
+WebStation (Cynthology's Web Station), PHP 8.2/8.3/8.4 (Debian's PHP 8.4), Apache 2.4,
+Perl, Node.js v20 (from Debian) and ContainerManager/Docker. They are installed automatically
+with the package and registered under `/var/packages/<name>` like on DSM. A package's
+`webservice` resource is published by Web Station at `http://<nas>/<alias>/`: static files
+directly, PHP through its own PHP-FPM pool running as the package's account, and Apache-type
+apps through Apache so their `.htaccess` rules still apply.
+
 It cannot run Synology's own closed packages (Synology Photos, Active Backup and so on),
-or anything that depends on them (WebStation, Synology's PHP/Apache). Those show as
-"Not compatible". Packages built for ARM are refused.
+or anything needing an older PHP (7.x/8.0/8.1), Synology's MariaDB 10 package or Node.js 18.
+Those show as "Not compatible". Packages built for ARM are refused.
 
 ## Develop without a NAS
 

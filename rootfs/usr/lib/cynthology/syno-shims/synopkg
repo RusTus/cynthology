@@ -1,6 +1,13 @@
 #!/bin/sh
 # Cynthology shim for DSM's synopkg (subset used by package scripts)
 cmd="$1"; pkg="$2"
+# stand-ins for Synology's own packages (WebStation, PHP8.4, Apache2.4...) are always on
+if [ -e "/var/packages/$pkg/cynthology-standin" ]; then
+  case "$cmd" in
+    status|is_onoff) echo "package $pkg is turned on"; exit 0 ;;
+    start|stop|restart) exit 0 ;;
+  esac
+fi
 case "$cmd" in
   start|stop|restart) exec systemctl "$cmd" "cyn-pkg-$pkg" ;;
   status|is_onoff) systemctl is-active --quiet "cyn-pkg-$pkg" && { echo "package $pkg is turned on"; exit 0; } || { echo "package $pkg is turned off"; exit 1; } ;;

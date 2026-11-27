@@ -257,7 +257,12 @@ def create_share(body: Share, _=Depends(require_admin)):
 
 
 def _make_dir(path: str) -> None:
-    """Btrfs subvolume when the volume is Btrfs (snapshot-able), plain directory otherwise."""
+    """Btrfs subvolume when the volume is Btrfs (snapshot-able), plain directory otherwise.
+    A folder that already exists there (e.g. created by hand, or left by an earlier setup) is
+    adopted as it is - its contents are kept."""
+    if os.path.isdir(path) and not os.path.islink(path):
+        run(["chgrp", "users", path], check=False)
+        return
     parent_fs = read_only(["stat", "-f", "-c", "%T", os.path.dirname(path)]).strip()
     if parent_fs == "btrfs":
         run(["btrfs", "subvolume", "create", path])
