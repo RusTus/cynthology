@@ -70,15 +70,17 @@ WM.register("appcenter", {
             st.catalog = null; renderInstalled();
           } }, `Update all (${ups.length})`) : null),
         list.length ? h("div", { class: "pc-grid" }, list.map((p) => h("div", { class: "pc-tile" },
-          h("img", { src: `/api/packages/installed/${p.package}/icon`, alt: "" }),
+          pkgIcon(p),
           h("div", {}, h("b", {}, p.dname), h("div", { class: "muted" }, `v${p.version} · `,
-            h("span", { class: "pill " + (p.running ? "ok" : "") }, p.startable ? (p.running ? "Running" : "Stopped") : "Tool")),
+            h("span", { class: "pill " + (p.running ? "ok" : "") }, p.standin ? t("Built-in") : p.startable ? (p.running ? "Running" : "Stopped") : "Tool")),
+            p.standin ? h("div", { class: "muted", style: "font-size:12px" },
+              p.used_by && p.used_by.length ? `${t("Used by")} ${p.used_by.join(", ")}` : t("Not used by any package - you can remove it")) : null,
             upd[p.package] ? h("div", { class: "muted", style: "font-size:12px" }, `Update available: ${upd[p.package].available}`) : null,
             h("div", { class: "toolbar", style: "margin:6px 0 0" },
               upd[p.package] ? h("button", { class: "btn primary", onclick: () => installFlow(() => API.post("/api/packages/prepare", { source: upd[p.package].source, package: p.package })) }, "Update") : null,
               p.url && p.running ? h("a", { class: "btn primary", target: "_blank", href: `${p.url.protocol}://${location.hostname}:${p.url.port}${p.url.path}` }, "Open") : null,
               p.startable ? h("button", { class: "btn", onclick: async () => { await act(() => API.post(`/api/packages/installed/${p.package}/${p.running ? "stop" : "start"}`)); renderInstalled(); } }, p.running ? "Stop" : "Run") : null,
-              h("button", { class: "btn danger", onclick: async () => {
+              p.standin && p.used_by && p.used_by.length ? null : h("button", { class: "btn danger", onclick: async () => {
                 const keep = confirm(`Uninstall ${p.dname}?\n\nOK = keep its settings/data for a later reinstall\nCancel = choose again`);
                 if (!keep && !confirm(`Erase ALL data of ${p.dname}? This cannot be undone.`)) return;
                 await act(() => API.del(`/api/packages/installed/${p.package}?keep_data=${keep}`), `${p.dname} uninstalled`);
@@ -269,4 +271,11 @@ WM.register("appcenter", {
 function wizText(html) {
   const doc = new DOMParser().parseFromString(String(html).replace(/<br\s*\/?>/gi, "\n"), "text/html");
   return h("span", { style: "white-space:pre-line" }, doc.body.textContent || "");
+}
+
+// A package's own icon; packages without one get a neutral tile with their initial.
+function pkgIcon(p) {
+  const img = h("img", { src: `/api/packages/installed/${encodeURIComponent(p.package)}/icon`, alt: "" });
+  img.onerror = () => img.replaceWith(h("div", { class: "pc-noimg app-initial" }, (p.dname || p.package).trim().charAt(0).toUpperCase()));
+  return img;
 }

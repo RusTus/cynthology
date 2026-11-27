@@ -25,7 +25,7 @@ import urllib.request
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from .auth import current_user, require_admin
@@ -213,6 +213,11 @@ def installed_list() -> list[dict]:
         out.append({"package": name, "dname": info.get("displayname") or name, "version": info.get("version"),
                     "desc": info.get("description", ""), "running": standin or _running(name), "url": _open_url(name, info),
                     "startable": not standin and info.get("startable", "yes") != "no", "standin": standin})
+    # built-in modules: which installed packages rely on them
+    names = {p["package"]: p["dname"] for p in out}
+    for p in out:
+        if p["standin"]:
+            p["used_by"] = sorted(names[o] for o in names if o != p["package"] and p["package"] in _deps_of(o))
     return out
 
 
@@ -246,6 +251,9 @@ def icon(name: str):
         p = _pkg_path(name, fn)
         if os.path.exists(p):
             return FileResponse(p, media_type="image/png")
+    svg = pkgweb.standin_icon(name)
+    if svg:
+        return Response(svg, media_type="image/svg+xml", headers={"Cache-Control": "max-age=86400"})
     raise HTTPException(404)
 
 

@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 895 entries.
+// Generated from the English UI strings (see i18n.js). 898 entries.
 i18nAdd("de", {
 "Error: ": "Fehler: ",
 "Settings and data are kept.": "Einstellungen und Daten bleiben erhalten.",
@@ -894,5 +894,8 @@ i18nAdd("de", {
 "Swap": "Auslagerung",
 "Storage pools": "Speicherpools",
 "Data drives": "Datenlaufwerke",
-"Services": "Dienste"
+"Services": "Dienste",
+"Built-in": "Integriert",
+"Used by": "Verwendet von",
+"Not used by any package - you can remove it": "Von keinem Paket verwendet - kann entfernt werden"
 });

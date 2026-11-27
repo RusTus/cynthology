@@ -936,5 +936,8 @@
 "Swap": "Swap",
 "Storage pools": "Grupos de almacenamiento",
 "Data drives": "Unidades de datos",
-"Services": "Servicios"
+"Services": "Servicios",
+"Built-in": "Integrado",
+"Used by": "Usado por",
+"Not used by any package - you can remove it": "Ningún paquete lo usa - puede eliminarlo"
 }

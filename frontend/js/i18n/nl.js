@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 889 entries.
+// Generated from the English UI strings (see i18n.js). 892 entries.
 i18nAdd("nl", {
 "Error: ": "Fout: ",
 "Settings and data are kept.": "Instellingen en gegevens blijven behouden.",
@@ -888,5 +888,8 @@ i18nAdd("nl", {
 "Mainboard": "Moederbord",
 "Storage pools": "Opslagpools",
 "Data drives": "Gegevensschijven",
-"Services": "Diensten"
+"Services": "Diensten",
+"Built-in": "Ingebouwd",
+"Used by": "Gebruikt door",
+"Not used by any package - you can remove it": "Door geen enkel pakket gebruikt - u kunt het verwijderen"
 });

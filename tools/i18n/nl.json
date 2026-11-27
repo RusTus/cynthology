@@ -936,5 +936,8 @@
 "Swap": "Swap",
 "Storage pools": "Opslagpools",
 "Data drives": "Gegevensschijven",
-"Services": "Diensten"
+"Services": "Diensten",
+"Built-in": "Ingebouwd",
+"Used by": "Gebruikt door",
+"Not used by any package - you can remove it": "Door geen enkel pakket gebruikt - u kunt het verwijderen"
 }

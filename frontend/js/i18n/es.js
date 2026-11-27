@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 910 entries.
+// Generated from the English UI strings (see i18n.js). 913 entries.
 i18nAdd("es", {
 "Settings and data are kept.": "Se conservan la configuración y los datos.",
 "Also installs required package(s): ": "También instala los paquetes necesarios: ",
@@ -909,5 +909,8 @@ i18nAdd("es", {
 "Mainboard": "Placa base",
 "Storage pools": "Grupos de almacenamiento",
 "Data drives": "Unidades de datos",
-"Services": "Servicios"
+"Services": "Servicios",
+"Built-in": "Integrado",
+"Used by": "Usado por",
+"Not used by any package - you can remove it": "Ningún paquete lo usa - puede eliminarlo"
 });

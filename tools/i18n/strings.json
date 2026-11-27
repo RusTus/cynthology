@@ -936,5 +936,8 @@
 "Swap",
 "Storage pools",
 "Data drives",
-"Services"
+"Services",
+"Built-in",
+"Used by",
+"Not used by any package - you can remove it"
 ]

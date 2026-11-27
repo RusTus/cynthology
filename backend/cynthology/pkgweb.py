@@ -53,6 +53,34 @@ STANDINS = {
 }
 
 
+# tile label and gradient for each module's icon (drawn here - no third-party logos)
+STANDIN_ICONS = {
+    "WebStation": ("WS", "#38bdf8", "#2563eb"),
+    "PHP8.4": ("PHP", "#a78bfa", "#4f46e5"),
+    "PHP8.3": ("PHP", "#a78bfa", "#4f46e5"),
+    "PHP8.2": ("PHP", "#a78bfa", "#4f46e5"),
+    "Apache2.4": ("Ap", "#f87171", "#b91c1c"),
+    "Perl": ("Pl", "#60a5fa", "#1e40af"),
+    "Node.js_v20": ("JS", "#4ade80", "#15803d"),
+    "ContainerManager": ("CM", "#38bdf8", "#0369a1"),
+    "Docker": ("D", "#38bdf8", "#0369a1"),
+}
+
+
+def standin_icon(name: str) -> str | None:
+    """A rounded gradient tile with a short label, in the style of the desktop's app icons."""
+    if name not in STANDIN_ICONS:
+        return None
+    label, c1, c2 = STANDIN_ICONS[name]
+    size = {1: 120, 2: 100, 3: 78}.get(len(label), 64)
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">'
+            f'<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="{c1}"/>'
+            f'<stop offset="1" stop-color="{c2}"/></linearGradient></defs>'
+            f'<rect x="8" y="8" width="240" height="240" rx="56" fill="url(#g)"/>'
+            f'<text x="128" y="128" dy=".35em" text-anchor="middle" font-family="Inter,Segoe UI,Helvetica,Arial,sans-serif" '
+            f'font-weight="700" font-size="{size}" fill="#fff">{label}</text></svg>')
+
+
 def is_standin(name: str) -> bool:
     return name in STANDINS
 

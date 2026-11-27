@@ -65,7 +65,7 @@ input, select { font: inherit; padding: 7px 9px; border: 1px solid var(--line); 
 @media (max-width: 700px) { .win { inset: 40px 0 0 0 !important; width: auto !important; height: auto !important; border-radius: 0; } }
 
 /* app chrome */
-.side { width: 190px; flex-shrink: 0; background: var(--panel-2); border-right: 1px solid var(--line); padding: 8px; }
+.side { width: 190px; flex-shrink: 0; background: var(--panel-2); border-right: 1px solid var(--line); padding: 8px; overflow-y: auto; min-height: 0; }
 .side button { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 8px 10px; border-radius: 6px; color: var(--text); }
 .side button.on { background: var(--accent-2); color: var(--accent); font-weight: 600; }
 .pane { flex: 1; padding: 16px 20px; overflow: auto; min-width: 0; }

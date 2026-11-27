@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 900 entries.
+// Generated from the English UI strings (see i18n.js). 903 entries.
 i18nAdd("fr", {
 "Error: ": "Erreur : ",
 "Settings and data are kept.": "Les réglages et les données sont conservés.",
@@ -899,5 +899,8 @@ i18nAdd("fr", {
 "Mainboard": "Carte mère",
 "CPU": "Processeur",
 "Storage pools": "Pools de stockage",
-"Data drives": "Disques de données"
+"Data drives": "Disques de données",
+"Built-in": "Intégré",
+"Used by": "Utilisé par",
+"Not used by any package - you can remove it": "Utilisé par aucun paquet - vous pouvez le supprimer"
 });
