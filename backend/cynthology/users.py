@@ -47,6 +47,11 @@ def create_user(body: UserCreate, _=Depends(require_admin)):
     run(["useradd", "-m", "-s", "/usr/sbin/nologin", "-G", groups, "-c", body.full_name, body.name])
     run(["chpasswd"], input=f"{body.name}:{body.password}\n")
     run(["smbpasswd", "-a", "-s", body.name], input=f"{body.password}\n{body.password}\n")
+    from .shares import ensure_home
+    try:
+        ensure_home(body.name)
+    except HTTPException:
+        pass
     if DEV:
         _DEV_USERS.append({"name": body.name, "uid": 1000 + len(_DEV_USERS), "full_name": body.full_name,
                            "groups": groups.split(",")})

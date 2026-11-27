@@ -137,6 +137,11 @@ def login(body: Login, request: Request):
         _fail(*keys)
         raise HTTPException(401, "Invalid username or password")
     _ensure_smb_password(body.username, body.password)
+    try:
+        from .shares import ensure_home
+        ensure_home(body.username)
+    except Exception:
+        pass
     if twofa.enabled(body.username):
         ticket = secrets.token_urlsafe(24)
         PENDING[ticket] = {"user": body.username, "exp": time.time() + 300, "keys": keys}

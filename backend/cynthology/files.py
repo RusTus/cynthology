@@ -59,10 +59,19 @@ def resolve(user: dict, path: str, write: bool = False) -> tuple[dict, str]:
     parts = [p for p in path.strip("/").split("/") if p]
     if not parts:
         raise HTTPException(400, "path must start with a shared folder")
-    share = next((s for s in shares_mod.load() if s["name"] == parts[0]), None)
-    if not share:
-        raise HTTPException(404, "no such shared folder")
-    mode = access(user, share)
+    if parts[0] == "home":                 # the signed-in user's own home folder
+        home = shares_mod.home_path(user["user"])
+        if not home or not os.path.isdir(home):
+            raise HTTPException(404, "the user home service is off (Control Panel > Users & Groups)")
+        share = {"name": "home", "path": home, "recycle_bin": True}
+        mode = "rw"
+    else:
+        share = next((s for s in shares_mod.load() if s["name"] == parts[0]), None)
+        if not share:
+            raise HTTPException(404, "no such shared folder")
+        if share.get("encrypted") and not shares_mod.unlocked(share):
+            raise HTTPException(423, f"{share['name']} is encrypted and locked - unlock it in Control Panel > Shared Folders")
+        mode = access(user, share)
     if not mode or (write and mode != "rw"):
         raise HTTPException(403, "you don't have permission for this folder")
     root = os.path.realpath(share["path"])
@@ -98,10 +107,17 @@ def _entry(full: str, name: str) -> dict | None:
 @router.get("/shares")
 def my_shares(user=Depends(current_user)):
     out = []
+    if shares_mod.homes_share():
+        try:
+            if shares_mod.ensure_home(user["user"]):
+                out.append({"name": "home", "description": "Your home folder", "access": "rw"})
+        except HTTPException:
+            pass
     for s in shares_mod.load():
         mode = access(user, s)
         if mode:
-            out.append({"name": s["name"], "description": s.get("description", ""), "access": mode})
+            out.append({"name": s["name"], "description": s.get("description", ""), "access": mode,
+                        "locked": bool(s.get("encrypted")) and not shares_mod.unlocked(s)})
     return out
 
 

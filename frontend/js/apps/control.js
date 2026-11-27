@@ -50,38 +50,109 @@ WM.register("control", {
 });
 
 async function cpShares(p) {
-  const [shares, pools] = await Promise.all([API.get("/api/shares"), API.get("/api/storage/pools")]);
+  const [shares, pools, usage] = await Promise.all([API.get("/api/shares"), API.get("/api/storage/pools"), API.get("/api/shares/usage/all").catch(() => ({}))]);
   const reload = () => { p.replaceChildren(); cpShares(p); };
+  const sizeCell = (s) => {
+    const u = usage[s.name];
+    if (!u && !s.quota_gb) return h("span", { class: "muted" }, "-");
+    const used = u ? fmtBytes(u.used) : "?";
+    const lim = s.quota_gb ? `${s.quota_gb} GB` : "no limit";
+    const pct = u && s.quota_gb ? Math.min(100, Math.round(u.used / (s.quota_gb * 1e9) * 100)) : null;
+    return h("div", {}, h("div", { style: "font-size:13px" }, `${used} / ${lim}`),
+      pct != null ? h("div", { class: "bar", style: "margin-top:4px;width:120px" }, h("div", { style: `width:${pct}%;${pct > 90 ? "background:var(--bad)" : ""}` })) : null);
+  };
   p.append(h("h2", {}, "Shared Folders"),
     h("div", { class: "toolbar" }, h("button", { class: "btn primary", disabled: !pools.length, onclick: () => shareForm(p, pools, reload) }, "+ Create")),
     !pools.length ? h("div", { class: "note warn" }, "Create a storage pool in Storage Manager first.") : null,
-    h("table", {}, h("tr", {}, h("th", {}, "Name"), h("th", {}, "Location"), h("th", {}, "Access"), h("th", {})),
-      shares.map((s) => h("tr", {},
-        h("td", {}, h("b", {}, s.name), h("div", { class: "muted" }, s.description)),
-        h("td", {}, s.path),
-        h("td", {}, s.smb ? h("span", { class: "pill" }, "SMB") : null, " ", s.nfs ? h("span", { class: "pill" }, "NFS") : null,
-          s.recycle_bin ? h("span", { class: "pill" }, "Recycle bin") : null),
-        h("td", {},
-          s.usb ? h("span", { class: "pill" }, "USB") : h("button", { class: "btn", onclick: () => act(() => API.post(`/api/snapshots/${s.name}`), "Snapshot taken") }, "Snapshot"), " ",
-          h("button", { class: "btn danger", onclick: async () => {
-            if (!confirm(`Remove share ${s.name}? (data is kept)`)) return;
-            await act(() => API.del(`/api/shares/${s.name}`), "Share removed"); reload();
-          } }, "Remove"))))));
+    h("table", {}, h("tr", {}, h("th", {}, "Name"), h("th", {}, "Location"), h("th", {}, "Used / limit"), h("th", {}, "Access"), h("th", {})),
+      shares.map((s) => {
+        const locked = s.encrypted && s.locked;
+        return h("tr", {},
+          h("td", {}, h("b", { translate: "no" }, s.name), s.encrypted ? h("span", { class: "pill " + (locked ? "warn" : "ok"), style: "margin-left:6px" }, locked ? "🔒 locked" : "🔓 encrypted") : null,
+            s.homes ? h("span", { class: "pill info", style: "margin-left:6px" }, "user homes") : null,
+            h("div", { class: "muted" }, s.description)),
+          h("td", { class: "mono", style: "font-size:12px" }, s.path),
+          h("td", {}, sizeCell(s)),
+          h("td", {}, s.homes ? h("span", { class: "pill" }, "SMB: home") : s.smb ? h("span", { class: "pill" }, "SMB") : null, " ", s.nfs ? h("span", { class: "pill" }, "NFS") : null,
+            s.recycle_bin ? h("span", { class: "pill" }, "Recycle bin") : null),
+          h("td", { style: "white-space:nowrap" },
+            s.encrypted ? (locked
+              ? h("button", { class: "btn primary", onclick: () => unlockDialog(s, reload) }, "Unlock")
+              : h("button", { class: "btn", onclick: async () => {
+                  if (!confirm(`Lock ${s.name}? It disappears from the network until it is unlocked again.` + (s.auto_unlock ? "\n\nThe key stored on the NAS is removed too (no automatic unlock at boot)." : ""))) return;
+                  await act(() => API.post(`/api/shares/${s.name}/lock`), "Locked"); reload();
+                } }, "Lock")) : null, " ",
+            s.usb ? h("span", { class: "pill" }, "USB") : h("button", { class: "btn", onclick: async () => {
+              const v = prompt(`Size limit for ${s.name} in GB (0 = no limit):`, String(s.quota_gb || 0)); if (v === null) return;
+              await act(() => API.put(`/api/shares/${s.name}/quota`, { quota_gb: +v || 0 }), "Size limit saved"); reload();
+            } }, "Limit"), " ",
+            !s.usb && !s.encrypted ? h("button", { class: "btn", onclick: () => act(() => API.post(`/api/snapshots/${s.name}`), "Snapshot taken") }, "Snapshot") : null, " ",
+            s.homes ? null : h("button", { class: "btn danger", onclick: async () => {
+              if (!confirm(`Remove share ${s.name}? (data is kept)`)) return;
+              await act(() => API.del(`/api/shares/${s.name}`), "Share removed"); reload();
+            } }, "Remove")));
+      })));
+}
+
+function unlockDialog(s, done) {
+  const v = { secret: "", remember: !!s.auto_unlock };
+  const err = h("div", { class: "err" });
+  const close = modal(`Unlock ${s.name}`, h("div", { class: "form", style: "padding:0" },
+    h("label", {}, "Password (or recovery key)", h("input", { type: "password", autocomplete: "off", oninput: (e) => (v.secret = e.target.value),
+      onkeydown: (e) => e.key === "Enter" && go() })),
+    h("label", { class: "check" }, h("input", { type: "checkbox", checked: v.remember, onchange: (e) => (v.remember = e.target.checked) }),
+      "Unlock automatically when the NAS starts (stores the key on the NAS - convenient, but anyone who takes the whole NAS can read the folder)"),
+    err), [["Cancel", () => close()], ["Unlock", () => go(), "primary"]]);
+  async function go() {
+    err.textContent = "";
+    try { await API.post(`/api/shares/${s.name}/unlock`, v); close(); toast(`${s.name} unlocked`); done(); }
+    catch (e) { err.textContent = e.message; }
+  }
+}
+
+function recoveryKeyDialog(name, key) {
+  const text = `Cynthology encrypted shared folder "${name}" on ${location.hostname}\n\nRecovery key:\n${key}\n\nUse it instead of the password (Unlock → Password or recovery key) if the password is lost.\n`;
+  modal(`Recovery key for ${name}`, h("div", { class: "form", style: "padding:0" },
+    h("div", { class: "note warn" }, "Save this key somewhere safe. Without the password or this key the data can never be read - not even by an administrator."),
+    h("pre", { class: "mono", style: "white-space:pre-wrap;background:var(--panel-2);padding:12px;border-radius:8px;margin:0;font-size:14px", translate: "no" }, key),
+    h("div", { class: "toolbar" },
+      h("button", { class: "btn", onclick: () => navigator.clipboard?.writeText(key).then(() => toast("Copied")) }, "Copy"),
+      h("button", { class: "btn", onclick: () => {
+        const a = h("a", { href: URL.createObjectURL(new Blob([text], { type: "text/plain" })), download: `${name}-recovery-key.txt` });
+        document.body.append(a); a.click(); a.remove();
+      } }, "Download"))), [["I saved it", null, "primary"]]);
 }
 
 function shareForm(p, pools, done) {
-  const f = { name: "", description: "", pool_id: pools[0].id, smb: true, nfs: false, recycle_bin: true };
+  const f = { name: "", description: "", pool_id: pools[0].id, smb: true, nfs: false, recycle_bin: true, quota_gb: 0, encrypted: false, password: "", auto_unlock: false };
+  const pw2 = { v: "" };
+  const enc = h("div", { class: "form", style: "padding:0" });
+  const drawEnc = () => enc.replaceChildren(
+    h("label", { class: "check" }, h("input", { type: "checkbox", checked: f.encrypted, onchange: (e) => { f.encrypted = e.target.checked; drawEnc(); } }), "Encrypt this shared folder"),
+    f.encrypted ? [
+      h("div", { class: "muted", style: "font-size:12px" }, "Files are stored encrypted. The folder is only readable while unlocked; snapshots and Previous Versions aren't available for encrypted folders. You'll get a recovery key."),
+      h("label", {}, "Encryption password (8+ characters)", h("input", { type: "password", autocomplete: "new-password", oninput: (e) => (f.password = e.target.value) })),
+      h("label", {}, "Repeat password", h("input", { type: "password", autocomplete: "new-password", oninput: (e) => (pw2.v = e.target.value) })),
+      h("label", { class: "check" }, h("input", { type: "checkbox", onchange: (e) => (f.auto_unlock = e.target.checked) }), "Unlock automatically when the NAS starts (key stored on the NAS)")] : null);
+  drawEnc();
   p.replaceChildren(h("h2", {}, "Create shared folder"), h("div", { class: "form" },
     h("label", {}, "Name", h("input", { oninput: (e) => (f.name = e.target.value) })),
     h("label", {}, "Description", h("input", { oninput: (e) => (f.description = e.target.value) })),
     h("label", {}, "Location", h("select", { onchange: (e) => (f.pool_id = +e.target.value) },
       pools.map((x) => h("option", { value: x.id }, `${x.label} (${x.mount})`)))),
+    h("label", {}, "Size limit in GB (0 = no limit)", h("input", { type: "number", min: 0, value: 0, style: "width:140px", oninput: (e) => (f.quota_gb = +e.target.value || 0) })),
     h("label", { class: "check" }, h("input", { type: "checkbox", checked: true, onchange: (e) => (f.smb = e.target.checked) }), "Share over SMB (Windows / macOS)"),
     h("label", { class: "check" }, h("input", { type: "checkbox", onchange: (e) => (f.nfs = e.target.checked) }), "Share over NFS (Linux)"),
     h("label", { class: "check" }, h("input", { type: "checkbox", checked: true, onchange: (e) => (f.recycle_bin = e.target.checked) }), "Enable recycle bin"),
+    enc,
     h("div", { class: "toolbar" },
       h("button", { class: "btn", onclick: done }, "Cancel"),
-      h("button", { class: "btn primary", onclick: async () => { await act(() => API.post("/api/shares", f), "Shared folder created"); done(); } }, "Create"))));
+      h("button", { class: "btn primary", onclick: async () => {
+        if (f.encrypted && f.password !== pw2.v) return toast("The passwords don't match");
+        const r = await act(() => API.post("/api/shares", f), "Shared folder created");
+        if (r?.recovery_key) recoveryKeyDialog(r.name, r.recovery_key);
+        done();
+      } }, "Create"))));
 }
 
 async function cpUsers(p) {
@@ -99,6 +170,8 @@ async function cpUsers(p) {
           if (!confirm(`Delete user ${u.name}?`)) return;
           await act(() => API.del(`/api/users/${u.name}`), "User deleted"); reload();
         } }, "Delete"))))),
+    h("h2", { style: "margin-top:24px" }, "User home"),
+    homesBox(reload),
     h("h2", { style: "margin-top:24px" }, "Add user"),
     h("div", { class: "form" },
       h("label", {}, "Username", h("input", { oninput: (e) => (nu.name = e.target.value) })),
@@ -667,4 +740,30 @@ function ddnsDialog(d, e, done) {
         close(); toast(`${r.hostname} → ${r.ip}`); done();
       } catch (ex) { err.textContent = ex.message; ev.target.disabled = false; }
     }, "primary"]]);
+}
+
+// User home service: a private "home" folder for every user (with optional size limits).
+function homesBox(reload) {
+  const box = h("div", { class: "muted" }, "Loading…");
+  Promise.all([API.get("/api/shares/homes/status"), API.get("/api/storage/pools")]).then(([st, pools]) => {
+    const f = { enabled: st.enabled, pool_id: st.pool_id || pools[0]?.id, default_user_quota_gb: st.default_user_quota_gb || 0 };
+    box.className = "";
+    box.replaceChildren(h("div", { class: "form" },
+      h("label", { class: "check" }, h("input", { type: "checkbox", checked: st.enabled, onchange: (e) => (f.enabled = e.target.checked) }),
+        "Give every user a private home folder (\\\\NAS\\home over SMB, “home” in File Station)"),
+      !st.enabled ? h("label", {}, "Location", h("select", { onchange: (e) => (f.pool_id = +e.target.value) }, pools.map((x) => h("option", { value: x.id }, x.label)))) : null,
+      h("label", {}, "Default size limit per user in GB (0 = none; for new home folders)", h("input", { type: "number", min: 0, value: f.default_user_quota_gb, style: "width:140px",
+        oninput: (e) => (f.default_user_quota_gb = +e.target.value || 0) })),
+      h("div", {}, h("button", { class: "btn primary", onclick: async () => { await act(() => API.put("/api/shares/homes", f), "Saved"); reload(); } }, "Save")),
+      st.enabled ? h("table", {}, h("tr", {}, h("th", {}, "User"), h("th", {}, "Home folder used"), h("th", {}, "Limit"), h("th", {})),
+        Object.entries(st.users).map(([u, x]) => h("tr", {}, h("td", { translate: "no" }, u), h("td", {}, x.usage ? fmtBytes(x.usage.used) : "-"),
+          h("td", {}, x.quota_gb ? `${x.quota_gb} GB` : "none"),
+          h("td", {}, h("button", { class: "btn", onclick: async () => {
+            const v = prompt(`Home folder size limit for ${u} in GB (0 = none):`, String(x.quota_gb || 0)); if (v === null) return;
+            await act(() => API.put(`/api/shares/homes/quota/${u}`, { quota_gb: +v || 0 }), "Limit saved"); reload();
+          } }, "Set limit"))))) : null,
+      h("div", { class: "muted", style: "font-size:12px" }, "Size limits apply per folder: a user's home folder, or a whole shared folder (Shared Folders → Limit). ",
+        "Btrfs has no limit across all folders for one user.")));
+  }).catch((e) => { box.textContent = e.message; });
+  return box;
 }

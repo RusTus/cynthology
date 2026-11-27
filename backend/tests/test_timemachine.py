@@ -29,3 +29,15 @@ def test_usb_exfat_uses_streams_depot_and_no_snapshots():
     b = smb_block({**BASE, "usb": True, "fstype": "exfat", "recycle_bin": False})
     assert "vfs objects = catia fruit streams_depot" in b
     assert "btrfs" not in b and "shadow:" not in b
+
+
+def test_encrypted_share_has_no_snapshot_modules():
+    b = smb_block({**BASE, "encrypted": True})
+    assert "shadow_copy2" not in b and "btrfs" not in b and "recycle" in b
+
+
+def test_homes_block():
+    from cynthology.shares import homes_smb_block
+    b = homes_smb_block({**BASE, "name": "homes", "path": "/volume1/homes", "homes": True})
+    assert "[home]\n   path = /volume1/homes/%U" in b and "valid users = %U" in b
+    assert "[homes]\n   path = /volume1/homes/%S" in b and "browseable = no" in b

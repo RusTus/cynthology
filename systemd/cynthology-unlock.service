@@ -1,0 +1,16 @@
+[Unit]
+Description=Cynthology: unlock encrypted shared folders whose key is stored on the NAS
+After=local-fs.target
+Before=smbd.service nfs-server.service cynthology-ui.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/usr/lib/cynthology/wait-volumes
+WorkingDirectory=/opt/cynthology/backend
+Environment=CYN_STATE=/var/lib/cynthology
+ExecStart=/usr/bin/python3 -m cynthology.shares unlock-at-boot
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

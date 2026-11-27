@@ -56,7 +56,22 @@ def take(share: dict) -> str:
         return name
     run(["mkdir", "-p", d])
     run(["btrfs", "subvolume", "snapshot", "-r", share["path"], os.path.join(d, name)])
+    for sub in _home_subvolumes(share):     # user homes are subvolumes of their own (not in the snapshot above)
+        # (never let one user's full home stop the others' snapshots)
+        run(["mkdir", "-p", os.path.join(sub, SNAPDIR)], check=False)
+        run(["btrfs", "subvolume", "snapshot", "-r", sub, os.path.join(sub, SNAPDIR, name)], check=False)
     return name
+
+
+def _home_subvolumes(share: dict) -> list[str]:
+    if not share.get("homes") or DEV:
+        return []
+    out = []
+    for u in sorted(os.listdir(share["path"])):
+        p = os.path.join(share["path"], u)
+        if not u.startswith((".", "#", "@")) and os.path.isdir(p) and read_only(["btrfs", "subvolume", "show", p]):
+            out.append(p)
+    return out
 
 
 def delete(share: dict, name: str) -> None:
@@ -69,6 +84,9 @@ def delete(share: dict, name: str) -> None:
         os.rmdir(path)
     else:
         run(["btrfs", "subvolume", "delete", path])
+        for sub in _home_subvolumes(share):
+            if os.path.isdir(os.path.join(sub, SNAPDIR, name)):
+                run(["btrfs", "subvolume", "delete", os.path.join(sub, SNAPDIR, name)], check=False)
 
 
 def prune(share: dict) -> int:
