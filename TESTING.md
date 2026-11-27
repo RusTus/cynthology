@@ -49,6 +49,8 @@ Already installed an older version? Run the same command again - it upgrades in 
 | 33 | User homes | Users & Groups → User home → on; as a normal user open \\NAS\home | Own private folder; can't open other users' homes |
 | 34 | Encrypted folder | Shared Folders → Create → Encrypt (save the recovery key) → copy files → Lock → Unlock with the recovery key | Locked: folder gone from the network; unlocked: files back |
 | 35 | Task Scheduler | Control Panel → Task Scheduler → + Create → S.M.A.R.T. test (short) → Run now → Results | Test started on every drive; Storage Manager → Drives shows the result |
+| 36 | Permissions | Shared Folders → Permissions → only your user read/write → try another user over SMB | Other user is refused |
+| 37 | Domain (if you have AD) | Domain/LDAP → Join → Permissions: @DOMAIN\\Domain Users → sign in on Windows with a domain account | Domain user opens the share; DOMAIN\\admin signs in to the web interface |
 | 19 | Synology alternatives | Package Center → Synology alternatives → MariaDB → Install, then phpMyAdmin → Install → Open (server: NAS IP, user root, password from Info) | phpMyAdmin logs in |
 
 Logs if something breaks: `sudo journalctl -u cynthology-ui -n 100`

@@ -185,19 +185,41 @@ def join(body: Join, _=Depends(require_admin)):
         raise HTTPException(400, f"joining failed: {msg[-1] if msg else 'unknown error'}{hint}")
     _nsswitch(True)
     _restart()
-    save({"joined": True, "domain": domain, "workgroup": wg, "admin_group": body.admin_group.strip(), "since": int(time.time())})
+    save({"joined": True, "domain": domain, "workgroup": wg, "admin_group": body.admin_group.strip(), "since": int(time.time()),
+          "dns": body.dns.strip() or None})
     return status()
 
 
+RESOLVED_DROPIN = "/etc/systemd/resolved.conf.d/cynthology-domain.conf"
+
+
 def _use_dns(ip: str, domain: str) -> None:
-    """Put the domain controller first in resolv.conf (unless something else manages it)."""
+    """Send the domain's DNS queries to the domain controller."""
     path = "/etc/resolv.conf"
+    if os.path.islink(path) and "systemd/resolve" in os.path.realpath(path):
+        # systemd-resolved: a routing domain - only *.domain goes to the DC, the rest is unchanged
+        os.makedirs(os.path.dirname(RESOLVED_DROPIN), exist_ok=True)
+        with open(RESOLVED_DROPIN, "w") as f:
+            f.write(f"# Cynthology: Active Directory domain {domain}\n[Resolve]\nDNS={ip}\nDomains=~{domain}\n")
+        run(["systemctl", "restart", "systemd-resolved"])
+        time.sleep(2)
+        return
     if os.path.islink(path):
         raise HTTPException(400, "DNS on this system is managed by another service - set the DNS server in Control Panel > Network")
     old = open(path).read() if os.path.exists(path) else ""
     rest = [ln for ln in old.splitlines() if not ln.startswith(("nameserver " + ip, "search ", "# Cynthology domain"))]
+    with open(path + ".cyn-before-domain", "w") as f:
+        f.write(old)
     with open(path, "w") as f:
         f.write(f"# Cynthology domain DNS\nsearch {domain}\nnameserver {ip}\n" + "\n".join(rest) + "\n")
+
+
+def _undo_dns() -> None:
+    if os.path.exists(RESOLVED_DROPIN):
+        os.remove(RESOLVED_DROPIN)
+        run(["systemctl", "restart", "systemd-resolved"], check=False)
+    elif os.path.exists("/etc/resolv.conf.cyn-before-domain") and not os.path.islink("/etc/resolv.conf"):
+        os.replace("/etc/resolv.conf.cyn-before-domain", "/etc/resolv.conf")
 
 
 class Leave(BaseModel):
@@ -218,6 +240,8 @@ def leave(body: Leave, _=Depends(require_admin)):
         _set_include(False)
         if os.path.exists(GLOBAL_INC):
             os.remove(GLOBAL_INC)
+        if load().get("dns"):
+            _undo_dns()
         _restart()
     save({"joined": False})
     return {"ok": True}
