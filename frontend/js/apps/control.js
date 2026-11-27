@@ -6,6 +6,7 @@ const CP_SECTIONS = {
   domain: { label: "Domain/LDAP", group: "File Sharing", icon: "cp_domain", desc: "Join an Active Directory domain", render: (p) => cpDomain(p) },
   network: { label: "Network", group: "Connectivity", icon: "cp_network", desc: "IP address, DNS, link aggregation", render: (p) => cpNetwork(p) },
   security: { label: "Security", group: "Connectivity", icon: "cp_security", desc: "HTTPS certificate, Let's Encrypt, 2-step policy", render: (p) => cpSecurity(p) },
+  advisor: { label: "Security Advisor", group: "Connectivity", icon: "cp_advisor", desc: "Check your settings and see what to fix", render: (p) => cpAdvisor(p) },
   firewall: { label: "Firewall", group: "Connectivity", icon: "cp_firewall", desc: "Allow or block services and addresses, auto-block", render: (p) => cpFirewall(p) },
   vpn: { label: "VPN Server", group: "Connectivity", icon: "cp_vpn", desc: "WireGuard: reach the NAS and your home network from anywhere", render: (p) => cpVpn(p) },
   external: { label: "External Access", group: "Connectivity", icon: "cp_external", desc: "DDNS host name for reaching the NAS from the internet", render: (p) => cpExternal(p) },
@@ -296,6 +297,44 @@ async function vaultCard(reload) {
         ["Add", async () => { await act(() => API.put("/api/vault/account", { name: name.value.trim(), password: pw.value }), "Account added"); close(); reload(); }, "primary"]]);
     } }, "+ Add account")));
   return card;
+}
+
+// Security Advisor (backend advisor.py)
+async function cpAdvisor(p, fresh = false) {
+  p.replaceChildren(h("h2", {}, "Security Advisor"), h("p", { class: "muted" }, fresh ? "Checking…" : "Loading…"));
+  const r = await (fresh ? API.post("/api/security/advisor") : API.get("/api/security/advisor"));
+  const go = (fix) => {
+    if (!fix) return null;
+    if (fix.cp) return () => p.parentElement.querySelector(`.side button[data-k="${fix.cp}"]`)?.click();
+    if (fix.app) return () => WM.open(fix.app);
+    return null;
+  };
+  const pillCls = { critical: "bad", warning: "warn", info: "info", ok: "ok" };
+  const label = { critical: "Critical", warning: "Fix this", info: "Suggestion", ok: "OK" };
+  const c = r.counts;
+  const verdict = c.critical ? ["bad", "There are critical problems"] : c.warning ? ["warn", "A few things to fix"] : ["ok", "Your NAS is set up securely"];
+  const groups = {};
+  for (const x of r.checks) (groups[x.category] ||= []).push(x);
+  const showOk = h("input", { type: "checkbox", onchange: () => draw() });
+  const list = h("div");
+  const draw = () => list.replaceChildren(...Object.entries(groups).map(([cat, items]) => {
+    const shown = items.filter((x) => showOk.checked || x.status !== "ok");
+    if (!shown.length) return null;
+    return h("div", { style: "margin-top:14px" }, h("h3", { class: "pc-group" }, cat),
+      h("table", {}, shown.map((x) => h("tr", {},
+        h("td", { style: "width:110px;vertical-align:top" }, h("span", { class: "pill " + pillCls[x.status] }, label[x.status])),
+        h("td", {}, h("b", {}, t(x.title)), h("div", { class: "muted", style: "font-size:12px", translate: "no" }, t(x.detail))),
+        h("td", { style: "vertical-align:top;text-align:right" }, x.status !== "ok" && go(x.fix) ? h("button", { class: "btn", onclick: go(x.fix) }, "Fix") : null)))));
+  }));
+  draw();
+  p.replaceChildren(h("h2", {}, "Security Advisor"),
+    h("div", { class: "card", style: "display:flex;gap:16px;align-items:center;max-width:760px" }, appTile("cp_advisor", 44),
+      h("div", { style: "flex:1" }, h("div", { style: "font-size:16px;font-weight:600" }, t(verdict[1])),
+        h("div", { class: "muted", style: "font-size:12px" },
+          `${c.critical} ${t("critical")} · ${c.warning} ${t("to fix")} · ${c.info} ${t("suggestions")} · ${c.ok} OK · ${t("checked")} ${new Date(r.time * 1000).toLocaleString()}`)),
+      h("button", { class: "btn primary", onclick: () => cpAdvisor(p, true) }, "Check now")),
+    h("label", { class: "check", style: "margin-top:10px" }, showOk, "Show passed checks too"),
+    list);
 }
 
 async function cpInfo(p) {

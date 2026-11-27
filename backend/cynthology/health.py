@@ -231,3 +231,8 @@ def test_smtp(_=Depends(require_admin)):
 if __name__ == "__main__":
     for c in run_check():
         print(c["event"], c["title"])
+    try:
+        from .advisor import daily
+        daily()
+    except Exception as e:  # (never let the advisor break health monitoring)
+        print("advisor:", e)

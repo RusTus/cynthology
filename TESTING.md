@@ -63,6 +63,7 @@ Already installed an older version? Run the same command again - it upgrades in 
 | 47 | Configuration backup | Update & Restore → Download configuration backup (password) → reinstall Cynthology → import the pool → Open the file → Restore | Users sign in with their old passwords, shared folders and permissions are back |
 | 48 | Backup Vault | NAS B: File Services → Backup Vault → on → + Add account (copy password). NAS A: Backup → Create → Another Cynthology → B's IP, account, password → Test (compare fingerprint) → run twice | Both versions on B; "old versions are kept" shown; Restore works from A |
 | 49 | Immutable snapshots | Snapshots → set Lock (days) 1 on a folder → Take snapshot → try Delete | No Delete button; the API refuses until the lock runs out |
+| 50 | Security Advisor | Control Panel → Security Advisor → Check now → press Fix on one item and change it → Check now | Findings match your setup; the fixed one turns OK |
 | 19 | Synology alternatives | Package Center → Synology alternatives → MariaDB → Install, then phpMyAdmin → Install → Open (server: NAS IP, user root, password from Info) | phpMyAdmin logs in |
 
 Logs if something breaks: `sudo journalctl -u cynthology-ui -n 100`

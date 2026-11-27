@@ -23,6 +23,7 @@ const ICONS = {
   cp_domain: '<rect x="9" y="3.5" width="6" height="5" rx="1"/><rect x="3.5" y="15.5" width="6" height="5" rx="1"/><rect x="14.5" y="15.5" width="6" height="5" rx="1"/><path d="M12 8.5v3.5M6.5 15.5V12h11v3.5"/>',
   cp_vpn: '<path d="M12 3.5l7 2.8v5.2c0 4.3-2.9 7.6-7 9-4.1-1.4-7-4.7-7-9V6.3z"/><rect x="9" y="11" width="6" height="4.5" rx="1"/><path d="M10.2 11V9.6a1.8 1.8 0 0 1 3.6 0V11"/>',
   cp_security: '<path d="M12 3.5l7 2.8v5.2c0 4.3-2.9 7.6-7 9-4.1-1.4-7-4.7-7-9V6.3z"/><path d="M8.8 12l2.2 2.2 4.2-4.4"/>',
+  cp_advisor: '<path d="M11 3.5l6.5 2.6v4.4"/><path d="M11 20.5c-3.8-1.3-6.5-4.4-6.5-8.4V6.1L11 3.5"/><circle cx="15.5" cy="15" r="3.6"/><path d="M18.1 17.6l2.4 2.4"/>',
   cp_general: '<path d="M5 7h8M17 7h2M5 12h2M11 12h8M5 17h10"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="17" r="2"/>',
   cp_info: '<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5M12 7.8h.01"/>',
   cp_notify: '<path d="M6.5 16.5V11a5.5 5.5 0 0 1 11 0v5.5l1.5 1.5H5z"/><path d="M10 20.5a2.2 2.2 0 0 0 4 0"/>',
@@ -51,7 +52,7 @@ const ICON_GRADIENTS = {
   monitor: ["#c58cff", "#7c3aed"],
   personal: ["#94a3b8", "#475569"],
   cp_shares: ["#fbbf24", "#f59e0b"], cp_services: ["#4fa8ff", "#2563eb"], cp_users: ["#2dd4bf", "#0d9488"],
-  cp_network: ["#60a5fa", "#4f46e5"], cp_security: ["#34d399", "#059669"], cp_firewall: ["#fb7185", "#e11d48"], cp_tasks: ["#fbbf24", "#d97706"], cp_domain: ["#60a5fa", "#2563eb"], cp_vpn: ["#2dd4bf", "#4f46e5"], cp_external: ["#38bdf8", "#7c3aed"], cp_general: ["#8393ad", "#4a5a73"],
+  cp_network: ["#60a5fa", "#4f46e5"], cp_security: ["#34d399", "#059669"], cp_advisor: ["#a3e635", "#16a34a"], cp_firewall: ["#fb7185", "#e11d48"], cp_tasks: ["#fbbf24", "#d97706"], cp_domain: ["#60a5fa", "#2563eb"], cp_vpn: ["#2dd4bf", "#4f46e5"], cp_external: ["#38bdf8", "#7c3aed"], cp_general: ["#8393ad", "#4a5a73"],
   cp_info: ["#38bdf8", "#0284c7"], cp_notify: ["#fb923c", "#ea580c"], cp_ups: ["#facc15", "#ca8a04"],
   cp_usb: ["#22c3d1", "#1b7f99"], cp_update: ["#34d399", "#0e9f6e"],
 };
