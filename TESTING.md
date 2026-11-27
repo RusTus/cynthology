@@ -58,6 +58,7 @@ Already installed an older version? Run the same command again - it upgrades in 
 | 42 | SFTP for users | File Services → Let users connect with SFTP → FileZilla/WinSCP to the NAS, port 22, as a normal user | Files work as over SMB; ssh in a terminal says "sftp connections only" |
 | 43 | rsync server | File Services → Enable the rsync server → Set password for a user → `rsync -av folder/ rsync://USER@NAS/SHARE/folder/` | Files arrive, owned by that user |
 | 44 | Phone notifications | Notifications → + Add service → ntfy (keep the suggested topic) → subscribe to that topic in the ntfy app → Save & send test | Test arrives on the phone; pulling a drive later sends a critical alert |
+| 45 | Resource Monitor history | Leave the NAS on for a few hours → Resource Monitor → History → 24 hours; copy a big file meanwhile | Network/disk show the copy at the right time; hovering shows the values |
 | 19 | Synology alternatives | Package Center → Synology alternatives → MariaDB → Install, then phpMyAdmin → Install → Open (server: NAS IP, user root, password from Info) | phpMyAdmin logs in |
 
 Logs if something breaks: `sudo journalctl -u cynthology-ui -n 100`

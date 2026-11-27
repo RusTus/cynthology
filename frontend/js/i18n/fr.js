@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 643 entries.
+// Generated from the English UI strings (see i18n.js). 660 entries.
 i18nAdd("fr", {
 "Error: ": "Erreur : ",
 "Settings and data are kept.": "Les réglages et les données sont conservés.",
@@ -642,5 +642,22 @@ i18nAdd("fr", {
 "Install the ntfy app, subscribe to a topic name that is hard to guess (anyone who knows it can read it). Your own ntfy server works too.": "Installez l'appli ntfy et abonnez-vous à un nom de sujet difficile à deviner (quiconque le connaît peut lire). Votre propre serveur ntfy fonctionne aussi.",
 "In Telegram, create a bot with @BotFather (you get the token), send your bot a message, then get your chat ID from @userinfobot.": "Dans Telegram, créez un bot avec @BotFather (vous obtenez le jeton), envoyez un message à votre bot, puis obtenez votre ID de chat auprès de @userinfobot.",
 "Discord channel → Edit channel → Integrations → Webhooks → New webhook → Copy webhook URL.": "Salon Discord → Modifier le salon → Intégrations → Webhooks → Nouveau webhook → Copier l'URL du webhook.",
-"pushover.net → Create an application (API token); your user key is on the dashboard.": "pushover.net → Créez une application (jeton API) ; votre clé utilisateur est sur le tableau de bord."
+"pushover.net → Create an application (API token); your user key is on the dashboard.": "pushover.net → Créez une application (jeton API) ; votre clé utilisateur est sur le tableau de bord.",
+"Live": "En direct",
+"History": "Historique",
+"1 hour": "1 heure",
+"24 hours": "24 heures",
+"7 days": "7 jours",
+"30 days": "30 jours",
+"1 year": "1 an",
+"Received": "Reçu",
+"Sent": "Envoyé",
+"Read": "Lecture",
+"Write": "Écriture",
+"average": "moyenne",
+"peak": "pic",
+"of": "sur",
+"Load average": "Charge moyenne",
+"Volume usage": "Occupation des volumes",
+"No history yet - the NAS takes a sample every 10 seconds and saves them once a minute.": "Pas encore d'historique - le NAS prend une mesure toutes les 10 secondes et les enregistre une fois par minute."
 });

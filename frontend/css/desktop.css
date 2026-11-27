@@ -269,3 +269,15 @@ table.kv th { text-transform: none; letter-spacing: 0; font-size: 13px; font-wei
 .pc-noimg.app-initial { display: grid; place-items: center; background: linear-gradient(145deg, #4fa8ff, #2563eb); color: #fff; font-weight: 700; font-size: 18px; }
 .alt-kind { font-size: 11px; padding: 1px 7px; }
 @media (max-width: 720px) { .alt-row { grid-template-columns: 1fr; } }
+
+/* segmented buttons (tabs, ranges) */
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { background: none; border: 0; padding: 6px 14px; color: var(--muted); font: inherit; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button.on { background: var(--panel-2); color: var(--text); font-weight: 600; }
+/* time-series charts (Resource Monitor) */
+.chart-legend { display: flex; gap: 14px; font-size: 12px; color: var(--text); margin-bottom: 4px; }
+.chart-legend i, .chart-tip i { display: inline-block; width: 12px; height: 2px; border-radius: 1px; vertical-align: middle; margin-right: 6px; }
+.chart-tip { position: absolute; top: 0; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  padding: 6px 8px; font-size: 12px; color: var(--text); box-shadow: 0 4px 14px rgba(0,0,0,.25); white-space: nowrap; z-index: 2; }
+.chart-tip b { font-variant-numeric: tabular-nums; }

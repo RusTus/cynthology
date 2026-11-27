@@ -9,12 +9,12 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import apps, auth, fileservices, notify, ddns, directory, logcenter, tasks, vpn, firewall, san, webstation, backup, containers, files, health, network, repl, services, settings, setup, shares, snapshots, spk, storage, sysinfo, tls, twofa, ups, update, usb, users
+from . import apps, auth, fileservices, metrics, notify, ddns, directory, logcenter, tasks, vpn, firewall, san, webstation, backup, containers, files, health, network, repl, services, settings, setup, shares, snapshots, spk, storage, sysinfo, tls, twofa, ups, update, usb, users
 from .util import DEV
 
 app = FastAPI(title="Cynthology", version="0.1.0", docs_url="/api/docs" if DEV else None)
 for r in (auth.router, sysinfo.router, storage.router, shares.router, users.router, services.router, apps.router, spk.router,
-          tls.router, setup.router, files.router, snapshots.router, health.router, backup.router, ups.router, twofa.router, repl.router, containers.router, usb.router, network.router, update.router, webstation.router, san.router, firewall.router, ddns.router, tasks.router, directory.router, vpn.router, logcenter.router, fileservices.router, notify.router):
+          tls.router, setup.router, files.router, snapshots.router, health.router, backup.router, ups.router, twofa.router, repl.router, containers.router, usb.router, network.router, update.router, webstation.router, san.router, firewall.router, ddns.router, tasks.router, directory.router, vpn.router, logcenter.router, fileservices.router, notify.router, metrics.router):
     app.include_router(r)
 
 
@@ -52,6 +52,11 @@ async def https_redirect(request: Request, call_next):
                 url += "?" + request.url.query
             return RedirectResponse(url, status_code=307 if request.method != "GET" else 302)
     return await call_next(request)
+
+
+@app.on_event("startup")
+def start_metrics():
+    metrics.start()                 # Resource Monitor history sampler
 
 
 @app.on_event("startup")

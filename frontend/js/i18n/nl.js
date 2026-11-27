@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 634 entries.
+// Generated from the English UI strings (see i18n.js). 650 entries.
 i18nAdd("nl", {
 "Error: ": "Fout: ",
 "Settings and data are kept.": "Instellingen en gegevens blijven behouden.",
@@ -633,5 +633,21 @@ i18nAdd("nl", {
 "Install the ntfy app, subscribe to a topic name that is hard to guess (anyone who knows it can read it). Your own ntfy server works too.": "Installeer de ntfy-app en abonneer je op een moeilijk te raden topicnaam (iedereen die hem kent kan meelezen). Een eigen ntfy-server werkt ook.",
 "In Telegram, create a bot with @BotFather (you get the token), send your bot a message, then get your chat ID from @userinfobot.": "Maak in Telegram een bot met @BotFather (je krijgt het token), stuur je bot een bericht en haal je chat-ID op bij @userinfobot.",
 "Discord channel → Edit channel → Integrations → Webhooks → New webhook → Copy webhook URL.": "Discord-kanaal → Kanaal bewerken → Integraties → Webhooks → Nieuwe webhook → Webhook-URL kopiëren.",
-"pushover.net → Create an application (API token); your user key is on the dashboard.": "pushover.net → Maak een applicatie (API-token); je gebruikerssleutel staat op het dashboard."
+"pushover.net → Create an application (API token); your user key is on the dashboard.": "pushover.net → Maak een applicatie (API-token); je gebruikerssleutel staat op het dashboard.",
+"History": "Geschiedenis",
+"1 hour": "1 uur",
+"24 hours": "24 uur",
+"7 days": "7 dagen",
+"30 days": "30 dagen",
+"1 year": "1 jaar",
+"Received": "Ontvangen",
+"Sent": "Verzonden",
+"Read": "Lezen",
+"Write": "Schrijven",
+"average": "gemiddeld",
+"peak": "piek",
+"of": "van",
+"Load average": "Gemiddelde belasting",
+"Volume usage": "Volumegebruik",
+"No history yet - the NAS takes a sample every 10 seconds and saves them once a minute.": "Nog geen geschiedenis - de NAS meet elke 10 seconden en slaat eens per minuut op."
 });

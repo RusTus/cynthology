@@ -671,5 +671,22 @@
 "Install the ntfy app, subscribe to a topic name that is hard to guess (anyone who knows it can read it). Your own ntfy server works too.",
 "In Telegram, create a bot with @BotFather (you get the token), send your bot a message, then get your chat ID from @userinfobot.",
 "Discord channel → Edit channel → Integrations → Webhooks → New webhook → Copy webhook URL.",
-"pushover.net → Create an application (API token); your user key is on the dashboard."
+"pushover.net → Create an application (API token); your user key is on the dashboard.",
+"Live",
+"History",
+"1 hour",
+"24 hours",
+"7 days",
+"30 days",
+"1 year",
+"Received",
+"Sent",
+"Read",
+"Write",
+"average",
+"peak",
+"of",
+"Load average",
+"Volume usage",
+"No history yet - the NAS takes a sample every 10 seconds and saves them once a minute."
 ]

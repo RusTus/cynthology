@@ -671,5 +671,22 @@
 "Install the ntfy app, subscribe to a topic name that is hard to guess (anyone who knows it can read it). Your own ntfy server works too.": "Instale la app ntfy y suscríbase a un nombre de tema difícil de adivinar (quien lo conozca puede leerlo). También sirve su propio servidor ntfy.",
 "In Telegram, create a bot with @BotFather (you get the token), send your bot a message, then get your chat ID from @userinfobot.": "En Telegram, cree un bot con @BotFather (obtendrá el token), envíe un mensaje a su bot y consiga su ID de chat con @userinfobot.",
 "Discord channel → Edit channel → Integrations → Webhooks → New webhook → Copy webhook URL.": "Canal de Discord → Editar canal → Integraciones → Webhooks → Nuevo webhook → Copiar URL del webhook.",
-"pushover.net → Create an application (API token); your user key is on the dashboard.": "pushover.net → Cree una aplicación (token API); su clave de usuario está en el panel."
+"pushover.net → Create an application (API token); your user key is on the dashboard.": "pushover.net → Cree una aplicación (token API); su clave de usuario está en el panel.",
+"Live": "En vivo",
+"History": "Historial",
+"1 hour": "1 hora",
+"24 hours": "24 horas",
+"7 days": "7 días",
+"30 days": "30 días",
+"1 year": "1 año",
+"Received": "Recibido",
+"Sent": "Enviado",
+"Read": "Lectura",
+"Write": "Escritura",
+"average": "media",
+"peak": "pico",
+"of": "de",
+"Load average": "Carga media",
+"Volume usage": "Uso de volúmenes",
+"No history yet - the NAS takes a sample every 10 seconds and saves them once a minute.": "Aún no hay historial: el NAS toma una muestra cada 10 segundos y las guarda una vez por minuto."
 }
