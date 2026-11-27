@@ -375,7 +375,13 @@ async function storageDisks(p, go) {
         details.replaceChildren(kv("Device", h("span", { class: "mono" }, d.path)), kv("Serial", d.serial || "-"), kv("Type", d.rota ? "Hard drive" : "SSD"),
           s.supported ? [kv("SMART", h("span", { class: "pill " + (s.passed ? "ok" : "bad") }, s.passed ? "Passed" : "FAILING")),
             kv("Temperature", s.temperature != null ? `${s.temperature} °C` : "-"), kv("Power-on hours", s.power_on_hours ?? "-"),
-            kv("Reallocated sectors", s.reallocated ?? "-")]
+            kv("Reallocated sectors", s.reallocated ?? "-"),
+            kv("Last self-test", s.test_running_remaining_pct != null ? `running (${100 - s.test_running_remaining_pct}% done)`
+              : s.last_test ? h("span", { class: s.last_test.passed ? "" : "err" }, `${s.last_test.type}: ${s.last_test.result}${s.last_test.hours ? ` (at ${s.last_test.hours} h)` : ""}`) : "never"),
+            h("div", { class: "toolbar", style: "margin:6px 0 0" },
+              h("button", { class: "btn", onclick: async (e) => { e.stopPropagation(); const r = await act(() => API.post(`/api/storage/disks/${d.name}/smart-test`, { test: "short" })); if (r) toast(r.message); } }, "Run short test"),
+              h("button", { class: "btn", onclick: async (e) => { e.stopPropagation(); const r = await act(() => API.post(`/api/storage/disks/${d.name}/smart-test`, { test: "long" })); if (r) toast(r.message); } }, "Run extended test"),
+              h("span", { class: "muted", style: "font-size:12px" }, "Schedule them in Control Panel → Task Scheduler"))]
             : kv("SMART", "not available (virtual disks and some USB enclosures don't report health)"));
       } },
         h("div", { class: "drive-icon" }, svgIcon(d.rota ? "hdd" : "ssd", 26), h("span", { class: "dot-status " + (cls || "none") })),

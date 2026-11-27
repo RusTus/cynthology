@@ -12,6 +12,7 @@ const CP_SECTIONS = {
   notify: { label: "Notifications", group: "System", icon: "cp_notify", desc: "Email alerts", render: (p) => cpNotify(p) },
   ups: { label: "UPS", group: "System", icon: "cp_ups", desc: "Power failure protection", render: (p) => cpUps(p) },
   usb: { label: "External Devices", group: "System", icon: "cp_usb", desc: "USB drives", render: (p) => cpUsb(p) },
+  tasks: { label: "Task Scheduler", group: "System", icon: "cp_tasks", desc: "Scripts, drive tests and clean-ups on a schedule", render: (p) => cpTasks(p) },
   update: { label: "Update", group: "System", icon: "cp_update", desc: "Cynthology and Debian updates", render: (p) => cpUpdate(p) },
 };
 
@@ -766,4 +767,92 @@ function homesBox(reload) {
         "Btrfs has no limit across all folders for one user.")));
   }).catch((e) => { box.textContent = e.message; });
   return box;
+}
+
+// ---------- Task Scheduler ----------
+async function cpTasks(p) {
+  const [d, disks, shares, users] = await Promise.all([API.get("/api/tasks"), API.get("/api/storage/disks"), API.get("/api/shares"), API.get("/api/users").catch(() => [])]);
+  const reload = () => { p.replaceChildren(); cpTasks(p); };
+  const when = (t) => (t ? new Date(t * 1000).toLocaleString() : "-");
+  p.append(h("div", { class: "toolbar" }, h("h2", { style: "margin:0;flex:1" }, "Task Scheduler"),
+      h("button", { class: "btn primary", onclick: () => taskEditor(p, null, { disks, shares, users, kinds: d.kinds }, reload) }, "+ Create")),
+    d.tasks.length ? h("table", {},
+      h("tr", {}, h("th", {}, "Task"), h("th", {}, "Type"), h("th", {}, "Schedule"), h("th", {}, "Last run"), h("th", {})),
+      d.tasks.map((t) => h("tr", {},
+        h("td", {}, h("b", {}, t.name), t.enabled ? null : h("span", { class: "pill", style: "margin-left:6px" }, "off")),
+        h("td", {}, d.kinds[t.kind]),
+        h("td", {}, t.when, t.next ? h("div", { class: "muted", style: "font-size:12px" }, `next: ${t.next}`) : null),
+        h("td", {}, t.running ? h("span", { class: "pill info" }, "running…") : t.last
+          ? [h("span", { class: "pill " + (t.last.exit_code === 0 ? "ok" : "bad") }, t.last.exit_code === 0 ? "OK" : `failed (${t.last.exit_code})`),
+             h("div", { class: "muted", style: "font-size:12px" }, when(t.last.started))] : h("span", { class: "muted" }, "never")),
+        h("td", { style: "white-space:nowrap" },
+          h("button", { class: "btn", onclick: async () => { const r = await act(() => API.post(`/api/tasks/${t.id}/run`), "Task started"); setTimeout(reload, 2500); } }, "Run now"), " ",
+          h("button", { class: "btn", onclick: () => taskHistory(t) }, "Results"), " ",
+          h("button", { class: "btn", onclick: () => taskEditor(p, t, { disks, shares, users, kinds: d.kinds }, reload) }, "Edit"), " ",
+          h("button", { class: "btn danger", onclick: async () => { if (!confirm(`Delete task ${t.name}?`)) return; await act(() => API.del(`/api/tasks/${t.id}`), "Deleted"); reload(); } }, "Delete")))))
+      : h("p", { class: "muted" }, "No scheduled tasks yet. Tip: a monthly extended S.M.A.R.T. test catches failing drives early."),
+    h("p", { class: "muted", style: "font-size:12px" }, "Failed runs send an alert (Control Panel → Notifications). Missed runs (NAS switched off) run at the next start."));
+}
+
+async function taskHistory(t) {
+  const hs = await API.get(`/api/tasks/${t.id}/history`);
+  modal(`Results: ${t.name}`, hs.length ? h("div", { style: "max-height:60vh;overflow:auto;display:grid;gap:10px" }, hs.map((e) => h("div", {},
+    h("div", {}, h("span", { class: "pill " + (e.exit_code === 0 ? "ok" : "bad") }, e.exit_code === 0 ? "OK" : `exit ${e.exit_code}`), " ",
+      new Date(e.started * 1000).toLocaleString(), h("span", { class: "muted" }, ` · ${e.duration}s`)),
+    e.output ? h("pre", { class: "mono", style: "white-space:pre-wrap;background:var(--panel-2);padding:8px;border-radius:6px;margin:4px 0 0;font-size:12px;max-height:200px;overflow:auto" }, e.output) : null)))
+    : h("p", { class: "muted" }, "Not run yet."));
+}
+
+function taskEditor(p, t, ctx, done) {
+  const f = t ? JSON.parse(JSON.stringify(t)) : { name: "", kind: "smart", enabled: true, notify_on_failure: true,
+    schedule: { every: "monthly", time: "03:00", days: ["sun"], day_of_month: 1 }, script: "#!/bin/bash\n", user: "root",
+    test: "long", disks: [], shares: [], older_than_days: 30 };
+  const err = h("div", { class: "err" });
+  const body = h("div", { class: "form", style: "padding:0" });
+  const sch = h("div", { class: "toolbar", style: "margin:0;flex-wrap:wrap" });
+  const drawSch = () => {
+    const s = f.schedule;
+    sch.replaceChildren(
+      h("select", { onchange: (e) => { s.every = e.target.value; drawSch(); } },
+        [["hourly", "Every hour"], ["daily", "Every day"], ["weekly", "Every week"], ["monthly", "Every month"], ["boot", "At startup"]].map(([v, l]) => h("option", { value: v, selected: s.every === v }, l))),
+      s.every === "weekly" ? h("span", { style: "display:flex;gap:6px" }, ["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((dd) => h("label", { class: "check", style: "font-size:13px" },
+        h("input", { type: "checkbox", checked: s.days.includes(dd), onchange: (e) => { s.days = e.target.checked ? [...s.days, dd] : s.days.filter((x) => x !== dd); } }), dd.charAt(0).toUpperCase() + dd.slice(1)))) : null,
+      s.every === "monthly" ? h("label", {}, "on day ", h("input", { type: "number", min: 1, max: 28, value: s.day_of_month, style: "width:70px", oninput: (e) => (s.day_of_month = +e.target.value) })) : null,
+      s.every !== "boot" ? h("label", {}, s.every === "hourly" ? "at minute " : "at ", h("input", { type: "time", value: s.time, oninput: (e) => (s.time = e.target.value) })) : null);
+  };
+  const draw = () => {
+    drawSch();
+    body.replaceChildren(
+      h("label", {}, "Name", h("input", { value: f.name, placeholder: f.kind === "smart" ? "Monthly drive check" : "", oninput: (e) => (f.name = e.target.value) })),
+      t ? null : h("label", {}, "Type", h("select", { onchange: (e) => { f.kind = e.target.value; draw(); } },
+        Object.entries(ctx.kinds).map(([k, l]) => h("option", { value: k, selected: f.kind === k }, l)))),
+      h("div", {}, h("div", { class: "muted", style: "font-size:13px;margin-bottom:4px" }, "When"), sch),
+      f.kind === "script" ? [
+        h("label", {}, "Run as", h("select", { onchange: (e) => (f.user = e.target.value) },
+          [h("option", { value: "root", selected: f.user === "root" }, "root (administrator)"), ...ctx.users.map((u) => h("option", { value: u.name, selected: f.user === u.name, translate: "no" }, u.name))])),
+        h("label", {}, "Script (bash)", h("textarea", { class: "mono", rows: 8, spellcheck: "false", style: "font-size:13px", oninput: (e) => (f.script = e.target.value) }, f.script))] : null,
+      f.kind === "smart" ? [
+        h("label", {}, "Test", h("select", { onchange: (e) => (f.test = e.target.value) },
+          h("option", { value: "short", selected: f.test === "short" }, "Short (about 2 minutes)"),
+          h("option", { value: "long", selected: f.test === "long" }, "Extended (reads the whole drive - hours; the NAS stays usable)"))),
+        h("div", {}, h("div", { class: "muted", style: "font-size:13px" }, "Drives (none ticked = all data drives)"),
+          ctx.disks.filter((dk) => dk.serial).map((dk) => h("label", { class: "check" },
+            h("input", { type: "checkbox", checked: f.disks.includes(dk.serial), onchange: (e) => { f.disks = e.target.checked ? [...f.disks, dk.serial] : f.disks.filter((x) => x !== dk.serial); } }),
+            `${dk.name} - ${dk.model || "?"} (${dk.serial})`)))] : null,
+      f.kind === "recycle" ? [
+        h("label", {}, "Delete items that have been in the recycle bin for at least (days; 0 = everything)",
+          h("input", { type: "number", min: 0, value: f.older_than_days, style: "width:100px", oninput: (e) => (f.older_than_days = +e.target.value) })),
+        h("div", {}, h("div", { class: "muted", style: "font-size:13px" }, "Shared folders (none ticked = all)"),
+          ctx.shares.filter((s) => s.recycle_bin).map((s) => h("label", { class: "check" },
+            h("input", { type: "checkbox", checked: f.shares.includes(s.name), onchange: (e) => { f.shares = e.target.checked ? [...f.shares, s.name] : f.shares.filter((x) => x !== s.name); } }), s.name)))] : null,
+      h("label", { class: "check" }, h("input", { type: "checkbox", checked: f.enabled, onchange: (e) => (f.enabled = e.target.checked) }), "Enabled"),
+      h("label", { class: "check" }, h("input", { type: "checkbox", checked: f.notify_on_failure, onchange: (e) => (f.notify_on_failure = e.target.checked) }), "Alert me when it fails"),
+      err);
+  };
+  draw();
+  const close = modal(t ? `Edit ${t.name}` : "Create task", body, [["Cancel", () => close()], ["Save", async (e) => {
+    err.textContent = ""; e.target.disabled = true;
+    try { await API.post("/api/tasks", f); close(); toast("Task saved"); done(); }
+    catch (ex) { err.textContent = ex.message; e.target.disabled = false; }
+  }, "primary"]]);
 }

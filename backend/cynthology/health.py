@@ -63,6 +63,11 @@ def collect() -> dict[str, dict]:
             issues[f"disk-{d.get('serial') or d['name']}-smart"] = {
                 "level": "critical", "title": f"Drive {d['name']} is failing (SMART)",
                 "detail": f"{d['model']} (serial {d.get('serial')}) reports a SMART failure. Back up and replace it soon."}
+        elif s.get("supported") and s.get("last_test") and s["last_test"].get("passed") is False:
+            issues[f"disk-{d.get('serial') or d['name']}-selftest"] = {
+                "level": "critical", "title": f"Drive {d['name']} failed its self-test",
+                "detail": f"{d['model']} (serial {d.get('serial')}): {s['last_test'].get('type')} self-test: "
+                          f"{s['last_test'].get('result')}. Back up and replace it soon."}
         elif s.get("supported") and (s.get("reallocated") or 0) > 0:
             issues[f"disk-{d.get('serial') or d['name']}-realloc"] = {
                 "level": "warning", "title": f"Drive {d['name']} has reallocated sectors",

@@ -48,6 +48,7 @@ Already installed an older version? Run the same command again - it upgrades in 
 | 32 | Size limit | Shared Folders → Limit → 1 GB; copy 2 GB of videos into it | Copy stops at ~1 GB ("disk full") |
 | 33 | User homes | Users & Groups → User home → on; as a normal user open \\NAS\home | Own private folder; can't open other users' homes |
 | 34 | Encrypted folder | Shared Folders → Create → Encrypt (save the recovery key) → copy files → Lock → Unlock with the recovery key | Locked: folder gone from the network; unlocked: files back |
+| 35 | Task Scheduler | Control Panel → Task Scheduler → + Create → S.M.A.R.T. test (short) → Run now → Results | Test started on every drive; Storage Manager → Drives shows the result |
 | 19 | Synology alternatives | Package Center → Synology alternatives → MariaDB → Install, then phpMyAdmin → Install → Open (server: NAS IP, user root, password from Info) | phpMyAdmin logs in |
 
 Logs if something breaks: `sudo journalctl -u cynthology-ui -n 100`

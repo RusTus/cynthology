@@ -163,13 +163,47 @@ def smart(name: str, _=Depends(require_admin)):
     if "smart_status" not in data:
         return {"supported": False, "passed": None}
     attrs = {a["id"]: a["raw"]["value"] for a in data.get("ata_smart_attributes", {}).get("table", [])}
+    # self-tests: ATA log, or NVMe log
+    tests = data.get("ata_smart_self_test_log", {}).get("standard", {}).get("table", []) or \
+        data.get("nvme_self_test_log", {}).get("table", [])
+    last = None
+    if tests:
+        t = tests[0]
+        st = t.get("status", {}) if isinstance(t.get("status"), dict) else {}
+        last = {"type": (t.get("type", {}) or {}).get("string") or (t.get("self_test_code", {}) or {}).get("string", "test"),
+                "passed": st.get("passed", (t.get("self_test_result", {}) or {}).get("value", 0) == 0),
+                "result": st.get("string") or (t.get("self_test_result", {}) or {}).get("string", ""),
+                "hours": t.get("lifetime_hours") or t.get("power_on_hours")}
+    run_st = data.get("ata_smart_data", {}).get("self_test", {}).get("status", {})
+    running = run_st.get("remaining_percent") if run_st.get("value", 0) >> 4 == 0xF else None
     return {
         "supported": True,
         "passed": data.get("smart_status", {}).get("passed"),
         "temperature": data.get("temperature", {}).get("current"),
         "power_on_hours": data.get("power_on_time", {}).get("hours"),
         "reallocated": attrs.get(5),
+        "last_test": last,
+        "test_running_remaining_pct": running,
     }
+
+
+class SmartTest(BaseModel):
+    test: str = "short"     # short (~2 min) | long (hours)
+
+
+@router.post("/disks/{name}/smart-test")
+def smart_test(name: str, body: SmartTest, _=Depends(require_admin)):
+    if body.test not in ("short", "long"):
+        raise HTTPException(400, "test must be short or long")
+    if not re.fullmatch(r"[a-z0-9]+", name) or name not in {d["name"] for d in list_disks()}:
+        raise HTTPException(404, "no such drive")
+    if DEV:
+        return {"ok": True, "message": "Test started (dev)"}
+    r = subprocess.run(["smartctl", "-t", body.test, f"/dev/{name}"], capture_output=True, text=True)
+    if r.returncode & 0b11 or "not supported" in r.stdout.lower():
+        raise HTTPException(400, f"{name} can't run self-tests (virtual disks and some USB enclosures don't support them)")
+    wait = next((ln.strip() for ln in r.stdout.splitlines() if "Please wait" in ln), "")
+    return {"ok": True, "message": f"{body.test.capitalize()} test started on {name}. {wait}"}
 
 
 @router.get("/pools")
