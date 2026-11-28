@@ -97,10 +97,46 @@ def log(_=Depends(require_admin)):
         text = open(LOG).read()
     except OSError:
         text = ""
-    return {"log": text[-20000:], "running": not DEV and unit_active("cynthology-update"), "current": current_version()}
+    return {"log": text[-20000:], "running": not DEV and (unit_active("cynthology-update") or unit_active("cynthology-rollback")),
+            "current": current_version()}
 
 
 # ---------- Debian packages ----------
+
+# ---------- rollback points (saved by get.sh before every update; see rootfs/usr/lib/cynthology/rollback) ----------
+
+ROLLBACK = "/usr/lib/cynthology/rollback"
+RESULT = os.path.join(STATE_DIR, "update-result")
+
+
+@router.get("/rollback")
+def rollback_points(_=Depends(require_admin)):
+    if DEV or not os.path.exists(ROLLBACK):
+        return {"points": [], "running": False}
+    r = subprocess.run([ROLLBACK, "list"], capture_output=True, text=True, timeout=30)
+    try:
+        points = json.loads(r.stdout or "[]")
+    except ValueError:
+        points = []
+    return {"points": points, "running": unit_active("cynthology-rollback")}
+
+
+@router.post("/rollback/{point}")
+def rollback(point: str, _=Depends(require_admin)):
+    if DEV:
+        raise HTTPException(400, "not available in dev mode")
+    if not re.fullmatch(r"\d{8}-\d{6}-[0-9A-Za-z.+~-]{1,40}", point):
+        raise HTTPException(400, "bad rollback point")
+    if not any(p["id"] == point for p in rollback_points(None)["points"]):
+        raise HTTPException(404, "no such rollback point")
+    if unit_active("cynthology-update") or unit_active("cynthology-rollback"):
+        raise HTTPException(409, "an update or rollback is already running")
+    open(LOG, "w").close()
+    run(["systemctl", "reset-failed", "cynthology-rollback"], check=False)
+    run(["systemd-run", "--unit=cynthology-rollback", "--collect",
+         "sh", "-c", f"echo manual-rollback > {RESULT}; {ROLLBACK} restore {point} >> {LOG} 2>&1 || {{ rm -f {RESULT}; exit 1; }}"])
+    return {"ok": True}
+
 
 @router.get("/debian")
 def debian(_=Depends(require_admin)):
@@ -253,12 +289,25 @@ def auto_run() -> None:
 
 
 def after_restart() -> None:
-    """At startup: tell the admin how an automatic update went."""
+    """At startup: tell the admin how an update went (rolled back by itself?) and how an automatic one went."""
+    from .notify import notify
+    try:
+        result = open(RESULT).read().strip()
+        os.remove(RESULT)
+    except OSError:
+        result = ""
+    if result == "rolled-back":
+        notify("warning", "An update was undone", f"The new version didn't start properly, so Cynthology went back to "
+               f"{current_version()} by itself. Your settings are as they were before the update. See Control Panel > "
+               "Update & Restore (log).", event="update")
+        _save_auto_state(pending=None, last_result=f"update failed - went back to {current_version()}")
+        return
+    if result == "manual-rollback":
+        notify("info", f"Cynthology went back to {current_version()}", "The rollback you started finished.", event="update")
     st = _auto_state()
     want = st.get("pending")
     if not want:
         return
-    from .notify import notify
     if current_version() == want:
         notify("info", f"Cynthology was updated to {want}", "The automatic update finished.", event="update")
         _save_auto_state(pending=None, last_result=f"updated to {want}")

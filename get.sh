@@ -75,4 +75,29 @@ tar xzf "$TMP/cyn.tar.gz" -C "$TMP/src" --strip-components=1
 [ -f "$TMP/src/install.sh" ] || die "download does not contain install.sh"
 
 ADMIN="${SUDO_USER:-}"
-SUDO_USER="$ADMIN" bash "$TMP/src/install.sh"
+# Rollback point: the installed release and its settings are saved first (the newest 2 are kept). If the
+# new version doesn't come up, the previous one is put back by itself; the Update page can also go back.
+POINT=""
+if [ -x /usr/lib/cynthology/rollback ] && [ "${CYN_NO_ROLLBACK:-0}" != 1 ] && [ -e /etc/cynthology-release ]; then
+  POINT=$(/usr/lib/cynthology/rollback save "${SIGNED:-new}" | tee /dev/stderr | sed -n 's/^POINT=//p') || POINT=""
+fi
+rc=0
+SUDO_USER="$ADMIN" bash "$TMP/src/install.sh" || rc=$?
+if [ -n "$POINT" ]; then
+  up=0
+  if [ $rc = 0 ]; then
+    echo "==> Checking that the new version answers"
+    for _ in $(seq 1 36); do
+      code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 5 https://127.0.0.1:5001/api/portal 2>/dev/null || true)
+      [ "$code" = 200 ] && { up=1; break; }
+      sleep 5
+    done
+  fi
+  if [ $up != 1 ]; then
+    echo "==> The new version didn't start properly (install rc=$rc) - going back to the previous one"
+    echo "rolled-back" > /var/lib/cynthology/update-result      # (read when the web UI starts again)
+    /usr/lib/cynthology/rollback restore "$(basename "$POINT")" \
+      || { rm -f /var/lib/cynthology/update-result; die "rolling back failed too - see this log"; }
+    exit 1
+  fi
+fi

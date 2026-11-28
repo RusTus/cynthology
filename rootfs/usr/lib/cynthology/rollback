@@ -1,0 +1,64 @@
+#!/bin/bash
+# Cynthology rollback points (see get.sh and backend/cynthology/update.py).
+#
+#   rollback save <to-version>   before an update: save the installed release + its settings
+#   rollback restore <point>     go back: settings as they were + that release's installer
+#   rollback list                (JSON)
+#
+# A point is /var/lib/cynthology-rollback/<time>-<version>/ with
+#   state.tar.gz  /var/lib/cynthology without caches and package web folders (data on the pools is
+#                 never touched by updates, so it isn't part of this)
+#   src.tar.gz    the installed release's own source (install.sh included), saved by install.sh
+#   meta.json     {"from": version, "to": version, "time": unix time}
+# The newest 2 points are kept.
+set -euo pipefail
+ROOT=/var/lib/cynthology-rollback
+STATE=/var/lib/cynthology
+SRC_SAVED=/var/lib/cynthology-releases/installed-src.tar.gz
+EXCLUDES=(--exclude=./web_packages --exclude=./thumbs --exclude=./thumbnails --exclude=./spk-staging --exclude=./jobs
+          --exclude=./media --exclude=./root --exclude='./*.log' --exclude=./metrics.db --exclude=./cache)
+
+cmd=${1:-}
+case "$cmd" in
+save)
+  to=${2:-?}
+  from=$(cat /etc/cynthology-release 2>/dev/null || echo unknown)
+  case "$from" in [0-9]*) ;; *) echo "(development install: no rollback point)"; exit 0 ;; esac
+  mkdir -p "$ROOT"; chmod 700 "$ROOT"
+  p="$ROOT/$(date +%Y%m%d-%H%M%S)-$from"
+  mkdir "$p"
+  tar czf "$p/state.tar.gz" -C "$STATE" "${EXCLUDES[@]}" . 2>/dev/null || [ $? -eq 1 ]     # (1 = files changed while reading)
+  [ -f "$SRC_SAVED" ] && cp "$SRC_SAVED" "$p/src.tar.gz"
+  printf '{"from": "%s", "to": "%s", "time": %s}\n' "$from" "$to" "$(date +%s)" > "$p/meta.json"
+  ls -1d "$ROOT"/*/ 2>/dev/null | sort | head -n -2 | xargs -r rm -rf
+  echo "==> Rollback point saved: $from ($p)"
+  echo "POINT=$p"
+  ;;
+restore)
+  p="$ROOT/$(basename "${2:?which point}")"
+  [ -f "$p/meta.json" ] && [ -f "$p/state.tar.gz" ] || { echo "no such rollback point"; exit 1; }
+  from=$(sed -n 's/.*"from": "\([^"]*\)".*/\1/p' "$p/meta.json")
+  echo "==> Rolling back to Cynthology $from"
+  systemctl stop cynthology-ui 2>/dev/null || true
+  tar xzf "$p/state.tar.gz" -C "$STATE"
+  if [ -f "$p/src.tar.gz" ]; then
+    w=$(mktemp -d); trap 'rm -rf "$w"' EXIT
+    tar xzf "$p/src.tar.gz" -C "$w"
+    CYN_NO_ROLLBACK=1 bash "$w/install.sh"
+  else          # (saved before rollback points kept the source: fetch that release again, signature-checked)
+    CYN_NO_ROLLBACK=1 CYN_ALLOW_DOWNGRADE=1 CYN_VERSION="v$from" bash /usr/lib/cynthology/get.sh
+  fi
+  echo "$from" > "$STATE/rolled-back-to"
+  echo "==> Rolled back to $from"
+  ;;
+list)
+  echo -n "["; first=1
+  for d in $(ls -1d "$ROOT"/*/ 2>/dev/null | sort -r); do
+    [ -f "$d/meta.json" ] || continue
+    [ $first = 1 ] || echo -n ","; first=0
+    echo -n "{\"id\": \"$(basename "$d")\", \"meta\": $(cat "$d/meta.json"), \"has_source\": $([ -f "$d/src.tar.gz" ] && echo true || echo false)}"
+  done
+  echo "]"
+  ;;
+*) echo "usage: rollback save <to-version> | restore <point> | list"; exit 2 ;;
+esac

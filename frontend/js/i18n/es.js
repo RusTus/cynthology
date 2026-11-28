@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 1251 entries.
+// Generated from the English UI strings (see i18n.js). 1257 entries.
 i18nAdd("es", {
 "Settings and data are kept.": "Se conservan la configuración y los datos.",
 "Also installs required package(s): ": "También instala los paquetes necesarios: ",
@@ -1250,5 +1250,11 @@ i18nAdd("es", {
 "App password": "Contraseña de aplicación",
 "Use this as the password in the app. It is shown only now.": "Úsela como contraseña en la app. Solo se muestra ahora.",
 "Create app password": "Crear contraseña de aplicación",
-"This package runs with full system (root) rights - it can do anything on this NAS. Only install it if you trust where it comes from.": "Este paquete se ejecuta con todos los derechos del sistema (root): puede hacer cualquier cosa en este NAS. Instálelo solo si confía en su origen."
+"This package runs with full system (root) rights - it can do anything on this NAS. Only install it if you trust where it comes from.": "Este paquete se ejecuta con todos los derechos del sistema (root): puede hacer cualquier cosa en este NAS. Instálelo solo si confía en su origen.",
+"Go back to an earlier version": "Volver a una versión anterior",
+"Saved automatically before each update: the version that was installed and its settings (your files are not affected). If an update doesn't start properly, Cynthology goes back by itself.": "Se guarda automáticamente antes de cada actualización: la versión instalada y su configuración (sus archivos no se ven afectados). Si una actualización no arranca bien, Cynthology vuelve atrás por sí solo.",
+"saved before updating to": "guardado antes de actualizar a",
+"Go back to Cynthology": "Volver a Cynthology",
+"Its settings are put back as they were when it was saved - changes made since then are undone. Your files are not affected. The web interface restarts.": "La configuración vuelve a como estaba al guardarse; los cambios posteriores se deshacen. Sus archivos no se ven afectados. La interfaz web se reinicia.",
+"Go back to": "Volver a"
 });

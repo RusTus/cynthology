@@ -962,6 +962,7 @@ async function cpUpdate(p) {
         h("button", { class: "btn", onclick: reload }, "Check again")),
       h("div", { class: "muted", style: "font-size:12px" }, "Command line on the NAS: ", h("span", { class: "mono" }, "sudo cynthology update"))),
     logBox,
+    await rollbackCard(follow),
     await autoUpdateCard(),
     h("h3", { class: "section-title", style: "max-width:720px" }, "Debian system updates"),
     h("div", { id: "deb-box", class: "muted" }, "Checking Debian packages…"),
@@ -986,6 +987,23 @@ async function cpUpdate(p) {
           }
         } }, "Install Debian updates"), debLog)
       : h("div", {}, "✓ All Debian packages are up to date."));
+}
+
+// Going back to the version before an update (rollback points saved by the updater; update.py)
+async function rollbackCard(follow) {
+  const r = await API.get("/api/update/rollback").catch(() => null);
+  if (!r || !r.points.length) return null;
+  return h("div", { class: "card", style: "max-width:720px;margin-top:12px" },
+    h("b", {}, t("Go back to an earlier version")),
+    h("div", { class: "muted", style: "font-size:12px;margin:2px 0 8px" }, t("Saved automatically before each update: the version that was installed and its settings (your files are not affected). If an update doesn't start properly, Cynthology goes back by itself.")),
+    h("table", { class: "kv" }, r.points.map((pt) => h("tr", {},
+      h("td", {}, h("b", {}, `Cynthology ${pt.meta.from}`), h("div", { class: "muted", style: "font-size:12px" },
+        `${t("saved before updating to")} ${pt.meta.to} · ${new Date(pt.meta.time * 1000).toLocaleString()}`)),
+      h("td", { style: "text-align:right" }, h("button", { class: "btn", disabled: r.running, onclick: async () => {
+        if (!confirm(t("Go back to Cynthology") + ` ${pt.meta.from}?\n\n` + t("Its settings are put back as they were when it was saved - changes made since then are undone. Your files are not affected. The web interface restarts."))) return;
+        await act(() => API.post(`/api/update/rollback/${encodeURIComponent(pt.id)}`), "Going back…");
+        follow("/api/update/log", (x) => { toast(`Cynthology ${x.current} - reloading`); setTimeout(() => location.reload(), 2500); });
+      } }, `${t("Go back to")} ${pt.meta.from}`))))));
 }
 
 // Automatic updates (backend update.py: hourly timer, acts in the chosen window, never while busy)

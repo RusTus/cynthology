@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 1226 entries.
+// Generated from the English UI strings (see i18n.js). 1232 entries.
 i18nAdd("nl", {
 "Error: ": "Fout: ",
 "Settings and data are kept.": "Instellingen en gegevens blijven behouden.",
@@ -1225,5 +1225,11 @@ i18nAdd("nl", {
 "App password": "App-wachtwoord",
 "Use this as the password in the app. It is shown only now.": "Gebruik dit als wachtwoord in de app. Het wordt alleen nu getoond.",
 "Create app password": "App-wachtwoord maken",
-"This package runs with full system (root) rights - it can do anything on this NAS. Only install it if you trust where it comes from.": "Dit pakket draait met volledige systeemrechten (root) - het kan alles op deze NAS doen. Installeer het alleen als u de bron vertrouwt."
+"This package runs with full system (root) rights - it can do anything on this NAS. Only install it if you trust where it comes from.": "Dit pakket draait met volledige systeemrechten (root) - het kan alles op deze NAS doen. Installeer het alleen als u de bron vertrouwt.",
+"Go back to an earlier version": "Terug naar een eerdere versie",
+"Saved automatically before each update: the version that was installed and its settings (your files are not affected). If an update doesn't start properly, Cynthology goes back by itself.": "Automatisch bewaard vóór elke update: de geïnstalleerde versie en haar instellingen (uw bestanden blijven ongemoeid). Als een update niet goed start, gaat Cynthology vanzelf terug.",
+"saved before updating to": "bewaard vóór de update naar",
+"Go back to Cynthology": "Terug naar Cynthology",
+"Its settings are put back as they were when it was saved - changes made since then are undone. Your files are not affected. The web interface restarts.": "De instellingen worden teruggezet zoals ze bewaard zijn - latere wijzigingen worden ongedaan gemaakt. Uw bestanden blijven ongemoeid. De webinterface herstart.",
+"Go back to": "Terug naar"
 });

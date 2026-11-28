@@ -93,8 +93,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           V="${{ steps.v.outputs.version }}"
+          case "$V" in
+            *alpha*) STAGE="alpha, for testing only." ;;
+            *beta*|*rc*) STAGE="beta: feature-complete and being tested before 1.0. Keep a backup of anything important (as with any NAS)." ;;
+            *) STAGE="" ;;
+          esac
           cat > notes.md <<NOTES
-          **Cynthology $V** - alpha, for testing only.
+          **Cynthology $V**${STAGE:+ - $STAGE}
 
           **Install** on a clean, minimal Debian 13 x86-64 system:
           \`wget -qO- https://raw.githubusercontent.com/RusTus/cynthology/main/get.sh | sudo bash\`

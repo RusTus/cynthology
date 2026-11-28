@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 1233 entries.
+// Generated from the English UI strings (see i18n.js). 1239 entries.
 i18nAdd("de", {
 "Error: ": "Fehler: ",
 "Settings and data are kept.": "Einstellungen und Daten bleiben erhalten.",
@@ -1232,5 +1232,11 @@ i18nAdd("de", {
 "App password": "App-Passwort",
 "Use this as the password in the app. It is shown only now.": "Verwenden Sie dies als Passwort in der App. Es wird nur jetzt angezeigt.",
 "Create app password": "App-Passwort erstellen",
-"This package runs with full system (root) rights - it can do anything on this NAS. Only install it if you trust where it comes from.": "Dieses Paket läuft mit vollen Systemrechten (root) - es kann alles auf diesem NAS tun. Installieren Sie es nur, wenn Sie der Quelle vertrauen."
+"This package runs with full system (root) rights - it can do anything on this NAS. Only install it if you trust where it comes from.": "Dieses Paket läuft mit vollen Systemrechten (root) - es kann alles auf diesem NAS tun. Installieren Sie es nur, wenn Sie der Quelle vertrauen.",
+"Go back to an earlier version": "Zu einer früheren Version zurückkehren",
+"Saved automatically before each update: the version that was installed and its settings (your files are not affected). If an update doesn't start properly, Cynthology goes back by itself.": "Vor jedem Update automatisch gespeichert: die installierte Version und ihre Einstellungen (Ihre Dateien sind nicht betroffen). Startet ein Update nicht richtig, kehrt Cynthology von selbst zurück.",
+"saved before updating to": "gespeichert vor dem Update auf",
+"Go back to Cynthology": "Zurück zu Cynthology",
+"Its settings are put back as they were when it was saved - changes made since then are undone. Your files are not affected. The web interface restarts.": "Die Einstellungen werden auf den gespeicherten Stand zurückgesetzt - spätere Änderungen gehen verloren. Ihre Dateien sind nicht betroffen. Die Weboberfläche startet neu.",
+"Go back to": "Zurück zu"
 });

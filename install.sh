@@ -110,6 +110,12 @@ elif [ "$NOSYSTEMD" != 1 ]; then
   systemctl try-restart cynthology-webdav 2>/dev/null || true       # (only if WebDAV is on)
   systemctl enable --now wsdd2 2>/dev/null || systemctl enable --now wsdd 2>/dev/null || true
 fi
+# keep this release's own installer (for "go back to this version" after a later update - see rollback)
+if [ -f "$SRC/VERSION" ]; then
+  install -d -m 700 /var/lib/cynthology-releases
+  tar czf /var/lib/cynthology-releases/installed-src.tar.gz.new -C "$SRC" --exclude=./.git . \
+    && mv /var/lib/cynthology-releases/installed-src.tar.gz.new /var/lib/cynthology-releases/installed-src.tar.gz
+fi
 IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 echo
 echo "Cynthology installed.  Open  https://${IP:-<this-box>}:5001  (or http://${IP:-<this-box>}:5000)"

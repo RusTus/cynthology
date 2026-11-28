@@ -1288,5 +1288,11 @@
 "App password": "Mot de passe d'application",
 "Use this as the password in the app. It is shown only now.": "Utilisez-le comme mot de passe dans l'application. Il n'est affiché que maintenant.",
 "Create app password": "Créer un mot de passe d'application",
-"This package runs with full system (root) rights - it can do anything on this NAS. Only install it if you trust where it comes from.": "Ce paquet s'exécute avec tous les droits système (root) - il peut tout faire sur ce NAS. Ne l'installez que si vous faites confiance à sa source."
+"This package runs with full system (root) rights - it can do anything on this NAS. Only install it if you trust where it comes from.": "Ce paquet s'exécute avec tous les droits système (root) - il peut tout faire sur ce NAS. Ne l'installez que si vous faites confiance à sa source.",
+"Go back to an earlier version": "Revenir à une version précédente",
+"Saved automatically before each update: the version that was installed and its settings (your files are not affected). If an update doesn't start properly, Cynthology goes back by itself.": "Enregistré automatiquement avant chaque mise à jour : la version installée et ses réglages (vos fichiers ne sont pas concernés). Si une mise à jour ne démarre pas correctement, Cynthology revient en arrière tout seul.",
+"saved before updating to": "enregistré avant la mise à jour vers",
+"Go back to Cynthology": "Revenir à Cynthology",
+"Its settings are put back as they were when it was saved - changes made since then are undone. Your files are not affected. The web interface restarts.": "Les réglages reviennent à leur état enregistré - les modifications faites depuis sont annulées. Vos fichiers ne sont pas concernés. L'interface web redémarre.",
+"Go back to": "Revenir à"
 }
