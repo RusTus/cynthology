@@ -64,13 +64,32 @@ def free_disks(c) -> list[str]:
     return sorted(d["name"] for d in c.get("/api/storage/disks").json() if d["usage"] == "free" and not d["system"])
 
 
+BAD: list[str] = []
+
+
 def checksums_ok(c) -> bool:
+    BAD.clear()
     for name, want in S["sums"].items():
-        tk = c.post("/api/files/ticket", json={"path": f"/failsafe/{name}"}).json()["url"]
-        if hashlib.sha256(c.get(tk).content).hexdigest() != want:
-            return False
-    big = ssh("sha256sum /volume1/failsafe/big.bin 2>/dev/null || sudo sha256sum $(ls -d /volume*/failsafe)/big.bin").split()[0]
-    return big == S["big"]
+        r = c.post("/api/files/ticket", json={"path": f"/failsafe/{name}"})
+        if r.status_code != 200:
+            BAD.append(f"{name}: ticket {r.status_code} {r.text[:200]}")
+            continue
+        d = c.get(r.json()["url"])
+        if hashlib.sha256(d.content).hexdigest() != want:
+            BAD.append(f"{name}: {d.status_code}, {len(d.content)} bytes {d.content[:120]!r}")
+    out = ssh("sudo sha256sum $(ls -d /volume*/failsafe | head -1)/big.bin 2>&1")
+    if out.split()[:1] != [S["big"]]:
+        BAD.append(f"big.bin: {out.strip()[:300]}")
+    return not BAD
+
+
+def checksums_settle(c, timeout=300) -> None:
+    """Right after a boot, give the system a moment (folders being unlocked/mounted, the web service starting)."""
+    try:
+        wait(lambda: checksums_ok(c), timeout=timeout, step=10, what="checksums")
+    except AssertionError:
+        diag = ssh("mount | grep -i volume; ls -la /volume*/ 2>&1 | head -30; sudo journalctl -b -u cynthology-ui --no-pager | tail -20")
+        raise AssertionError(f"data differs after the reboot: {BAD}\n{diag}")
 
 
 def pull(c, disk: str) -> None:
@@ -127,7 +146,7 @@ def test_reboot_during_rebuild(api):
     time.sleep(30)
     c = client()                                          # (after the reboot: new sign-in; drive names may differ)
     wait(lambda: pool(c)["status"] == "healthy", timeout=1800, what="rebuild to finish after the reboot")
-    assert checksums_ok(c)
+    checksums_settle(c)
     S["c"] = c
 
 
@@ -148,4 +167,4 @@ def test_still_good_after_reboot(api):
     time.sleep(30)
     c = client()
     wait(lambda: pool(c)["status"] == "healthy", timeout=600, what="pool after reboot")
-    assert checksums_ok(c)
+    checksums_settle(c)

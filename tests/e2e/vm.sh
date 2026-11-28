@@ -1,5 +1,6 @@
 #!/bin/bash
-# Boot a throwaway Debian 13 VM, install Cynthology from this checkout with the real installer,
+# Boot a throwaway Debian 13 VM, install Cynthology from this checkout with the real installer
+# (E2E_INSTALL=release: the latest published release instead - the upgrade test then upgrades it),
 # and write the connection details to $E2E_DIR/env for the tests (tests/e2e/test_e2e.py).
 #
 #   tests/e2e/vm.sh            (needs qemu-system-x86, qemu-utils, cloud-image-utils; KVM if available)
@@ -60,9 +61,13 @@ if ! "${SSH[@]}" true; then
 fi
 "${SSH[@]}" 'cloud-init status --wait >/dev/null 2>&1 || true'
 
-echo "==> installing Cynthology from $(git -C "$REPO" rev-parse --short HEAD)"
-git -C "$REPO" archive --format=tar --prefix=src/ HEAD | "${SSH[@]}" 'rm -rf src && tar x'
-"${SSH[@]}" 'cd src && sudo ./install.sh > /tmp/install.log 2>&1; rc=$?; tail -5 /tmp/install.log; exit $rc'
+if [ "${E2E_INSTALL:-checkout}" = release ]; then
+  # the latest published release, the way people install it (get.sh: download + signature check)
+  echo "==> installing the latest published release"
+  "${SSH[@]}" 'sudo bash -s > /tmp/install.log 2>&1; rc=$?; tail -5 /tmp/install.log; exit $rc' < "$REPO/get.sh"
+else
+  "$REPO/tests/e2e/install-checkout.sh" "$W" "$SSH_PORT"
+fi
 "${SSH[@]}" 'sudo apt-get install -y -q smbclient >/dev/null 2>&1 || true'
 for i in $(seq 1 60); do curl -sk -o /dev/null -w '%{http_code}' "https://localhost:$WEB_PORT/" | grep -q 200 && break; sleep 5; done
 

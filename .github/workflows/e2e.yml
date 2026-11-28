@@ -48,7 +48,7 @@ jobs:
       - name: End-to-end tests
         run: |
           . /tmp/e2e/env
-          CYN_E2E_ARTIFACTS=e2e-artifacts pytest -q tests/e2e -x --junitxml=e2e-artifacts/results.xml
+          CYN_E2E_ARTIFACTS=e2e-artifacts pytest -q tests/e2e/test_e2e.py -x --junitxml=e2e-artifacts/results.xml
 
       - name: Collect logs
         if: always()
@@ -121,5 +121,68 @@ jobs:
         with:
           name: storage-${{ github.sha }}
           path: storage-artifacts
+          retention-days: 14
+
+  # Upgrade test: the latest published release with data and settings -> this commit, like an update.
+  upgrade:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Tools
+        run: |
+          sudo apt-get update -q || true
+          sudo apt-get install -y -q qemu-system-x86 qemu-utils cloud-image-utils
+          pip install pytest httpx
+
+      - name: Cache the Debian cloud image
+        uses: actions/cache@v4
+        with:
+          path: /tmp/e2e-upgrade/base.qcow2
+          key: debian-13-generic-upgrade-${{ github.run_id }}
+          restore-keys: debian-13-generic-upgrade-
+
+      - name: Boot a VM with the latest published release
+        run: tests/e2e/vm.sh
+        env:
+          E2E_DIR: /tmp/e2e-upgrade
+          E2E_INSTALL: release
+          E2E_SSH_PORT: "2223"
+          E2E_WEB_PORT: "5102"
+
+      - name: Fill it with data and settings
+        run: |
+          . /tmp/e2e-upgrade/env
+          E2E_DIR=/tmp/e2e-upgrade CYN_E2E_PHASE=before pytest -q tests/e2e/test_upgrade.py -x
+
+      - name: Upgrade to this commit
+        run: tests/e2e/install-checkout.sh /tmp/e2e-upgrade 2223
+
+      - name: Check that everything survived
+        run: |
+          . /tmp/e2e-upgrade/env
+          E2E_DIR=/tmp/e2e-upgrade CYN_E2E_PHASE=after pytest -q tests/e2e/test_upgrade.py -x
+
+      - name: Collect logs
+        if: always()
+        run: |
+          mkdir -p upgrade-artifacts
+          if [ -f /tmp/e2e-upgrade/env ]; then
+            . /tmp/e2e-upgrade/env
+            $CYN_E2E_SSH -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null 'cat /tmp/install.log; sudo journalctl -u cynthology-ui --no-pager -n 300' > upgrade-artifacts/vm-logs.txt 2>&1 || true
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: upgrade-${{ github.sha }}
+          path: upgrade-artifacts
           retention-days: 14
 
