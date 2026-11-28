@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 1140 entries.
+// Generated from the English UI strings (see i18n.js). 1158 entries.
 i18nAdd("nl", {
 "Error: ": "Fout: ",
 "Settings and data are kept.": "Instellingen en gegevens blijven behouden.",
@@ -1139,5 +1139,23 @@ i18nAdd("nl", {
 "Who may ask (networks, one per line; empty = this NAS's local networks)": "Wie mag vragen (netwerken, één per regel; leeg = de lokale netwerken van deze NAS)",
 "Location": "Locatie",
 "If the firewall is on, allow the SNMP service (UDP 161) from your monitoring server.": "Als de firewall aan staat, sta de SNMP-dienst (UDP 161) toe vanaf uw monitoringserver.",
-"SNMP (monitoring tools)": "SNMP (monitoringtools)"
+"SNMP (monitoring tools)": "SNMP (monitoringtools)",
+"A Nextcloud app": "Een Nextcloud-app",
+"This sign-in link expired": "Deze aanmeldlink is verlopen",
+"Start again in the app.": "Begin opnieuw in de app.",
+"Connect this app?": "Deze app verbinden?",
+"wants to sync the files you can open on this NAS, as": "wil de bestanden synchroniseren die u op deze NAS kunt openen, als",
+"It gets a password of its own; you can disconnect it any time in Personal > Security.": "Ze krijgt een eigen wachtwoord; u kunt haar altijd ontkoppelen via Persoonlijk > Beveiliging.",
+"Go back to the app - it continues by itself. You can close this window.": "Ga terug naar de app - die gaat vanzelf verder. U kunt dit venster sluiten.",
+"Not connected. You can close this window.": "Niet verbonden. U kunt dit venster sluiten.",
+"Sign in to connect": "Meld u aan om te verbinden:",
+"Connected apps": "Verbonden apps",
+"Sync your files with the Nextcloud desktop and phone apps: in the app, enter this NAS's address ": "Synchroniseer uw bestanden met de Nextcloud-apps voor computer en telefoon: voer in de app het adres van deze NAS in ",
+" and sign in.": " en meld u aan.",
+"Disconnect this app? It stops syncing until you sign in again.": "Deze app ontkoppelen? Ze stopt met synchroniseren tot u opnieuw aanmeldt.",
+"Disconnect": "Ontkoppelen",
+"Disconnected": "Ontkoppeld",
+"No apps connected.": "Geen apps verbonden.",
+"Nextcloud apps (desktop & phone sync)": "Nextcloud-apps (synchronisatie computer & telefoon)",
+"Container apps": "Container-apps"
 });

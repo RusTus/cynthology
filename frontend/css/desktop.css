@@ -360,3 +360,4 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 .login-card .login-alt { background: transparent; color: var(--accent); border: 1px solid var(--line); padding: 9px; border-radius: 6px; }
 .login-card .login-alt:hover { border-color: var(--accent); }
 
+.toolbar .pill { align-self: center; }

@@ -147,6 +147,24 @@ async function personalSecurity(p) {
   p.append(h("h3", { class: "pc-group", style: "margin-top:22px" }, "Passkeys and security keys"), pkBox);
   renderPasskeys();
 
+  // apps connected through the Nextcloud sign-in (ncsync.py): each has its own password
+  const appsBox = h("div");
+  const renderApps = async () => {
+    const list = await API.get("/api/ncsync/apps").catch(() => []);
+    appsBox.replaceChildren(
+      h("p", { class: "muted" }, "Sync your files with the Nextcloud desktop and phone apps: in the app, enter this NAS's address ",
+        h("b", { translate: "no" }, location.origin), " and sign in."),
+      list.length ? h("table", { class: "kv" }, list.map((a) => h("tr", {},
+        h("td", {}, h("b", {}, a.name), h("div", { class: "muted", style: "font-size:12px" },
+          `${t("connected")} ${fmtWhen(a.created)}` + (a.last_used ? ` · ${t("last used")} ${fmtWhen(a.last_used)}` : ""))),
+        h("td", { style: "text-align:right;white-space:nowrap" }, h("button", { class: "btn danger", onclick: async () => {
+          if (!confirm(t("Disconnect this app? It stops syncing until you sign in again."))) return;
+          await act(() => API.del(`/api/ncsync/apps/${a.id}`), "Disconnected"); renderApps();
+        } }, "Disconnect"))))) : h("p", { class: "muted" }, "No apps connected."));
+  };
+  p.append(h("h3", { class: "pc-group", style: "margin-top:22px" }, "Connected apps"), appsBox);
+  renderApps();
+
   const sess = h("table", { class: "kv" });
   const renderSessions = async () => {
     const x = await API.get("/api/account");

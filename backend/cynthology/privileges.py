@@ -32,6 +32,7 @@ APPS = {
     "smb": "SMB (Windows / Mac file sharing)",
     "webdav": "WebDAV",
     "sftp": "SFTP",
+    "sync": "Nextcloud apps (desktop & phone sync)",
 }
 MIN_UID = 1000
 _lock = threading.Lock()

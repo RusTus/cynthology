@@ -9,11 +9,11 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import account, advisor, antivirus, cloudsync, passkeys, portal, privileges, snmp, apps, hardware, preview, auth, configbackup, vault, fileservices, metrics, notify, sharelinks, ddns, directory, logcenter, tasks, vpn, firewall, san, webstation, backup, containers, files, health, network, repl, services, settings, setup, shares, snapshots, spk, storage, sysinfo, tls, twofa, ups, update, usb, users
+from . import account, advisor, antivirus, cloudsync, ncsync, passkeys, portal, privileges, snmp, apps, hardware, preview, auth, configbackup, vault, fileservices, metrics, notify, sharelinks, ddns, directory, logcenter, tasks, vpn, firewall, san, webstation, backup, containers, files, health, network, repl, services, settings, setup, shares, snapshots, spk, storage, sysinfo, tls, twofa, ups, update, usb, users
 from .util import DEV
 
 app = FastAPI(title="Cynthology", version="0.1.0", docs_url="/api/docs" if DEV else None)
-for r in (auth.router, account.router, antivirus.router, cloudsync.router, passkeys.router, passkeys.public, portal.router, privileges.router, snmp.router, sysinfo.router, storage.router, shares.router, users.router, services.router, apps.router, spk.router,
+for r in (auth.router, account.router, antivirus.router, cloudsync.router, ncsync.router, ncsync.api, passkeys.router, passkeys.public, portal.router, privileges.router, snmp.router, sysinfo.router, storage.router, shares.router, users.router, services.router, apps.router, spk.router,
           tls.router, setup.router, files.router, snapshots.router, health.router, backup.router, ups.router, twofa.router, repl.router, containers.router, usb.router, network.router, update.router, webstation.router, san.router, firewall.router, ddns.router, tasks.router, directory.router, vpn.router, logcenter.router, fileservices.router, notify.router, metrics.router, sharelinks.router, sharelinks.public, configbackup.router, vault.router, advisor.router, hardware.router, preview.router):
     app.include_router(r)
 
@@ -85,6 +85,7 @@ def regenerate_share_configs():
 
 FRONTEND = os.path.abspath(os.environ.get("CYN_WEB", os.path.join(os.path.dirname(__file__), "..", "..", "frontend")))
 app.mount("/static", StaticFiles(directory=FRONTEND), name="static")
+app.mount("/remote.php", ncsync.dav_app)          # Nextcloud apps (ncsync.py)
 PDFJS = "/usr/share/javascript/pdf"          # Debian's libjs-pdf: the PDF viewer, served from the NAS itself
 if os.path.isdir(PDFJS):
     app.mount("/vendor/pdfjs", StaticFiles(directory=PDFJS), name="pdfjs")

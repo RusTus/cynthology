@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 1150 entries.
+// Generated from the English UI strings (see i18n.js). 1168 entries.
 i18nAdd("fr", {
 "Error: ": "Erreur : ",
 "Settings and data are kept.": "Les réglages et les données sont conservés.",
@@ -1149,5 +1149,23 @@ i18nAdd("fr", {
 "Who may ask (networks, one per line; empty = this NAS's local networks)": "Qui peut interroger (réseaux, un par ligne ; vide = les réseaux locaux de ce NAS)",
 "Location": "Emplacement",
 "If the firewall is on, allow the SNMP service (UDP 161) from your monitoring server.": "Si le pare-feu est activé, autorisez le service SNMP (UDP 161) depuis votre serveur de supervision.",
-"SNMP (monitoring tools)": "SNMP (outils de supervision)"
+"SNMP (monitoring tools)": "SNMP (outils de supervision)",
+"A Nextcloud app": "Une application Nextcloud",
+"This sign-in link expired": "Ce lien de connexion a expiré",
+"Start again in the app.": "Recommencez dans l'application.",
+"Connect this app?": "Connecter cette application ?",
+"wants to sync the files you can open on this NAS, as": "veut synchroniser les fichiers que vous pouvez ouvrir sur ce NAS, en tant que",
+"It gets a password of its own; you can disconnect it any time in Personal > Security.": "Elle reçoit son propre mot de passe ; vous pouvez la déconnecter à tout moment dans Personnel > Sécurité.",
+"Go back to the app - it continues by itself. You can close this window.": "Retournez à l'application - elle continue d'elle-même. Vous pouvez fermer cette fenêtre.",
+"Not connected. You can close this window.": "Non connectée. Vous pouvez fermer cette fenêtre.",
+"Sign in to connect": "Connectez-vous pour connecter",
+"Connected apps": "Applications connectées",
+"Sync your files with the Nextcloud desktop and phone apps: in the app, enter this NAS's address ": "Synchronisez vos fichiers avec les applications Nextcloud pour ordinateur et téléphone : dans l'application, saisissez l'adresse de ce NAS ",
+" and sign in.": " et connectez-vous.",
+"Disconnect this app? It stops syncing until you sign in again.": "Déconnecter cette application ? Elle cesse de synchroniser jusqu'à une nouvelle connexion.",
+"Disconnect": "Déconnecter",
+"Disconnected": "Déconnectée",
+"No apps connected.": "Aucune application connectée.",
+"Nextcloud apps (desktop & phone sync)": "Applications Nextcloud (synchro ordinateur et téléphone)",
+"Container apps": "Applications conteneurs"
 });

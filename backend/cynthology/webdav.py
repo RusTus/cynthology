@@ -279,11 +279,13 @@ def mkcol(user: dict, path: str) -> Response:
     return Response(status_code=201)
 
 
-def copy_move(user: dict, path: str, request: Request, move: bool) -> Response:
-    dest_url = request.headers.get("destination", "")
-    if not dest_url:
-        raise HTTPException(400, "Destination header missing")
-    dpath = urllib.parse.unquote(urllib.parse.urlsplit(dest_url).path).strip("/")
+def copy_move(user: dict, path: str, request: Request, move: bool, dpath: str | None = None) -> Response:
+    """dpath: the destination as a File Station path (ncsync passes its own; WebDAV reads the header)."""
+    if dpath is None:
+        dest_url = request.headers.get("destination", "")
+        if not dest_url:
+            raise HTTPException(400, "Destination header missing")
+        dpath = urllib.parse.unquote(urllib.parse.urlsplit(dest_url).path).strip("/")
     overwrite = request.headers.get("overwrite", "T").upper() != "F"
     if "/" not in path or not dpath:
         raise HTTPException(403, "shared folders can't be copied or moved")

@@ -58,7 +58,9 @@ WM.register("appcenter", {
     }
 
     async function renderInstalled() {
-      const [list, ups] = await Promise.all([API.get("/api/packages/installed"), API.get("/api/packages/updates")]);
+      const [list, ups, ctApps] = await Promise.all([API.get("/api/packages/installed"), API.get("/api/packages/updates"),
+        API.get("/api/apps").catch(() => [])]);
+      const installedCt = ctApps.filter((a) => a.installed);
       st.updates = ups; nav();
       const upd = Object.fromEntries(ups.map((u) => [u.package, u]));
       pane.replaceChildren(h("div", { style: "display:flex;align-items:center;gap:12px" }, h("h3", { class: "pc-group" }, "Installed"),
@@ -86,7 +88,12 @@ WM.register("appcenter", {
                 await act(() => API.del(`/api/packages/installed/${p.package}?keep_data=${keep}`), `${p.dname} uninstalled`);
                 st.catalog = null; renderInstalled();
               } }, "Uninstall"))))))
-          : h("p", { class: "muted" }, "Nothing installed yet."));
+          : installedCt.length ? null : h("p", { class: "muted" }, "Nothing installed yet."),
+        // one-click container apps (installed from Containers or Synology alternatives)
+        installedCt.length ? h("h3", { class: "pc-group", style: "margin-top:18px" }, "Container apps") : null,
+        installedCt.length ? h("div", { class: "pc-grid" }, installedCt.map((a) => h("div", { class: "pc-tile" }, h("div", { class: "pc-noimg app-initial" }, appInitial(a.name)),
+          h("div", {}, h("b", {}, a.name), " ", h("span", { class: "pill" }, t("Container")), h("div", { class: "muted pc-desc" }, a.description),
+            h("div", { class: "toolbar", style: "margin:6px 0 0" }, ...containerActions(a, renderInstalled)))))) : null);
     }
 
     async function installFlow(prepareFn) {

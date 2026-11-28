@@ -110,9 +110,10 @@ def delete_user(name: str, _=Depends(require_admin)):
     end_sessions(name)
     from .fileservices import remove_user       # (their rsync account and sharing links go too)
     remove_user(name)
-    from . import passkeys, sharelinks
+    from . import ncsync, passkeys, sharelinks
     sharelinks.remove_user(name)
     passkeys.remove_user(name)
+    ncsync.remove_user(name)
     _refresh_privileges()
     if DEV:
         _DEV_USERS[:] = [u for u in _DEV_USERS if u["name"] != name]
