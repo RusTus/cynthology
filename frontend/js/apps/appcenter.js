@@ -125,6 +125,7 @@ WM.register("appcenter", {
         h("div", { class: "muted" }, s.mode === "upgrade" ? (s.info.changelog || "Settings and data are kept.") : s.info.description || ""),
         s.dependencies?.length ? h("div", { class: "note" }, "Also installs required package(s): ",
           s.dependencies.map((d) => `${d.package} ${d.version}`).join(", ")) : null,
+        s.runs_as_root ? h("div", { class: "note warn" }, t("This package runs with full system (root) rights - it can do anything on this NAS. Only install it if you trust where it comes from.")) : null,
         ...s.problems.map((p) => h("div", { class: "note warn" }, p)));
       // DSM-style wizard steps from WIZARD_UIFILES/install_uifile
       for (const step of s.wizard || []) {

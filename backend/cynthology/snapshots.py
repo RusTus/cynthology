@@ -10,6 +10,8 @@ import os
 import time
 import re
 import subprocess
+import contextlib
+import stat
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -217,7 +219,39 @@ def delete_snap(share: str, name: str, _=Depends(require_admin)):
 
 # ---------- browse & restore ----------
 
+@contextlib.contextmanager
+def snap_dir(share: dict, name: str):
+    """Open <share>/.snapshots/<name> without following links and make sure it really is one of our
+    read-only Btrfs snapshots (users can write to the share's top folder, so .snapshots or the
+    snapshot could have been swapped for a link or a folder of their own). Yields a /proc/<pid>/fd
+    path that keeps pointing at what was checked while the block runs. Its contents can't change
+    (read-only), so a path checked with inside() stays good."""
+    if not NAME_RE.match(name):
+        raise HTTPException(400, "bad snapshot name")
+    fds = []
+    try:
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        try:
+            fds.append(os.open(os.path.realpath(share["path"]), os.O_RDONLY | os.O_DIRECTORY))
+            fds.append(os.open(SNAPDIR, flags, dir_fd=fds[-1]))
+            sd = os.fstat(fds[-1])
+            fds.append(os.open(name, flags, dir_fd=fds[-1]))
+        except OSError:
+            raise HTTPException(404, "no such snapshot")
+        st = os.fstat(fds[-1])
+        path = f"/proc/{os.getpid()}/fd/{fds[-1]}"
+        if not DEV:
+            ro = subprocess.run(["btrfs", "property", "get", "-ts", path, "ro"], capture_output=True, text=True).stdout.strip()
+            if sd.st_uid != 0 or st.st_ino != 256 or ro != "ro=true":
+                raise HTTPException(404, "no such snapshot")
+        yield path
+    finally:
+        for fd in reversed(fds):
+            os.close(fd)
+
+
 def _snap_root(share: dict, name: str) -> str:
+    """(Development only / existence check - use snap_dir for anything that reads.)"""
     if not NAME_RE.match(name):
         raise HTTPException(400, "bad snapshot name")
     p = os.path.join(share["path"], SNAPDIR, name)
@@ -227,16 +261,39 @@ def _snap_root(share: dict, name: str) -> str:
 
 
 def _inside(root: str, rel: str) -> str:
+    """A path inside the (opened, read-only) snapshot at root, with every link in it resolved, as root/<real path>."""
+    real_root = os.path.realpath(root)
     full = os.path.realpath(os.path.join(root, rel.strip("/")))
-    if full != os.path.realpath(root) and not full.startswith(os.path.realpath(root) + os.sep):
+    if full != real_root and not full.startswith(real_root + os.sep):
         raise HTTPException(400, "path leaves the snapshot")
-    return full
+    return os.path.join(root, os.path.relpath(full, real_root)) if full != real_root else root
+
+
+def _safe_parent(share_path: str, dst: str) -> None:
+    """mkdir -p dirname(dst) inside the live share, refusing to go through links (the live folder may have
+    changed since the snapshot)."""
+    share_real = os.path.realpath(share_path)
+    rel = os.path.relpath(os.path.dirname(dst), share_path)
+    cur = share_real
+    for part in ([] if rel == "." else rel.split(os.sep)):
+        cur = os.path.join(cur, part)
+        try:
+            st = os.lstat(cur)
+        except FileNotFoundError:
+            os.mkdir(cur, 0o775)
+            continue
+        if stat.S_ISLNK(st.st_mode) or not stat.S_ISDIR(st.st_mode):
+            raise HTTPException(400, f"{os.path.relpath(cur, share_real)} is now a link or a file - move it out of the way first")
 
 
 @router.get("/{share}/{name}/browse")
 def browse(share: str, name: str, path: str = "", _=Depends(require_admin)):
     s = _share(share)
-    root = _snap_root(s, name)
+    with snap_dir(s, name) as root:
+        return _browse(s, root, path)
+
+
+def _browse(s: dict, root: str, path: str) -> list:
     d = _inside(root, path)
     if not os.path.isdir(d):
         raise HTTPException(404, "not a folder")
@@ -266,7 +323,6 @@ class Restore(BaseModel):
 def restore(share: str, name: str, body: Restore, _=Depends(require_admin)):
     """Copy files/folders back out of a snapshot (copies are instant on Btrfs: reflinks)."""
     s = _share(share)
-    root = _snap_root(s, name)
     if not body.paths:
         raise HTTPException(400, "choose files or folders to restore")
     if body.to == "copy":
@@ -277,26 +333,22 @@ def restore(share: str, name: str, body: Restore, _=Depends(require_admin)):
     else:
         raise HTTPException(400, "to must be original or copy")
     restored = 0
-    for rel in body.paths:
-        src = _inside(root, rel)
-        if not os.path.lexists(src):
-            raise HTTPException(404, f"{rel} is not in this snapshot")
-        dst = os.path.join(dest_root, rel.strip("/"))
-        os.makedirs(os.path.dirname(dst), exist_ok=True)
-        # the live folder may have changed since the snapshot: never follow a user's symlink out of it
-        real_parent = os.path.realpath(os.path.dirname(dst))
-        share_real = os.path.realpath(s["path"])
-        if real_parent != share_real and not real_parent.startswith(share_real + os.sep) or os.path.islink(dst):
-            raise HTTPException(400, f"{rel}: the folder it goes back into is now a link - move it out of the way first")
-        # cp -a keeps owners/permissions/times; --reflink makes it instant and free of extra space on Btrfs
-        if os.path.isdir(src):
-            os.makedirs(dst, exist_ok=True)
-            r = subprocess.run(["cp", "-a", "--reflink=auto", src + "/.", dst], capture_output=True, text=True)
-        else:
-            r = subprocess.run(["cp", "-a", "--reflink=auto", src, dst], capture_output=True, text=True)
-        if r.returncode != 0:
-            raise HTTPException(500, f"restoring {rel} failed: {r.stderr.strip()}")
-        restored += 1
+    with snap_dir(s, name) as root:
+        for rel in body.paths:
+            src = _inside(root, rel)
+            if not os.path.lexists(src):
+                raise HTTPException(404, f"{rel} is not in this snapshot")
+            dst = os.path.join(dest_root, rel.strip("/"))
+            _safe_parent(s["path"], dst)
+            # rsync writes each file to a temporary name and renames it into place, and replaces links it finds
+            # in the live folder instead of writing through them (a user may have planted some since)
+            if os.path.isdir(src) and not os.path.islink(src):
+                r = subprocess.run(["rsync", "-a", "--", src + "/", dst + "/"], capture_output=True, text=True)
+            else:
+                r = subprocess.run(["rsync", "-a", "--", src, dst], capture_output=True, text=True)
+            if r.returncode != 0:
+                raise HTTPException(500, f"restoring {rel} failed: {r.stderr.strip()[-300:]}")
+            restored += 1
     return {"ok": True, "restored": restored, "target": dest_root}
 
 
@@ -304,10 +356,10 @@ def restore(share: str, name: str, body: Restore, _=Depends(require_admin)):
 def revert(share: str, name: str, _=Depends(require_admin)):
     """Put the whole shared folder back to a snapshot. A safety snapshot of the current state is taken first."""
     s = _share(share)
-    root = _snap_root(s, name)
-    safety = take(s)
-    r = subprocess.run(["rsync", "-a", "--delete", "--exclude", f"/{SNAPDIR}", "--exclude", "/#recycle",
-                        root + "/", s["path"] + "/"], capture_output=True, text=True)
+    with snap_dir(s, name) as root:
+        safety = take(s)
+        r = subprocess.run(["rsync", "-a", "--delete", "--exclude", f"/{SNAPDIR}", "--exclude", "/#recycle",
+                            root + "/", s["path"] + "/"], capture_output=True, text=True)
     if r.returncode not in (0, 24):     # 24 = some files vanished meanwhile
         raise HTTPException(500, f"revert failed: {r.stderr.strip()[-300:]}")
     return {"ok": True, "safety_snapshot": safety}

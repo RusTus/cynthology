@@ -160,7 +160,18 @@ async function personalSecurity(p) {
         h("td", { style: "text-align:right;white-space:nowrap" }, h("button", { class: "btn danger", onclick: async () => {
           if (!confirm(t("Disconnect this app? It stops syncing until you sign in again."))) return;
           await act(() => API.del(`/api/ncsync/apps/${a.id}`), "Disconnected"); renderApps();
-        } }, "Disconnect"))))) : h("p", { class: "muted" }, "No apps connected."));
+        } }, "Disconnect"))))) : h("p", { class: "muted" }, "No apps connected."),
+      h("p", { class: "muted", style: "margin-top:10px" }, t("WebDAV and other apps that only ask for a user name and password: use an app password (required when you sign in with 2-step verification or a passkey).")),
+      h("button", { class: "btn", onclick: async () => {
+        const name = prompt(t("Name of the app or device (e.g. Phone WebDAV)"));
+        if (!name || !name.trim()) return;
+        try {
+          const r = await API.post("/api/ncsync/apps", { name: name.trim().slice(0, 80) });
+          modal(t("App password"), h("div", { class: "form" },
+            h("p", {}, t("Use this as the password in the app. It is shown only now.")), copyField(r.password)));
+          renderApps();
+        } catch (x) { toast(x.message); }
+      } }, t("Create app password")));
   };
   p.append(h("h3", { class: "pc-group", style: "margin-top:22px" }, "Connected apps"), appsBox);
   renderApps();

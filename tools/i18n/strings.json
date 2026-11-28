@@ -1279,5 +1279,14 @@
 "Name of the shared folder (the same name as on the other NAS keeps paths working):",
 "Failed over",
 "The folder is live on this NAS. Point users at this NAS (or move its address/DNS name here).",
-"Later, to fail back: create a replication task here that sends this folder to the original NAS, then on that NAS use 'Replace the live folder' on the copy it received."
+"Later, to fail back: create a replication task here that sends this folder to the original NAS, then on that NAS use 'Replace the live folder' on the copy it received.",
+"Copy",
+"Requested from",
+"That isn't this device. Only allow it if you started the sign-in in your Nextcloud app yourself, just now - otherwise someone else would get access to your files.",
+"WebDAV and other apps that only ask for a user name and password: use an app password (required when you sign in with 2-step verification or a passkey).",
+"Name of the app or device (e.g. Phone WebDAV)",
+"App password",
+"Use this as the password in the app. It is shown only now.",
+"Create app password",
+"This package runs with full system (root) rights - it can do anything on this NAS. Only install it if you trust where it comes from."
 ]

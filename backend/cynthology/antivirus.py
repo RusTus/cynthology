@@ -223,6 +223,22 @@ def parse(output: str) -> list[tuple[str, str]]:
     return [(m["path"], m["sig"]) for m in map(FOUND_RE.match, output.splitlines()) if m]
 
 
+def confirm(path: str, c: dict) -> bool:
+    """clamscan reports one file per line, and a file name can contain a line break: a user could name
+    a folder so that the report seems to name some other file (in a folder they can't even open).
+    So every reported file is scanned again on its own before anything is done to it."""
+    if DEV:
+        return True
+    try:
+        if not os.path.isfile(path) or os.path.islink(path):
+            return False
+    except OSError:
+        return False
+    r = subprocess.run(["clamscan", "--no-summary", "--infected", f"--max-filesize={c['max_mb']}M",
+                        f"--max-scansize={c['max_mb'] * 2}M", "--", path], capture_output=True, text=True)
+    return r.returncode == 1
+
+
 def _share_root(path: str) -> str:
     for sh in shares_mod.load():
         root = os.path.realpath(sh["path"])
@@ -258,14 +274,18 @@ def _qdir(path: str) -> str:
         os.mkdir(qdir, 0o700)
     except FileExistsError:
         pass
-    st = os.lstat(qdir)
     import stat as stat_mod
-    if not stat_mod.S_ISDIR(st.st_mode) or st.st_uid != 0:
-        raise OSError(f"{qdir} isn't a folder owned by the system")
-    os.chown(qdir, 0, 0)
-    os.chmod(qdir, 0o700)
-    if not DEV:     # (the shared folder's default ACLs would otherwise be inherited)
-        subprocess.run(["setfacl", "-b", "-k", qdir], capture_output=True)
+    fd = os.open(qdir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)     # (never chmod through a swapped-in link)
+    try:
+        st = os.fstat(fd)
+        if not stat_mod.S_ISDIR(st.st_mode) or st.st_uid != 0:
+            raise OSError(f"{qdir} isn't a folder owned by the system")
+        os.fchown(fd, 0, 0)
+        os.fchmod(fd, 0o700)
+        if not DEV:     # (the shared folder's default ACLs would otherwise be inherited)
+            subprocess.run(["setfacl", "-b", "-k", f"/proc/{os.getpid()}/fd/{fd}"], capture_output=True)
+    finally:
+        os.close(fd)
     return qdir
 
 
@@ -301,7 +321,7 @@ def do_scan(only: list[str] | None) -> None:
         return
     with open(LOG, "w") as logf:
         r = subprocess.run(command(c, [s["path"] for s in tg]), stdout=subprocess.PIPE, stderr=logf, text=True)
-    hits = parse(r.stdout)
+    hits = [(p, sig) for p, sig in parse(r.stdout) if confirm(p, c)]
     records = []
     for path, sig in hits:
         rec = {"id": secrets.token_hex(8), "path": path, "signature": sig, "time": int(time.time()), "state": "reported"}

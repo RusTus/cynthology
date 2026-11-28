@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
+from . import safepath
 from . import shares as shares_mod
 from .auth import current_user
 from .privileges import require_app
@@ -105,6 +106,24 @@ def _own(path: str, user: dict) -> None:
         pass
 
 
+def _owner_ids(user: dict) -> tuple[int, int] | None:
+    if DEV:
+        return None
+    try:
+        return pwd.getpwnam(user["user"]).pw_uid, grp.getgrnam("users").gr_gid
+    except KeyError:
+        return None
+
+
+def _own_at(dfd: int, name: str, user: dict) -> None:
+    ids = _owner_ids(user)
+    if ids:
+        try:
+            safepath.chown_at(dfd, name, *ids)
+        except OSError:
+            pass
+
+
 def _entry(full: str, name: str) -> dict | None:
     try:
         st = os.lstat(full)
@@ -168,12 +187,16 @@ def _check_name(name: str) -> str:
 @router.post("/mkdir")
 def mkdir(body: NameOp, user=Depends(FILES_USER)):
     share, full = resolve(user, body.path, write=True)
-    target = os.path.join(_confine(full, os.path.realpath(share["path"])), _check_name(body.name))
+    name = _check_name(body.name)
+    fd = safepath.open_dir(share["path"], full)
     try:
-        os.mkdir(target, 0o2775)
-    except FileExistsError:
-        raise HTTPException(409, "already exists")
-    _own(target, user)
+        try:
+            os.mkdir(name, 0o2775, dir_fd=fd)
+        except FileExistsError:
+            raise HTTPException(409, "already exists")
+        _own_at(fd, name, user)
+    finally:
+        os.close(fd)
     return {"ok": True}
 
 
@@ -187,10 +210,14 @@ def rename(body: Rename, user=Depends(FILES_USER)):
     share, full = resolve(user, body.path, write=True)
     if full == os.path.realpath(share["path"]):
         raise HTTPException(400, "rename shared folders in Control Panel")
-    target = os.path.join(_confine(os.path.dirname(full), os.path.realpath(share["path"])), _check_name(body.new_name))
-    if os.path.lexists(target):
-        raise HTTPException(409, "an item with that name already exists")
-    os.rename(full, target)
+    new = _check_name(body.new_name)
+    fd, name = safepath.open_parent(share["path"], full)
+    try:
+        if safepath.lstat_at(fd, new) is not None:
+            raise HTTPException(409, "an item with that name already exists")
+        os.rename(name, new, src_dir_fd=fd, dst_dir_fd=fd)
+    finally:
+        os.close(fd)
     return {"ok": True}
 
 
@@ -207,22 +234,28 @@ def delete(body: Paths, user=Depends(FILES_USER)):
         if full == root:
             raise HTTPException(400, "delete shared folders in Control Panel")
         rel = os.path.relpath(full, root)
-        if share.get("recycle_bin") and not rel.startswith("#recycle"):
-            bin_ = os.path.join(root, "#recycle")
-            if os.path.islink(bin_):
-                raise HTTPException(403, "the recycle bin of this shared folder is a link - remove it first")
-            dest = os.path.join(bin_, rel)
-            _confine(os.path.dirname(dest) if os.path.exists(os.path.dirname(dest)) else bin_, root)
-            os.makedirs(os.path.dirname(dest), exist_ok=True)
-            _confine(os.path.dirname(dest), os.path.realpath(bin_))
-            if os.path.lexists(dest):
-                dest += time.strftime(" (%Y-%m-%d %H.%M.%S)")
-            _confine(full, root)
-            shutil.move(full, dest)
-        elif os.path.isdir(full) and not os.path.islink(full):
-            shutil.rmtree(full)
-        else:
-            os.remove(full)
+        pfd, name = safepath.open_parent(root, full)
+        try:
+            if safepath.lstat_at(pfd, name) is None:
+                raise HTTPException(404, f"{name} doesn't exist")
+            if share.get("recycle_bin") and not rel.startswith("#recycle"):
+                # (into #recycle keeping the folder structure; every folder made without following links)
+                rfd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+                try:
+                    bfd = safepath.makedirs_at(rfd, "#recycle/" + os.path.dirname(rel))
+                finally:
+                    os.close(rfd)
+                try:
+                    dest = name
+                    if safepath.lstat_at(bfd, dest) is not None:
+                        dest += time.strftime(" (%Y-%m-%d %H.%M.%S)")
+                    safepath.move_at(pfd, name, bfd, dest)
+                finally:
+                    os.close(bfd)
+            else:
+                safepath.remove_at(pfd, name)
+        finally:
+            os.close(pfd)
     return {"ok": True}
 
 
@@ -245,16 +278,21 @@ def transfer(body: Transfer, user=Depends(FILES_USER)):
         target = os.path.join(dest, os.path.basename(src))
         if target == src or (os.path.isdir(src) and (target + os.sep).startswith(src + os.sep)):
             raise HTTPException(400, "can't copy or move a folder into itself")
-        if os.path.lexists(target):
-            raise HTTPException(409, f"{os.path.basename(src)} already exists in the destination")
-        _confine(dest, droot)
-        if body.move:
-            shutil.move(src, target)
-        elif os.path.isdir(src):
-            shutil.copytree(src, target, symlinks=True)
-        else:
-            shutil.copy2(src, target)
-        _own(target, user)
+        dfd = safepath.open_dir(droot, dest)
+        try:
+            sfd, sname = safepath.open_parent(sshare["path"], src)
+            try:
+                if safepath.lstat_at(dfd, sname) is not None:
+                    raise HTTPException(409, f"{sname} already exists in the destination")
+                if body.move:
+                    safepath.move_at(sfd, sname, dfd, sname)
+                else:
+                    safepath.copy_at(sfd, sname, dfd, sname, owner=_owner_ids(user))
+            finally:
+                os.close(sfd)
+            _own_at(dfd, sname, user)
+        finally:
+            os.close(dfd)
     return {"ok": True}
 
 
@@ -262,24 +300,24 @@ def transfer(body: Transfer, user=Depends(FILES_USER)):
 async def upload(request: Request, path: str, name: str, overwrite: bool = False, user=Depends(FILES_USER)):
     """Raw file bytes in the body (streamed, so large files are fine)."""
     ushare, folder = resolve(user, path, write=True)
-    folder = _confine(folder, os.path.realpath(ushare["path"]))
-    target = os.path.join(folder, _check_name(name))
-    if os.path.lexists(target) and not overwrite:
-        raise HTTPException(409, f"{name} already exists")
+    name = _check_name(name)
     import secrets
-    tmp = os.path.join(folder, f".{name[:64]}.{secrets.token_hex(4)}.uploading")
+    fd = safepath.open_dir(ushare["path"], folder)
+    tmp = f".{name[:64]}.{secrets.token_hex(4)}.uploading"
     try:
-        # new file only, never through a symlink someone planted (we write as root)
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o664)
-        with os.fdopen(fd, "wb") as f:
+        if safepath.lstat_at(fd, name) is not None and not overwrite:
+            raise HTTPException(409, f"{name} already exists")
+        # new file only, in the checked folder, never through a symlink someone planted (we write as root)
+        ffd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o664, dir_fd=fd)
+        with os.fdopen(ffd, "wb") as f:
             async for chunk in request.stream():
                 f.write(chunk)
-        _confine(folder, os.path.realpath(ushare["path"]))
-        os.replace(tmp, target)
+        _own_at(fd, tmp, user)
+        os.replace(tmp, name, src_dir_fd=fd, dst_dir_fd=fd)
     finally:
-        if os.path.lexists(tmp):
-            os.remove(tmp)
-    _own(target, user)
+        if safepath.lstat_at(fd, tmp) is not None:
+            os.unlink(tmp, dir_fd=fd)
+        os.close(fd)
     return {"ok": True}
 
 
@@ -321,6 +359,19 @@ def _disposition(name: str, inline: bool = False) -> dict:
             "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "sandbox; default-src 'none'; img-src 'self'; media-src 'self'"}
 
 
+def file_response(root: str, full: str, **kw) -> FileResponse:
+    """FileResponse for a checked path, served from the file opened without following links (the name
+    could be swapped for a link to a system file between the check and the read)."""
+    from starlette.background import BackgroundTask
+    fd = safepath.open_file(root, full)
+    if not stat.S_ISREG(os.fstat(fd).st_mode):
+        os.close(fd)
+        raise HTTPException(404, "not a file")
+    import mimetypes
+    kw.setdefault("media_type", mimetypes.guess_type(full)[0] or "application/octet-stream")
+    return FileResponse(safepath.proc_path(fd), stat_result=os.fstat(fd), background=BackgroundTask(os.close, fd), **kw)
+
+
 class _Sink:
     """Write-only, unseekable buffer for streaming a zip as it is built."""
     def __init__(self):
@@ -344,35 +395,54 @@ class _Sink:
         return out
 
 
-def zip_stream(items: list[tuple[str, str]]):
-    """items: (absolute path, name in the zip). Folders are added recursively, hidden items skipped."""
+def zip_stream(items: list[tuple[str, str]], root: str | None = None):
+    """items: (absolute path inside root, name in the zip). Folders are added recursively, hidden items and
+    links skipped. Everything is opened relative to folders opened without following links (root: the
+    shared folder the paths were checked against; by default each item's own folder)."""
     import zipfile
     sink = _Sink()
     with zipfile.ZipFile(sink, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as zf:
-        def add_file(path: str, arc: str):
+        def add_file(dfd: int, name: str, arc: str):
             try:
-                with open(path, "rb") as src, zf.open(arc, "w", force_zip64=True) as dst:
-                    while True:
-                        chunk = src.read(1 << 20)
-                        if not chunk:
-                            break
-                        dst.write(chunk)
-                        yield sink.drain()
+                fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=dfd)
             except OSError:
                 return
+            with os.fdopen(fd, "rb") as src, zf.open(arc, "w", force_zip64=True) as dst:
+                while True:
+                    chunk = src.read(1 << 20)
+                    if not chunk:
+                        break
+                    dst.write(chunk)
+                    yield sink.drain()
         for full, arc in items:
-            if os.path.isdir(full) and not os.path.islink(full):
-                for dirpath, dirs, files in os.walk(full):
-                    dirs[:] = sorted(d for d in dirs if not _hidden(d))
-                    rel = os.path.relpath(dirpath, os.path.dirname(full))
-                    base = os.path.join(os.path.dirname(arc), rel) if os.path.dirname(arc) else rel
-                    if not files and not dirs:
-                        zf.writestr(base + "/", b"")
-                    for f in sorted(files):
-                        if not _hidden(f) and not os.path.islink(os.path.join(dirpath, f)):
-                            yield from add_file(os.path.join(dirpath, f), os.path.join(base, f))
-            elif os.path.isfile(full):
-                yield from add_file(full, arc)
+            try:
+                pfd, name = safepath.open_parent(root or os.path.dirname(full), full)
+            except HTTPException:
+                continue
+            try:
+                st = safepath.lstat_at(pfd, name)
+                if st is None:
+                    continue
+                if stat.S_ISREG(st.st_mode):
+                    yield from add_file(pfd, name, arc)
+                elif stat.S_ISDIR(st.st_mode):
+                    top = os.open(name, safepath.DIR_FLAGS, dir_fd=pfd)
+                    try:
+                        # fwalk: every folder is opened relative to its parent, links are never followed
+                        for dirpath, dirs, fnames, dfd in os.fwalk(".", dir_fd=top, follow_symlinks=False):
+                            dirs[:] = sorted(d for d in dirs if not _hidden(d))
+                            base = os.path.normpath(os.path.join(arc, dirpath))
+                            if not fnames and not dirs:
+                                zf.writestr(base + "/", b"")
+                            for f in sorted(fnames):
+                                if not _hidden(f):
+                                    fst = safepath.lstat_at(dfd, f)
+                                    if fst and stat.S_ISREG(fst.st_mode):
+                                        yield from add_file(dfd, f, os.path.join(base, f))
+                    finally:
+                        os.close(top)
+            finally:
+                os.close(pfd)
     yield sink.drain()
 
 
@@ -381,14 +451,17 @@ def download(ticket: str, inline: bool = False):
     exp, user, paths = _TICKETS.pop(ticket, (0, None, []))
     if exp < time.time():
         raise HTTPException(403, "download link expired - try again")
-    resolved = [resolve(user, p)[1] for p in paths]
+    found = [resolve(user, p) for p in paths]
+    resolved = [f for _, f in found]
     if len(resolved) == 1 and os.path.isfile(resolved[0]):
-        return FileResponse(resolved[0], headers=_disposition(os.path.basename(resolved[0]), inline))
+        return file_response(found[0][0]["path"], resolved[0], headers=_disposition(os.path.basename(resolved[0]), inline))
     for full in resolved:
         if not os.path.exists(full):
             raise HTTPException(404, f"{os.path.basename(full)} no longer exists")
     name = (os.path.basename(resolved[0]) if len(resolved) == 1 else os.path.basename(os.path.dirname(resolved[0])) or "files") + ".zip"
-    return StreamingResponse(zip_stream([(f, os.path.basename(f)) for f in resolved]), media_type="application/zip",
+    roots = {os.path.realpath(sh["path"]) for sh, _ in found}
+    return StreamingResponse(zip_stream([(f, os.path.basename(f)) for f in resolved], root=roots.pop() if len(roots) == 1 else None),
+                             media_type="application/zip",
                              headers=_disposition(name))
 
 

@@ -209,9 +209,15 @@ def failover(body: Failover, _=Depends(require_admin)):
         run(["btrfs", "subvolume", "snapshot", os.path.join(d, body.snapshot), target])
         run(["chgrp", "users", target])
         run(["chmod", "2775", target])
+    # Who may use it isn't known here (the other NAS's users aren't this one's, and the ACLs that came along name
+    # them by number): administrators only, until permissions are set in Control Panel > Shared Folders.
+    lists = {"read_users": [], "write_users": ["@cynthology-admin"]}
+    if not DEV:
+        subprocess.run(["setfacl", "-R", "-b", target], capture_output=True)
+        shares_mod.apply_acls(target, {}, lists)
     items = shares_mod.load()
     items.append({"name": body.new_name, "pool_id": pool["id"], "path": target, "smb": True, "nfs": False,
-                  "nfs_clients": "192.168.0.0/16", "recycle_bin": True, "read_users": [], "write_users": ["@users"],
+                  "nfs_clients": "192.168.0.0/16", "recycle_bin": True, **lists,
                   "description": f"Replica of {body.share} from {body.source} ({body.snapshot})"})
     shares_mod.write_configs(items)
     return {"ok": True, "share": body.new_name, "path": target}

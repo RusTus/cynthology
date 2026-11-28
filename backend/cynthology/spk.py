@@ -17,6 +17,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import tarfile
 import tempfile
 import time
@@ -373,8 +374,13 @@ def _stage(spk_path: str) -> dict:
     if "MariaDB10" in _deps_list(info):              # (Cynthology's MariaDB 10 knows its own root password)
         from . import mariadb10
         wizard = mariadb10.prefill(wizard)
+    try:
+        runs_as_root = _privilege(d, info["package"])[2]
+    except HTTPException as e:
+        problems.append(str(e.detail))
+        runs_as_root = False
     return {"staging": sid, "info": info, "wizard": wizard, "problems": problems, "mode": kind,
-            "installed_version": installed, "dependencies": auto_deps}
+            "installed_version": installed, "dependencies": auto_deps, "runs_as_root": runs_as_root}
 
 
 def _deps_list(info: dict) -> list[str]:
@@ -409,14 +415,21 @@ def _dynamic_wizard(script: str, info: dict, status: str = "INSTALL") -> list:
 
 
 def _data_shares(base: str, wizard: dict) -> None:
-    """conf/resource data-share: create the shared folders a package asks for and grant access."""
+    """conf/resource data-share: create the shared folders a package asks for and grant access - to the
+    package's own account only (a package can't hand a shared folder to some other account), and never on
+    the system's own folders."""
     from .shares import ensure_share
     res = _read_json(os.path.join(base, "conf", "resource")).get("data-share", {})
+    pkg = os.path.basename(base.rstrip("/"))
+    own = _privilege(base, pkg)[0]
     for sh in res.get("shares", []):
         name = re.sub(r"\{\{(\w+)\}\}", lambda m: str(wizard.get(m.group(1), "")), sh.get("name", "")).strip("/")
         if not name:
             continue
-        path = ensure_share(name, sh.get("permission", {}).get("rw", []))
+        if name.lower() in ("docker", "homes", "home", "web", "web_packages", "netbackup", "usbshare"):
+            raise HTTPException(400, f"the package asks for the shared folder {name!r}, which is not allowed")
+        rw = [u for u in sh.get("permission", {}).get("rw", []) if u == own]
+        path = ensure_share(name, rw)
         # DSM 7 lists a package's shared folders as /var/packages/<pkg>/shares/<name> (scripts look there)
         os.makedirs(os.path.join(base, "shares"), exist_ok=True)
         link = os.path.join(base, "shares", name)
@@ -523,8 +536,11 @@ def _privilege(stage_or_pkg: str, name: str) -> tuple[str, str, bool]:
     except KeyError:
         pass
     try:
-        if grp.getgrnam(group).gr_gid < 100:
-            raise HTTPException(400, f"the package wants the system group {group!r}, which is not allowed")
+        g = grp.getgrnam(group)
+        # an existing group only when it's a package group (SynoCommunity's shared sc-download, ...): never
+        # mysql, http, users or a NAS user's group - the package would get their files
+        if g.gr_gid < 100 or g.gr_gid >= 1000 or not (group.startswith("sc-") or group == user):
+            raise HTTPException(400, f"the package wants the existing group {group!r}, which is not allowed")
     except KeyError:
         pass
     return user, group, as_root
@@ -542,8 +558,10 @@ def _script(name: str, script: str, env: dict, user: str | None, scripts_dir: st
         os.chmod(scripts_dir, 0o755)   # staged scripts must be readable by the package user
         os.chmod(os.path.dirname(scripts_dir), 0o755)
     log = env["SYNOPKG_TEMP_LOGFILE"]
-    os.makedirs(os.path.dirname(log), exist_ok=True)
-    open(log, "w").close()
+    os.makedirs(os.path.dirname(log), mode=0o711, exist_ok=True)
+    os.chmod(os.path.dirname(log), 0o711)
+    os.close(os.open(log, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600))
+    os.chmod(log, 0o600)          # (scripts echo what they do - passwords too sometimes)
     if user:  # "user:group"
         u, _, g = user.partition(":")
         shutil.chown(log, u, g or None)
@@ -628,6 +646,10 @@ def _move_in(d: str, base: str) -> None:
         src = os.path.join(d, item)
         if os.path.exists(src):
             shutil.move(src, os.path.join(base, item))
+    if not DEV:     # (the archive's own owner numbers could be a NAS user's: scripts root runs stay root's)
+        for item in ("INFO", "conf", "scripts", "WIZARD_UIFILES"):
+            if os.path.lexists(os.path.join(base, item)):
+                run(["chown", "-R", "-h", "root:root", os.path.join(base, item)], check=False)
 
 
 def _owner(name: str, user: str, group: str) -> None:
@@ -844,6 +866,13 @@ def _link_usr_local(name: str, create: bool) -> None:
             if not isinstance(item, str) or os.path.basename(item) in ("", ".", ".."):
                 continue
             dst = os.path.join(ROOT, "usr/local", kind, os.path.basename(item))
+            # /usr/local comes first in root's PATH (and the library path): a package must not stand in for a
+            # system command (less, rsync, python3...) that root then runs
+            if create and kind in ("bin", "sbin", "lib") and any(
+                    os.path.lexists(os.path.join(d, os.path.basename(item)))
+                    for d in ("/usr/bin", "/usr/sbin", "/bin", "/sbin", "/usr/lib", "/lib", "/usr/lib/x86_64-linux-gnu",
+                              "/lib/x86_64-linux-gnu", "/usr/lib/aarch64-linux-gnu")):
+                continue
             if create:
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
                 if not os.path.lexists(dst):

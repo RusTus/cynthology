@@ -187,7 +187,7 @@ async function replicationReceive(pane) {
               : h("button", { class: "btn primary", title: "Make this version available as a normal, writable shared folder", onclick: async () => {
                   // (the same name as on the other NAS: \\nas\\docs keeps working once clients point here)
                   const name = prompt(t("Name of the shared folder (the same name as on the other NAS keeps paths working):"), r.share); if (!name) return;
-                  const ok = await act(() => API.post("/api/replication/failover", { source: r.source, share: r.share, snapshot: pick.value, new_name: name }), `Shared folder ${name} created`);
+                  const ok = await act(() => API.post("/api/replication/failover", { source: r.source, share: r.share, snapshot: pick.value, new_name: name }), `Shared folder ${name} created - only administrators can open it until you set its permissions (Control Panel > Shared Folders)`);
                   if (ok) modal(t("Failed over"), h("div", { class: "form" },
                     h("p", {}, t("The folder is live on this NAS. Point users at this NAS (or move its address/DNS name here).")),
                     h("p", { class: "muted" }, t("Later, to fail back: create a replication task here that sends this folder to the original NAS, then on that NAS use 'Replace the live folder' on the copy it received."))));

@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 1224 entries.
+// Generated from the English UI strings (see i18n.js). 1233 entries.
 i18nAdd("de", {
 "Error: ": "Fehler: ",
 "Settings and data are kept.": "Einstellungen und Daten bleiben erhalten.",
@@ -1223,5 +1223,14 @@ i18nAdd("de", {
 "Name of the shared folder (the same name as on the other NAS keeps paths working):": "Name des freigegebenen Ordners (derselbe Name wie auf dem anderen NAS erhält die Pfade):",
 "Failed over": "Übernommen",
 "The folder is live on this NAS. Point users at this NAS (or move its address/DNS name here).": "Der Ordner ist auf diesem NAS aktiv. Leiten Sie die Benutzer auf dieses NAS (oder verlegen Sie Adresse/DNS-Namen hierher).",
-"Later, to fail back: create a replication task here that sends this folder to the original NAS, then on that NAS use 'Replace the live folder' on the copy it received.": "Später zurückführen: Legen Sie hier eine Replikationsaufgabe an, die diesen Ordner an das ursprüngliche NAS sendet, und verwenden Sie dort 'Aktiven Ordner ersetzen' auf der empfangenen Kopie."
+"Later, to fail back: create a replication task here that sends this folder to the original NAS, then on that NAS use 'Replace the live folder' on the copy it received.": "Später zurückführen: Legen Sie hier eine Replikationsaufgabe an, die diesen Ordner an das ursprüngliche NAS sendet, und verwenden Sie dort 'Aktiven Ordner ersetzen' auf der empfangenen Kopie.",
+"Copy": "Kopieren",
+"Requested from": "Angefordert von",
+"That isn't this device. Only allow it if you started the sign-in in your Nextcloud app yourself, just now - otherwise someone else would get access to your files.": "Das ist nicht dieses Gerät. Nur erlauben, wenn Sie die Anmeldung gerade eben selbst in Ihrer Nextcloud-App gestartet haben - sonst bekäme jemand anderes Zugriff auf Ihre Dateien.",
+"WebDAV and other apps that only ask for a user name and password: use an app password (required when you sign in with 2-step verification or a passkey).": "WebDAV und andere Apps, die nur Benutzername und Passwort abfragen: Verwenden Sie ein App-Passwort (nötig, wenn Sie sich mit 2-Stufen-Verifizierung oder Passkey anmelden).",
+"Name of the app or device (e.g. Phone WebDAV)": "Name der App oder des Geräts (z. B. Handy WebDAV)",
+"App password": "App-Passwort",
+"Use this as the password in the app. It is shown only now.": "Verwenden Sie dies als Passwort in der App. Es wird nur jetzt angezeigt.",
+"Create app password": "App-Passwort erstellen",
+"This package runs with full system (root) rights - it can do anything on this NAS. Only install it if you trust where it comes from.": "Dieses Paket läuft mit vollen Systemrechten (root) - es kann alles auf diesem NAS tun. Installieren Sie es nur, wenn Sie der Quelle vertrauen."
 });

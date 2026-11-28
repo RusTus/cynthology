@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 1242 entries.
+// Generated from the English UI strings (see i18n.js). 1251 entries.
 i18nAdd("es", {
 "Settings and data are kept.": "Se conservan la configuración y los datos.",
 "Also installs required package(s): ": "También instala los paquetes necesarios: ",
@@ -1241,5 +1241,14 @@ i18nAdd("es", {
 "Name of the shared folder (the same name as on the other NAS keeps paths working):": "Nombre de la carpeta compartida (el mismo nombre que en el otro NAS mantiene las rutas):",
 "Failed over": "Conmutado",
 "The folder is live on this NAS. Point users at this NAS (or move its address/DNS name here).": "La carpeta está activa en este NAS. Dirija a los usuarios a este NAS (o mueva aquí su dirección/nombre DNS).",
-"Later, to fail back: create a replication task here that sends this folder to the original NAS, then on that NAS use 'Replace the live folder' on the copy it received.": "Más tarde, para volver: cree aquí una tarea de replicación que envíe esta carpeta al NAS original y, en ese NAS, use 'Sustituir la carpeta activa' en la copia recibida."
+"Later, to fail back: create a replication task here that sends this folder to the original NAS, then on that NAS use 'Replace the live folder' on the copy it received.": "Más tarde, para volver: cree aquí una tarea de replicación que envíe esta carpeta al NAS original y, en ese NAS, use 'Sustituir la carpeta activa' en la copia recibida.",
+"Copy": "Copiar",
+"Requested from": "Solicitado desde",
+"That isn't this device. Only allow it if you started the sign-in in your Nextcloud app yourself, just now - otherwise someone else would get access to your files.": "No es este dispositivo. Permítalo solo si acaba de iniciar usted mismo el inicio de sesión en su app de Nextcloud; si no, otra persona tendría acceso a sus archivos.",
+"WebDAV and other apps that only ask for a user name and password: use an app password (required when you sign in with 2-step verification or a passkey).": "WebDAV y otras apps que solo piden usuario y contraseña: use una contraseña de aplicación (necesaria si inicia sesión con verificación en 2 pasos o una clave de acceso).",
+"Name of the app or device (e.g. Phone WebDAV)": "Nombre de la app o dispositivo (p. ej. WebDAV móvil)",
+"App password": "Contraseña de aplicación",
+"Use this as the password in the app. It is shown only now.": "Úsela como contraseña en la app. Solo se muestra ahora.",
+"Create app password": "Crear contraseña de aplicación",
+"This package runs with full system (root) rights - it can do anything on this NAS. Only install it if you trust where it comes from.": "Este paquete se ejecuta con todos los derechos del sistema (root): puede hacer cualquier cosa en este NAS. Instálelo solo si confía en su origen."
 });

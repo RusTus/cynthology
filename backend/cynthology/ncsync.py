@@ -33,11 +33,13 @@ from xml.sax.saxutils import escape
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel, Field
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import Response
 from starlette.routing import Route
 
+from . import safepath
 from . import files, shares as shares_mod, webdav
 from .auth import current_user
 from .util import DEV, STATE_DIR
@@ -203,11 +205,15 @@ def _clean_flows() -> None:
 
 @router.post("/index.php/login/v2")
 def flow_v2_start(request: Request):
+    from .auth import client_key
     _clean_flows()
-    if len(FLOWS) > 200:
+    ip = request.client.host if request.client else "?"
+    ck = client_key(ip)
+    # (per address, so that one visitor can't use up everybody's sign-ins)
+    if len(FLOWS) > 5000 or sum(1 for f in FLOWS.values() if f.get("ck") == ck) >= 10:
         raise HTTPException(429, "too many sign-ins in progress")
     poll, login = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
-    FLOWS[poll] = {"login": login, "exp": time.time() + 1200, "granted": None,
+    FLOWS[poll] = {"login": login, "exp": time.time() + 1200, "granted": None, "ip": ip, "ck": ck, "started": int(time.time()),
                    "agent": request.headers.get("user-agent", "")[:200]}
     base = _base(request)
     return {"poll": {"token": poll, "endpoint": f"{base}/index.php/login/v2/poll"}, "login": f"{base}/index.php/login/v2/flow/{login}"}
@@ -242,16 +248,22 @@ def flow_v1_page():
 
 
 @router.get("/index.php/login/v2/info/{login}")
-def flow_info(login: str):
+def flow_info(login: str, request: Request):
+    """What the sign-in page shows about the request: where and when it was started. A link to this page
+    can be sent to someone by anybody ("please reconnect your sync app") - if it wasn't started from the
+    device you're on, it says so."""
+    from .auth import client_key
     f = next((f for f in FLOWS.values() if f["login"] == login), None)
     if not f:
         raise HTTPException(404, "this sign-in link expired - start again in the app")
-    return {"app": _app_name(f["agent"])}
+    here = request.client.host if request.client else "?"
+    return {"app": _app_name(f["agent"]), "from": f.get("ip", "?"), "started": f.get("started"),
+            "same_device": client_key(here) == f.get("ck")}
 
 
 def _app_name(agent: str) -> str:
     m = re.search(r"\(([^)]+)\)", agent or "")
-    return f"Nextcloud app ({m.group(1)[:60]})" if m else ("Nextcloud app" if not agent else agent[:60])
+    return f"Nextcloud app ({m.group(1)[:60]})" if m else "Nextcloud app"
 
 
 @api.post("/grant")
@@ -278,6 +290,17 @@ def grant(request: Request, flow: str = "", user: dict = Depends(current_user)):
 @api.get("/apps")
 def my_apps(user: dict = Depends(current_user)):
     return [{k: e[k] for k in ("id", "name", "created", "last_used")} for e in _load().get("apppw", {}).get(user["user"].lower(), [])]
+
+
+class NewApp(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+
+
+@api.post("/apps")
+def create_app_password(body: NewApp, user: dict = Depends(current_user)):
+    """An app password made by hand (for WebDAV and other apps that only take a user name and password - the
+    only way for accounts with 2-step verification or passkeys, whose own password isn't accepted there)."""
+    return {"password": new_app_password(user["user"], body.name)}
 
 
 @api.delete("/apps/{aid}")
@@ -491,19 +514,37 @@ UPLOADS: dict[tuple[str, str], str] = {}
 CHUNK_RE = re.compile(r"[A-Za-z0-9._-]{1,80}")
 
 
+def _root_dir(path: str) -> str:
+    """mkdir -p for a staging folder only root can enter; refuses anything else found there."""
+    os.makedirs(path, mode=0o700, exist_ok=True)
+    st = os.lstat(path)
+    if not stat.S_ISDIR(st.st_mode) or st.st_uid != 0:
+        raise HTTPException(500, "upload staging folder isn't a root-owned folder")
+    if stat.S_IMODE(st.st_mode) != 0o700:
+        os.chmod(path, 0o700)
+    return path
+
+
 def _staging_base(user: dict, dest_path: str | None) -> str:
-    """Chunks are kept on the same disk as their destination when known (assembling is then a local copy)."""
+    """Chunks are kept on the same disk as their destination when known (assembling is then a local copy) -
+    in <volume>/@cyn-uploads, next to the shared folders, where users can't create or swap anything (only
+    root can write the volume's top folder)."""
     root = None
     if dest_path:
         try:
-            root = os.path.realpath(files.resolve(user, dest_path.split("/")[0], write=True)[0]["path"])
-        except HTTPException:
+            share = os.path.realpath(files.resolve(user, dest_path.split("/")[0], write=True)[0]["path"])
+            vol = os.path.dirname(share)
+            st = os.lstat(vol)
+            if st.st_uid == 0 and not st.st_mode & 0o022 and vol != "/":
+                root = vol
+        except (HTTPException, OSError):
             root = None
     if not root:
         from .storage import load_pools
         pools = load_pools()
         root = pools[0]["mount"] if pools else STATE_DIR
-    return os.path.join(root, ".cyn-uploads", hashlib.sha1(user["user"].lower().encode()).hexdigest()[:16])
+    _root_dir(os.path.join(root, "@cyn-uploads"))
+    return os.path.join(root, "@cyn-uploads", hashlib.sha1(user["user"].lower().encode()).hexdigest()[:16])
 
 
 def _dest_from_header(request: Request, user: str) -> str | None:
@@ -540,7 +581,7 @@ async def uploads(request: Request, user: dict, rest: str) -> Response:
     if m == "MKCOL" and len(parts) == 1:
         dest = _dest_from_header(request, user["user"])
         base = await run_in_threadpool(_staging_base, user, dest)
-        os.makedirs(base, mode=0o700, exist_ok=True)
+        _root_dir(base)
         _cleanup_staging(base)
         d = os.path.join(base, tid)
         if os.path.exists(d):
@@ -590,23 +631,24 @@ def _assemble(user: dict, d: str, dest: str, request: Request, tid: str) -> Resp
     if want and want.isdigit() and int(want) != total:
         return Response(f"expected {want} bytes, got {total}", status_code=400)
     share, folder, name = webdav._parent_for_write(user, dest)
-    target = os.path.join(folder, name)
-    if os.path.isdir(target) and not os.path.islink(target):
-        return Response("a folder has this name", status_code=409)
-    existed = os.path.lexists(target)
-    tmp = os.path.join(folder, f".{name[:64]}.{secrets.token_hex(4)}.uploading")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o664)
+    fd = safepath.open_dir(share["path"], folder)          # (written relative to the checked folder, no links)
+    tmp = f".{name[:64]}.{secrets.token_hex(4)}.uploading"
     try:
-        with os.fdopen(fd, "wb") as out:
+        st = safepath.lstat_at(fd, name)
+        if st and stat.S_ISDIR(st.st_mode):
+            return Response("a folder has this name", status_code=409)
+        existed = st is not None
+        ofd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o664, dir_fd=fd)
+        with os.fdopen(ofd, "wb") as out:
             for c in chunks:
-                with open(os.path.join(d, c), "rb") as f:
+                with open(os.path.join(d, c), "rb") as f:          # (d: root-only staging, see _staging_base)
                     shutil.copyfileobj(f, out, 4 << 20)
-        files._confine(folder, os.path.realpath(share["path"]))
-        os.replace(tmp, target)
+        files._own_at(fd, tmp, user)
+        os.replace(tmp, name, src_dir_fd=fd, dst_dir_fd=fd)
     finally:
-        if os.path.lexists(tmp):
-            os.remove(tmp)
-    files._own(target, user)
+        if safepath.lstat_at(fd, tmp) is not None:
+            os.unlink(tmp, dir_fd=fd)
+        os.close(fd)
     shutil.rmtree(d, ignore_errors=True)
     UPLOADS.pop((user["user"].lower(), tid), None)
     headers = {}

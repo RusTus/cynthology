@@ -82,14 +82,16 @@ def _server(request: Request) -> tuple[Fido2Server, str]:
     return srv, host
 
 
-def _pending_put(data: dict) -> str:
+def _pending_put(data: dict, ip: str = "") -> str:
     now = time.time()
     for k in [k for k, v in PENDING.items() if v["exp"] < now]:
         PENDING.pop(k, None)
-    if len(PENDING) > 500:
+    ck = auth.client_key(ip) if ip else ""
+    # (per address, so that one visitor can't use up everybody's sign-ins)
+    if len(PENDING) > 5000 or ck and sum(1 for v in PENDING.values() if v.get("ck") == ck) >= 20:
         raise HTTPException(429, "too many sign-ins in progress - try again in a minute")
     tok = secrets.token_urlsafe(24)
-    PENDING[tok] = {**data, "exp": now + 300}
+    PENDING[tok] = {**data, "exp": now + 300, "ck": ck}
     return tok
 
 
@@ -215,7 +217,8 @@ def login_begin(body: Begin, request: Request):
         if not allow:
             raise HTTPException(400, "You have no passkey for this address - use the code from your app.")
     options, state = srv.authenticate_begin(_creds(allow), user_verification="required")
-    tok = _pending_put({"kind": "login", "state": state, "host": host, "ticket": body.ticket, "user": user})
+    tok = _pending_put({"kind": "login", "state": state, "host": host, "ticket": body.ticket, "user": user},
+                       request.client.host if request.client else "?")
     return {"token": tok, "options": dict(options)}
 
 
@@ -231,7 +234,7 @@ def login_complete(body: Finish, request: Request):
     srv, host = _server(request)
     if p["kind"] != "login" or host != p["host"]:
         raise HTTPException(400, "this request doesn't belong here")
-    auth._check_lock(f"ip:{ip}")
+    auth._check_lock(f"ip:{auth.client_key(ip)}")
     cid = body.credential.get("id", "")
     owner, entry = None, None
     for name, rec in load().items():
@@ -242,13 +245,13 @@ def login_complete(body: Finish, request: Request):
     if entry and handle and handle != load()[owner]["handle"]:
         entry = None
     if entry is None or (p["user"] and owner != p["user"].lower()):
-        auth._fail(f"ip:{ip}")
+        auth._fail(f"ip:{auth.client_key(ip)}")
         auth._log("failed", p["user"] or "?", ip, "unknown passkey")
         raise HTTPException(401, "This passkey isn't registered on this NAS (for this address).")
     try:
         srv.authenticate_complete(p["state"], _creds([entry]), AuthenticationResponse.from_dict(body.credential))
     except Exception:
-        auth._fail(f"ip:{ip}")
+        auth._fail(f"ip:{auth.client_key(ip)}")
         auth._log("failed", owner, ip, "passkey not accepted")
         raise HTTPException(401, "The passkey wasn't accepted.")
     user = auth._canonical(owner)

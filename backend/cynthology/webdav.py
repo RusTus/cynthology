@@ -33,7 +33,7 @@ from starlette.requests import Request
 from starlette.responses import FileResponse, Response
 from starlette.routing import Route
 
-from . import files, shares as shares_mod
+from . import files, safepath, shares as shares_mod
 from .util import DEV, STATE_DIR
 
 REALM = "Cynthology"
@@ -43,8 +43,6 @@ SECURITY = {"X-Content-Type-Options": "nosniff", "Content-Security-Policy": "san
 
 # ---------- sign-in (Basic auth over PAM, with the same lockout rules as the web interface) ----------
 
-MAX_FAILS, FAIL_WINDOW = 5, 15 * 60
-_fails: dict[str, list[float]] = {}
 _cache: dict[str, tuple[float, dict]] = {}     # sha256(user:password) -> (expires, user) - clients send it on every request
 _lock = threading.Lock()
 
@@ -71,30 +69,37 @@ def authenticate(header: str, ip: str) -> dict | None:
     hit = _cache.get(key)
     if hit and hit[0] > now:
         return hit[1]
-    from .auth import _canonical, _is_admin, _pam_ok
-    keys = (f"u:{name.lower()}|{ip}", f"ip:{ip}")
-    with _lock:                                   # count first, so parallel guesses can't slip past the limit
-        for k in keys:
-            _fails[k] = [t for t in _fails.get(k, []) if now - t < FAIL_WINDOW]
-        if any(len(_fails[k]) >= MAX_FAILS for k in keys):
+    from . import auth, ncsync, passkeys, twofa
+    user = auth._canonical(name)
+    if ncsync._check_app_password(user, pw):          # (app passwords: Personal > Security > Connected apps)
+        u = {"user": user, "admin": auth._is_admin(user)}
+    else:
+        if twofa.enabled(user) or passkeys.has(user):
+            _log("failed", name, ip)                # (a password alone isn't enough for these accounts: an app password is)
+            return None
+        keys = auth.attempt_keys(name, ip)            # (the web sign-in's limits, shared)
+        try:
+            auth.begin_attempt(keys)
+        except HTTPException:
             _log("locked", name, ip)
             return None
-        for k in keys:
-            _fails[k].append(now)
-    if not _pam_ok(name, pw):
-        _log("failed", name, ip)
-        time.sleep(1)
-        return None
-    with _lock:
-        for k in keys:
-            _fails.pop(k, None)
-    user = _canonical(name)
-    u = {"user": user, "admin": _is_admin(user)}
+        if not auth._pam_ok(name, pw):
+            _log("failed", name, ip)
+            auth._fail(*keys, counted=True)
+            return None
+        auth.attempt_ok(user, ip, keys)
+        u = {"user": user, "admin": auth._is_admin(user)}
     if len(_cache) > 1000:
         _cache.clear()
     _cache[key] = (now + 300, u)                   # re-check the password (and admin rights) every 5 minutes
     _log("login", user, ip)
     return u
+
+
+def forget(user: str) -> None:
+    """Drop cached sign-ins of a user (password changed or reset)."""
+    for k in [k for k, (_, u) in _cache.items() if u["user"].lower() == user.lower()]:
+        _cache.pop(k, None)
 
 
 # ---------- helpers ----------
@@ -214,16 +219,16 @@ def _listing_html(user: dict, path: str) -> Response:
 def get(user: dict, path: str, request: Request) -> Response:
     if not path:
         return _listing_html(user, path)
-    _, full = files.resolve(user, path)
+    share, full = files.resolve(user, path)
     if os.path.isdir(full):
         return _listing_html(user, path)
     if not os.path.isfile(full):
         return Response(status_code=404)
     st = os.stat(full)
     # (never shown as a page in the browser: a file a user uploaded must not run script with your sign-in)
-    return FileResponse(full, stat_result=st, headers={**SECURITY, "ETag": _etag(st)},
-                        content_disposition_type="attachment" if request.query_params.get("download") else "inline",
-                        filename=os.path.basename(full))
+    return files.file_response(share["path"], full, headers={**SECURITY, "ETag": _etag(st)},
+                               content_disposition_type="attachment" if request.query_params.get("download") else "inline",
+                               filename=os.path.basename(full))
 
 
 def _parent_for_write(user: dict, path: str) -> tuple[dict, str, str]:
@@ -240,23 +245,25 @@ def _parent_for_write(user: dict, path: str) -> tuple[dict, str, str]:
 
 async def put(user: dict, path: str, request: Request) -> Response:
     share, folder, name = await run_in_threadpool(_parent_for_write, user, path)
-    target = os.path.join(folder, name)
-    if os.path.isdir(target) and not os.path.islink(target):
-        return Response("a folder has this name", status_code=405)
-    existed = os.path.lexists(target)
-    tmp = os.path.join(folder, f".{name[:64]}.{uuid.uuid4().hex[:8]}.uploading")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o664)
+    fd = safepath.open_dir(share["path"], folder)          # (all below relative to the checked folder, no links)
+    tmp = f".{name[:64]}.{uuid.uuid4().hex[:8]}.uploading"
     try:
-        with os.fdopen(fd, "wb") as f:
+        st = safepath.lstat_at(fd, name)
+        if st and stat.S_ISDIR(st.st_mode):
+            return Response("a folder has this name", status_code=405)
+        existed = st is not None
+        ffd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o664, dir_fd=fd)
+        with os.fdopen(ffd, "wb") as f:
             async for chunk in request.stream():
                 f.write(chunk)
-        files._confine(folder, os.path.realpath(share["path"]))
-        os.replace(tmp, target)
+        files._own_at(fd, tmp, user)
+        os.replace(tmp, name, src_dir_fd=fd, dst_dir_fd=fd)
+        etag = _etag(os.stat(name, dir_fd=fd, follow_symlinks=False))
     finally:
-        if os.path.lexists(tmp):
-            os.remove(tmp)
-    files._own(target, user)
-    return Response(status_code=204 if existed else 201, headers={"ETag": _etag(os.stat(target))})
+        if safepath.lstat_at(fd, tmp) is not None:
+            os.unlink(tmp, dir_fd=fd)
+        os.close(fd)
+    return Response(status_code=204 if existed else 201, headers={"ETag": etag})
 
 
 def delete(user: dict, path: str) -> Response:
@@ -270,12 +277,16 @@ def delete(user: dict, path: str) -> Response:
 
 
 def mkcol(user: dict, path: str) -> Response:
-    _, folder, name = _parent_for_write(user, path)
-    target = os.path.join(folder, name)
-    if os.path.lexists(target):
-        return Response(status_code=405)
-    os.mkdir(target, 0o2775)
-    files._own(target, user)
+    share, folder, name = _parent_for_write(user, path)
+    fd = safepath.open_dir(share["path"], folder)
+    try:
+        try:
+            os.mkdir(name, 0o2775, dir_fd=fd)
+        except FileExistsError:
+            return Response(status_code=405)
+        files._own_at(fd, name, user)
+    finally:
+        os.close(fd)
     return Response(status_code=201)
 
 
@@ -303,15 +314,19 @@ def copy_move(user: dict, path: str, request: Request, move: bool, dpath: str | 
         if not overwrite:
             return Response(status_code=412)
         files.delete(files.Paths(paths=[dpath]), user)     # the replaced item goes to the recycle bin
-    files._confine(folder, os.path.realpath(dshare["path"]))
-    if move:
-        files._confine(src, os.path.realpath(sshare["path"]))
-        shutil.move(src, target)
-    elif os.path.isdir(src) and not os.path.islink(src):
-        shutil.copytree(src, target, symlinks=True)
-    else:
-        shutil.copy2(src, target, follow_symlinks=False)
-    files._own(target, user)
+    dfd = safepath.open_dir(dshare["path"], folder)
+    try:
+        sfd, sname = safepath.open_parent(sshare["path"], src)
+        try:
+            if move:
+                safepath.move_at(sfd, sname, dfd, name)
+            else:
+                safepath.copy_at(sfd, sname, dfd, name, owner=files._owner_ids(user))
+        finally:
+            os.close(sfd)
+        files._own_at(dfd, name, user)
+    finally:
+        os.close(dfd)
     return Response(status_code=204 if existed else 201)
 
 
@@ -338,8 +353,12 @@ def lock(user: dict, path: str, request: Request) -> Response:
     if not os.path.lexists(full):                          # LOCK on a new name creates an empty file
         share, folder, name = _parent_for_write(user, path)
         full = os.path.join(folder, name)
-        os.close(os.open(full, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o664))
-        files._own(full, user)
+        fd = safepath.open_dir(share["path"], folder)
+        try:
+            os.close(os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o664, dir_fd=fd))
+            files._own_at(fd, name, user)
+        finally:
+            os.close(fd)
         created = True
     m = re.search(r"<(opaquelocktoken:[0-9a-fA-F-]{36})>", request.headers.get("if", ""))   # a refresh keeps its token
     token = m.group(1) if m else f"opaquelocktoken:{uuid.uuid4()}"

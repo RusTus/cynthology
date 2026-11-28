@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
-from . import files
+from . import files, safepath
 from .auth import current_user
 from .privileges import require_app
 from .util import DEV, STATE_DIR
@@ -39,6 +39,15 @@ TEXT = {".txt", ".md", ".log", ".csv", ".json", ".xml", ".yml", ".yaml", ".ini",
         ".js", ".css", ".html", ".htm", ".srt", ".nfo", ".toml", ".env", ".sql", ".c", ".h", ".cpp", ".java", ".go", ".rs"}
 SANDBOX = {"X-Content-Type-Options": "nosniff", "Content-Security-Policy": "sandbox; default-src 'none'; img-src 'self'; media-src 'self'"}
 _streams: dict[str, tuple[float, str]] = {}
+_failed: dict[str, float] = {}                 # thumbnail key -> don't retry before (time)
+
+
+def _fail(key: str) -> None:
+    if len(_failed) > 5000:
+        _failed.clear()
+    _failed[key] = time.time() + 3600
+
+
 _sem = threading.BoundedSemaphore(3)           # (a folder of 500 photos must not start 500 decoders)
 
 
@@ -63,7 +72,8 @@ def _limits():                                  # (runs in the worker before exe
     resource.setrlimit(resource.RLIMIT_FSIZE, (300 << 20, 300 << 20))
 
 
-def make_thumb(full: str, size: int) -> bytes:
+def make_thumb(full: str, size: int, root: str | None = None) -> bytes:
+    """root: the shared folder full was checked against (the file is opened below it without following links)."""
     kind = kind_of(full)
     if kind not in ("image", "video", "pdf"):
         raise HTTPException(415, "no thumbnail for this kind of file")
@@ -76,21 +86,29 @@ def make_thumb(full: str, size: int) -> bytes:
             return f.read()
     except OSError:
         pass
-    fd = os.open(full, os.O_RDONLY | os.O_NOFOLLOW)
+    if _failed.get(key, 0) > time.time():               # (a file that couldn't be decoded: don't try again for a while)
+        raise HTTPException(422, "can't make a thumbnail of this file")
+    fd = safepath.open_file(root or os.path.dirname(full), full)
     try:
         backend = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         cmd = [sys.executable, "-m", "cynthology.thumbworker", kind, str(size), str(fd)]
         if not DEV:
             cmd = ["setpriv", "--reuid=cyn-thumb", "--regid=cyn-thumb", "--clear-groups", "--no-new-privs",
                    "--inh-caps=-all", "--bounding-set=-all", "--"] + cmd
-        with _sem:
+        if not _sem.acquire(timeout=20):      # (busy: let the browser ask again instead of piling up threads)
+            raise HTTPException(503, "busy making thumbnails - try again", headers={"Retry-After": "5"})
+        try:
             r = subprocess.run(cmd, capture_output=True, timeout=60, cwd=backend, preexec_fn=_limits, pass_fds=(fd,),
                                env={"PATH": "/usr/bin:/bin", "PYTHONPATH": backend, "HOME": "/nonexistent"})
+        finally:
+            _sem.release()
     except subprocess.TimeoutExpired:
+        _fail(key)
         raise HTTPException(504, "the thumbnail took too long")
     finally:
         os.close(fd)
     if r.returncode != 0 or not r.stdout:
+        _fail(key)
         raise HTTPException(422, "can't make a thumbnail of this file")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path + ".tmp", "wb") as f:
@@ -132,10 +150,10 @@ def _trim_cache() -> None:
 
 @router.get("/thumb")
 def thumb(path: str, size: int = 256, user=Depends(FILES_USER)):
-    _, full = files.resolve(user, path)
+    share, full = files.resolve(user, path)
     if not os.path.isfile(full):
         raise HTTPException(404, "not a file")
-    data = make_thumb(full, 1600 if size > 256 else 256)
+    data = make_thumb(full, 1600 if size > 256 else 256, root=os.path.realpath(share["path"]))
     return Response(data, media_type="image/webp", headers={"Cache-Control": "private, max-age=86400", **SANDBOX})
 
 
@@ -146,28 +164,29 @@ class StreamReq(BaseModel):
 @router.post("/stream")
 def stream_link(body: StreamReq, user=Depends(FILES_USER)):
     """A link the browser's player can use directly (6 hours, this one file, many range requests)."""
-    _, full = files.resolve(user, body.path)
+    share, full = files.resolve(user, body.path)
     if not os.path.isfile(full) or kind_of(full) not in ("video", "audio", "pdf", "image"):
         raise HTTPException(415, "this file can't be played in the browser")
     now = time.time()
     for k in [k for k, v in _streams.items() if v[0] < now]:
         del _streams[k]
     tok = secrets.token_urlsafe(24)
-    _streams[tok] = (now + 6 * 3600, full)
+    _streams[tok] = (now + 6 * 3600, os.path.realpath(share["path"]), full)
     from urllib.parse import quote
     return {"url": f"/api/preview/s/{tok}/{quote(os.path.basename(full))}"}
 
 
 @router.get("/s/{tok}/{name}")
 def stream(tok: str, name: str):
-    exp, full = _streams.get(tok, (0, ""))
-    if exp < time.time() or not os.path.isfile(full):
+    exp, root, full = _streams.get(tok, (0, "", ""))
+    if exp < time.time():
         raise HTTPException(403, "this preview link has expired - open the file again")
     mt = mimetypes.guess_type(full)[0] or "application/octet-stream"
+    # (opened again on every request without following links: the name may be a link by now)
     if kind_of(full) == "pdf":
         # (shown by our own PDF viewer page, which fetches it - never rendered as a document itself)
-        return FileResponse(full, media_type="application/pdf", headers={**SANDBOX, "Content-Disposition": "attachment"})
-    return FileResponse(full, media_type=mt, headers={**SANDBOX, "Content-Disposition": "inline"})
+        return files.file_response(root, full, media_type="application/pdf", headers={**SANDBOX, "Content-Disposition": "attachment"})
+    return files.file_response(root, full, media_type=mt, headers={**SANDBOX, "Content-Disposition": "inline"})
 
 
 @router.get("/text")
@@ -176,7 +195,7 @@ def text(path: str, user=Depends(FILES_USER)):
     if not os.path.isfile(full):
         raise HTTPException(404, "not a file")
     limit = 1 << 20
-    with open(full, "rb") as f:
+    with os.fdopen(safepath.open_file(share["path"], full), "rb") as f:
         raw = f.read(limit + 1)
     if b"\x00" in raw[:8192]:
         raise HTTPException(415, "this looks like a binary file")

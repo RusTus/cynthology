@@ -19,6 +19,7 @@ import subprocess
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from . import safepath
 from . import files, shares as shares_mod, snapshots
 from .auth import current_user
 
@@ -50,7 +51,11 @@ def snapshot_versions(path: str, user: dict = Depends(current_user)):
         return {"versions": [], "note": "This folder has no snapshots (Snapshots app)."}
     cur = _sig(os.path.join(root, rel))
     out, seen = [], set()
+    if os.path.islink(os.path.join(root, snapshots.SNAPDIR)):
+        return {"versions": [], "note": "This folder has no snapshots (Snapshots app)."}
     for name in sorted(snapshots.list_snaps(share), reverse=True):        # newest first
+        if os.path.islink(os.path.join(root, snapshots.SNAPDIR, name)):
+            continue
         p = os.path.join(root, snapshots.SNAPDIR, name, rel)
         sig = _sig(p)
         if not sig or sig in seen:
@@ -134,7 +139,10 @@ def restore(body: RestoreBody, user: dict = Depends(current_user)):
     parent = files._confine(os.path.join(root, parent_rel), root)
     if not os.path.isdir(parent):
         raise HTTPException(409, "its folder doesn't exist any more - restore the folder first")
-    tmp = os.path.join(parent, f".restoring-{secrets.token_hex(4)}")
+    # everything below happens in the folder opened now, without following links (proc path = that folder)
+    pfd = safepath.open_dir(root, parent)
+    tmp_name = f".restoring-{secrets.token_hex(4)}"
+    tmp = os.path.join(safepath.proc_path(pfd), tmp_name)
     try:
         if body.source == "snapshot":
             when = _from_snapshot(share, root, rel, body.id, tmp)
@@ -144,29 +152,28 @@ def restore(body: RestoreBody, user: dict = Depends(current_user)):
             when = _from_backup(body, os.path.join(root, rel), tmp)
         else:
             raise HTTPException(400, "source: snapshot or backup")
-        files._confine(parent, root)                     # (re-check right before the rename)
         dest_name = name if body.mode == "replace" else _copy_name(name, when)
-        dest = os.path.join(parent, dest_name)
-        if os.path.lexists(dest):
+        if safepath.lstat_at(pfd, dest_name) is not None:
             if body.mode != "replace":
                 raise HTTPException(409, f"'{dest_name}' already exists")
             files.delete(files.Paths(paths=[body.path]), user)      # (current version -> recycle bin)
-        os.rename(tmp, dest)
+        os.rename(tmp_name, dest_name, src_dir_fd=pfd, dst_dir_fd=pfd)
     finally:
-        if os.path.lexists(tmp):
-            shutil.rmtree(tmp, ignore_errors=True) if os.path.isdir(tmp) and not os.path.islink(tmp) else os.remove(tmp)
+        for n in (tmp_name, tmp_name + ".d"):
+            safepath.remove_at(pfd, n)
+        os.close(pfd)
     return {"ok": True, "name": dest_name}
 
 
 def _from_snapshot(share: dict, root: str, rel: str, name: str, tmp: str) -> int:
     if share["name"] == "home":
         raise HTTPException(400, "no snapshots here")
-    snap_root = snapshots._snap_root({**share, "path": root}, name)
-    src = snapshots._inside(snap_root, rel)
-    if not os.path.lexists(src):
-        raise HTTPException(404, "not in this snapshot")
-    # cp -a keeps owner, permissions and times; --reflink makes it instant (no extra space) on Btrfs
-    r = subprocess.run(["cp", "-a", "--reflink=auto", "--", src, tmp], capture_output=True, text=True)
+    with snapshots.snap_dir({**share, "path": root}, name) as snap_root:     # (checked: our own read-only snapshot)
+        src = snapshots._inside(snap_root, rel)
+        if not os.path.lexists(src):
+            raise HTTPException(404, "not in this snapshot")
+        # cp -a keeps owner, permissions and times; --reflink makes it instant (no extra space) on Btrfs
+        r = subprocess.run(["cp", "-a", "--reflink=auto", "--", src, tmp], capture_output=True, text=True)
     if r.returncode != 0:
         raise HTTPException(500, "copy failed: " + r.stderr.strip()[-200:])
     return int(snapshots.snap_time(name).timestamp())
@@ -177,14 +184,26 @@ def _from_backup(body: RestoreBody, full: str, tmp: str) -> int:
     t = backup.get_task(body.task)
     if not re.fullmatch(r"[0-9a-f]{8,64}", body.id):
         raise HTTPException(400, "bad version")
-    work = tmp + ".d"
-    os.makedirs(work, mode=0o700)
+    import tempfile
+    # (restic writes into a folder only root can reach - next to the shared folders, on the same volume - and
+    # the result is then copied into place; users can rename things inside their shared folder at any time)
+    vol = os.path.dirname(os.path.realpath(full.split(os.sep + ".snapshots")[0]))
+    while vol != "/" and not os.path.ismount(vol):
+        vol = os.path.dirname(vol)
+    base = os.path.join(vol, "@cyn-uploads")
+    os.makedirs(base, mode=0o700, exist_ok=True)
+    st = os.lstat(base)
+    if st.st_uid != 0 or not os.path.isdir(base) or os.path.islink(base):
+        raise HTTPException(500, f"{base} isn't a folder of the system")
+    work = tempfile.mkdtemp(prefix="restore-", dir=base)
     try:
         parent, name = os.path.split(full)
         r = backup.restic(t, "restore", f"{body.id}:{parent}", "--target", work, "--include", "/" + name, timeout=24 * 3600)
         if r.returncode != 0 or not os.path.lexists(os.path.join(work, name)):
             raise HTTPException(500, "restore failed: " + backup._err(r))
-        os.rename(os.path.join(work, name), tmp)
+        c = subprocess.run(["cp", "-a", "--reflink=auto", "--", os.path.join(work, name), tmp], capture_output=True, text=True)
+        if c.returncode != 0:
+            raise HTTPException(500, "copy failed: " + c.stderr.strip()[-200:])
     finally:
         backup._unmount_if_ours(t)
         shutil.rmtree(work, ignore_errors=True)

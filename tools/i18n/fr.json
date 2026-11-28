@@ -1279,5 +1279,14 @@
 "Name of the shared folder (the same name as on the other NAS keeps paths working):": "Nom du dossier partagé (le même nom que sur l'autre NAS garde les chemins valides) :",
 "Failed over": "Basculé",
 "The folder is live on this NAS. Point users at this NAS (or move its address/DNS name here).": "Le dossier est actif sur ce NAS. Dirigez les utilisateurs vers ce NAS (ou déplacez son adresse/nom DNS ici).",
-"Later, to fail back: create a replication task here that sends this folder to the original NAS, then on that NAS use 'Replace the live folder' on the copy it received.": "Plus tard, pour revenir : créez ici une tâche de réplication qui envoie ce dossier au NAS d'origine, puis sur celui-ci utilisez « Remplacer le dossier actif » sur la copie reçue."
+"Later, to fail back: create a replication task here that sends this folder to the original NAS, then on that NAS use 'Replace the live folder' on the copy it received.": "Plus tard, pour revenir : créez ici une tâche de réplication qui envoie ce dossier au NAS d'origine, puis sur celui-ci utilisez « Remplacer le dossier actif » sur la copie reçue.",
+"Copy": "Copier",
+"Requested from": "Demandé depuis",
+"That isn't this device. Only allow it if you started the sign-in in your Nextcloud app yourself, just now - otherwise someone else would get access to your files.": "Ce n'est pas cet appareil. Autorisez seulement si vous venez de lancer vous-même la connexion dans votre application Nextcloud - sinon quelqu'un d'autre accéderait à vos fichiers.",
+"WebDAV and other apps that only ask for a user name and password: use an app password (required when you sign in with 2-step verification or a passkey).": "WebDAV et autres applications qui ne demandent qu'un nom d'utilisateur et un mot de passe : utilisez un mot de passe d'application (obligatoire avec la validation en 2 étapes ou une clé d'accès).",
+"Name of the app or device (e.g. Phone WebDAV)": "Nom de l'application ou de l'appareil (ex. WebDAV téléphone)",
+"App password": "Mot de passe d'application",
+"Use this as the password in the app. It is shown only now.": "Utilisez-le comme mot de passe dans l'application. Il n'est affiché que maintenant.",
+"Create app password": "Créer un mot de passe d'application",
+"This package runs with full system (root) rights - it can do anything on this NAS. Only install it if you trust where it comes from.": "Ce paquet s'exécute avec tous les droits système (root) - il peut tout faire sur ce NAS. Ne l'installez que si vous faites confiance à sa source."
 }

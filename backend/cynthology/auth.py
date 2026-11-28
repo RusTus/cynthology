@@ -8,7 +8,7 @@ import secrets
 import time
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .util import DEV, STATE_DIR
 
@@ -51,8 +51,8 @@ ADMIN_GROUPS = ("cynthology-admin", "sudo", "wheel")
 
 
 class Login(BaseModel):
-    username: str
-    password: str
+    username: str = Field(max_length=256)
+    password: str = Field(max_length=1024)
 
 
 def _pam_ok(user: str, pw: str) -> bool:
@@ -106,15 +106,115 @@ def _log(event: str, user: str, ip: str, detail: str = "") -> None:
         pass
 
 
+ACCT_MAX = 30          # failures on one account, from addresses it never signed in from, before those are paused
+OTP_MAX = 10           # wrong 2-step codes for one account (across sign-ins) before codes are paused
+_AB: dict[str, list[float]] = {}     # address -> failed or refused attempts, for the firewall auto-block
+
+
+def _limit(k: str) -> int:
+    return ACCT_MAX if k.startswith("acct:") else OTP_MAX if k.startswith("otp:") else MAX_FAILS
+
+
+def client_key(ip: str) -> str:
+    """The address that limits and blocks apply to: IPv6 counts per /64 (one host can use any address of its
+    /64 - billions of them - so limits per single address would mean nothing)."""
+    import ipaddress
+    try:
+        a = ipaddress.ip_address(ip)
+    except ValueError:
+        return ip[:64]
+    if a.version == 6:
+        if a.ipv4_mapped:
+            return str(a.ipv4_mapped)
+        return str(ipaddress.ip_network(f"{a}/64", strict=False))
+    return str(a)
+
+
+def _prune() -> None:
+    if len(FAILS) > 20000:          # (only ever lists of recent times: drop what has expired)
+        now = time.time()
+        for k in [k for k, v in FAILS.items() if not v or now - v[-1] > FAIL_WINDOW]:
+            FAILS.pop(k, None)
+    if len(_AB) > 20000:
+        _AB.clear()
+
+
 def _check_lock(*keys: str) -> None:
     now = time.time()
     for k in keys:
-        recent = [t for t in FAILS.get(k, []) if now - t < FAIL_WINDOW]
-        FAILS[k] = recent
-        if len(recent) >= MAX_FAILS:
+        if k not in FAILS:              # (nothing recorded: never create entries just by looking)
+            continue
+        recent = [t for t in FAILS[k] if now - t < FAIL_WINDOW]
+        if recent:
+            FAILS[k] = recent
+        else:
+            del FAILS[k]
+        if len(recent) >= _limit(k):
             wait = int((recent[-1] + LOCK_TIME - now) // 60) + 1
             if wait > 0:
+                _autoblock(keys)          # (refused attempts count for the firewall auto-block too)
                 raise HTTPException(429, f"Too many failed attempts. Try again in {wait} minute(s).")
+
+
+def known_address(user: str, ck: str) -> bool:
+    """Has this account signed in from here before (a session from this address)? Those addresses aren't
+    affected when the account itself is under attack from elsewhere."""
+    return any(s["user"].lower() == user.lower() and client_key(s.get("ip", "")) == ck for s in list(SESSIONS.values())) \
+        or ck in _KNOWN.get(user.lower(), ())
+
+
+_KNOWN: dict[str, set[str]] = {}
+
+
+def attempt_keys(user: str, ip: str) -> tuple[str, ...]:
+    """Lockout keys for a sign-in: user+address (someone elsewhere can't lock the real user out), the
+    address, and - for addresses the account never signed in from - the account (address rotation)."""
+    ck = client_key(ip)
+    u = user.lower()[:128]
+    keys = [f"u:{u}|{ck}", f"ip:{ck}"]
+    if not known_address(user, ck):
+        keys.append(f"acct:{u}")
+    return tuple(keys)
+
+
+def begin_attempt(keys: tuple[str, ...]) -> None:
+    """Check the limits and count the attempt BEFORE checking the password, so parallel requests can't all
+    slip past the limit."""
+    with _LOCK:
+        _prune()
+        _check_lock(*keys)
+        now = time.time()
+        for k in keys:
+            FAILS.setdefault(k, []).append(now)
+
+
+def attempt_ok(user: str, ip: str, keys: tuple[str, ...]) -> None:
+    ck = client_key(ip)
+    with _LOCK:
+        for k in keys:
+            if not k.startswith("acct:"):       # (the account's count stays: it is about other addresses)
+                FAILS.pop(k, None)
+        known = _KNOWN.setdefault(user.lower(), set())
+        if len(known) < 50:
+            known.add(ck)
+
+
+def _autoblock(keys) -> None:
+    try:
+        from . import firewall
+        a = firewall.load()["autoblock"]
+        if not a["enabled"]:
+            return
+        now = time.time()
+        for k in keys:
+            if k.startswith("ip:"):
+                ab = [t for t in _AB.get(k, []) if now - t < a["within_minutes"] * 60] + [now]
+                _AB[k] = ab
+                if len(ab) >= a["attempts"]:
+                    firewall.block_ip(k[3:].split("/")[0], "web sign-in")
+                    _AB.pop(k, None)
+    except Exception:
+        pass
 
 
 _LOCK = __import__("threading").Lock()
@@ -132,20 +232,10 @@ def _canonical(user: str) -> str:
 
 def _fail(*keys: str, counted: bool = False) -> None:
     if not counted:
-        for k in keys:
-            FAILS.setdefault(k, []).append(time.time())
-    # firewall auto-block: an address that keeps failing is shut out completely for a while
-    try:
-        from . import firewall
-        a = firewall.load()["autoblock"]
-        for k in keys:
-            if k.startswith("ip:") and a["enabled"]:
-                recent = [t for t in FAILS[k] if time.time() - t < a["within_minutes"] * 60]
-                if len(recent) >= a["attempts"]:
-                    firewall.block_ip(k[3:], "web sign-in")
-                    FAILS[k] = []
-    except Exception:
-        pass
+        with _LOCK:
+            for k in keys:
+                FAILS.setdefault(k, []).append(time.time())
+    _autoblock(keys)       # firewall auto-block: an address that keeps failing is shut out completely for a while
     time.sleep(1)
 
 
@@ -175,16 +265,12 @@ def enrollment_done(user: str) -> None:
 def login(body: Login, request: Request):
     from . import twofa
     ip = request.client.host if request.client else "?"
-    # lock on user+address (someone elsewhere can't lock the real admin out) and on the address
-    keys = (f"u:{body.username.lower()}|{ip}", f"ip:{ip}")
-    with _LOCK:                          # count the attempt BEFORE checking the password, so that
-        try:                             # parallel requests can't all slip past the limit
-            _check_lock(*keys)
-        except HTTPException:
-            _log("locked", body.username, ip, "too many failed attempts")
-            raise
-        for k in keys:
-            FAILS.setdefault(k, []).append(time.time())
+    keys = attempt_keys(body.username, ip)
+    try:
+        begin_attempt(keys)
+    except HTTPException:
+        _log("locked", body.username[:128], ip, "too many failed attempts")
+        raise
     if not _pam_ok(body.username, body.password):
         _fail(*keys, counted=True)
         _log("failed", body.username, ip, "wrong user name or password")
@@ -202,15 +288,14 @@ def login(body: Login, request: Request):
         PENDING[ticket] = {"user": body.username, "exp": time.time() + 300, "keys": keys, "ip": ip,
                            "agent": request.headers.get("user-agent", "")}
         return {"need_otp": True, "ticket": ticket}
-    for k in keys:
-        FAILS.pop(k, None)
+    attempt_ok(body.username, ip, keys)
     _log("login", body.username, ip)
     return _new_session(body.username, ip, request.headers.get("user-agent", ""))
 
 
 class Otp(BaseModel):
-    ticket: str
-    code: str
+    ticket: str = Field(max_length=128)
+    code: str = Field(max_length=64)
 
 
 @router.post("/otp")
@@ -220,14 +305,16 @@ def otp(body: Otp):
     if not p or p["exp"] < time.time():
         PENDING.pop(body.ticket, None)
         raise HTTPException(401, "Sign-in expired - enter your password again")
-    _check_lock(*p["keys"])
+    keys = (*p["keys"], f"otp:{p['user'].lower()}")       # (also per account, across sign-ins)
+    with _LOCK:
+        _check_lock(*keys)
     if not twofa.verify(p["user"], body.code):
-        _fail(*p["keys"])
+        _fail(*keys)
         _log("2fa-failed", p["user"], p.get("ip", "?"), "wrong verification code")
         raise HTTPException(401, "Wrong verification code")
     del PENDING[body.ticket]
-    for k in p["keys"]:
-        FAILS.pop(k, None)
+    attempt_ok(p["user"], p.get("ip", ""), keys)
+    FAILS.pop(f"otp:{p['user'].lower()}", None)
     _log("login", p["user"], p.get("ip", "?"), "with 2-step verification")
     return _new_session(p["user"], p.get("ip", ""), p.get("agent", ""))
 
@@ -242,6 +329,12 @@ def current_user(request: Request, authorization: str = Header(default="")) -> d
                                          request.url.path in ("/api/2fa", "/api/2fa/setup", "/api/2fa/enable")):
         raise HTTPException(403, "Set up 2-step verification first")
     s["seen"] = int(time.time())          # (kept in memory; written with the next save)
+    # admin rights are re-checked (at most once a minute) for every request - File Station and the others
+    # use the flag too: removing someone from the admin group takes effect without waiting for their
+    # session to expire, and being added needs no new sign-in
+    if time.time() - s.get("admin_checked", 0) > 60:
+        s["admin"] = _is_admin(s["user"])
+        s["admin_checked"] = time.time()
     return s
 
 
@@ -262,14 +355,6 @@ def end_session(token: str) -> None:
 
 
 def require_admin(user: dict = Depends(current_user)) -> dict:
-    # admin rights are re-checked (at most once a minute): removing someone from the admin group
-    # takes effect without waiting for their session to expire - and being added needs no new sign-in
-    if time.time() - user.get("admin_checked", 0) > 60:
-        now_admin = _is_admin(user["user"])
-        if now_admin != user["admin"]:
-            user["admin"] = now_admin
-        user["admin_checked"] = time.time()
-        _save_sessions()
     if not user["admin"]:
         raise HTTPException(403, f"Administrator rights required. The account '{user['user']}' is not an administrator - "
                                  f"on the NAS console run:  sudo usermod -aG cynthology-admin {user['user']}")

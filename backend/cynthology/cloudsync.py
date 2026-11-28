@@ -121,8 +121,9 @@ def _remote(cid: str) -> str:
     return f"c{cid}"
 
 
-def write_conf() -> str:
+def write_conf(path: str | None = None) -> str:
     """rclone.conf from the connections (rewritten before every use; root-only)."""
+    path = path or CONF
     out = []
     for c in load_conns():
         out.append(f"[{_remote(c['id'])}]")
@@ -134,11 +135,11 @@ def write_conf() -> str:
             out.append("scope = drive")
         if c["type"] == "s3" and not c.get("cfg", {}).get("provider"):
             out.append("provider = Other")
-    fd = os.open(CONF + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    fd = os.open(path + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
         f.write("\n".join(out) + "\n")
-    os.replace(CONF + ".tmp", CONF)
-    return CONF
+    os.replace(path + ".tmp", path)
+    return path
 
 
 def rclone(*args: str, timeout: int | None = 60, input: str | None = None) -> subprocess.CompletedProcess:
@@ -560,6 +561,24 @@ def command(t: dict, resync: bool = False) -> list[str]:
     return [verb, src, dst, "--create-empty-src-dirs"] + common
 
 
+def sandbox(t: dict) -> list[str]:
+    """rclone runs as root but may only write the task's folder (and its own log, state and config): a link
+    a user puts into the shared folder - say to /etc - must never let a download write there."""
+    if DEV:
+        return []
+    work = os.path.join(DIR, f"bisync-{t['id']}")
+    os.makedirs(work, mode=0o700, exist_ok=True)
+    rw = [local_dir(t), work, _log_file(t["id"])]      # (its own copy of rclone.conf is in work)
+    return ["systemd-run", "--quiet", "--pipe", "--wait", "--collect", "--service-type=exec",
+            "--property=ProtectSystem=strict", "--property=ProtectHome=tmpfs", "--property=PrivateTmp=yes",
+            "--property=NoNewPrivileges=yes", "--property=Nice=10", "--property=IOSchedulingClass=idle",
+            "--property=UMask=0002", *[f'--property=ReadWritePaths="-{_sd_quote(p)}"' for p in rw], "--"]
+
+
+def _sd_quote(p: str) -> str:
+    return p.replace("\\", "\\\\").replace('"', '\\"')
+
+
 def do_run(tid: str) -> None:
     t = _get(load_tasks(), tid, "task")
     with open(_log_file(tid), "w"):
@@ -570,7 +589,9 @@ def do_run(tid: str) -> None:
     try:
         if t["direction"] != "upload":
             os.makedirs(local_dir(t), exist_ok=True)
-        r = subprocess.run(["rclone", "--config", write_conf(), *command(t, resync)], capture_output=True, text=True)
+        os.makedirs(os.path.join(DIR, f"bisync-{tid}"), mode=0o700, exist_ok=True)
+        conf = write_conf(os.path.join(DIR, f"bisync-{tid}", "rclone.conf")) if not DEV else write_conf()
+        r = subprocess.run(sandbox(t) + ["rclone", "--config", conf, *command(t, resync)], capture_output=True, text=True)
         ok = r.returncode == 0
         logtext = open(_log_file(tid), errors="replace").read()
         counts = {"copied": len(re.findall(r": Copied \(", logtext)), "deleted": len(re.findall(r": Deleted", logtext))}

@@ -72,6 +72,23 @@ STANDIN_ICONS = {
 }
 
 
+def _own_account(pkg: str, user: str) -> bool:
+    """Is user this package's own account: sc-<pkg>, or the account it was given (system range, home in the
+    package's folder)? Any other account (another package's, a NAS user's, cynrepl, mysql...) is refused."""
+    if user == f"sc-{pkg}":
+        return True
+    if not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", user) or user in ("root", "www-data", "http"):
+        return False
+    if DEV:
+        return True
+    import pwd
+    try:
+        pw = pwd.getpwnam(user)
+    except KeyError:
+        return False
+    return 100 <= pw.pw_uid < 1000 and pw.pw_dir == os.path.join(ROOT, "var/packages", pkg, "home")
+
+
 def standin_icon(name: str) -> str | None:
     """A rounded gradient tile with a short label, in the style of the desktop's app icons."""
     if name not in STANDIN_ICONS:
@@ -157,7 +174,7 @@ def parse_webservice(pkg: str, res: dict) -> dict:
         if typ not in ("static", "apache_php", "nginx_php"):
             continue
         user = str(php.get("user") or f"sc-{pkg}")
-        if not re.fullmatch(r"sc-[a-z0-9_-]{1,30}|[a-z_][a-z0-9_-]{0,31}", user) or user in ("root", "www-data"):
+        if not _own_account(pkg, user):          # (PHP runs as the package's own account - never someone else's)
             user = f"sc-{pkg}"
         services.append({"service": sid, "type": typ, "root": root, "display": str(sv.get("display_name", sid))[:60],
                          "php": {"user": user, "extensions": [e for e in php.get("extensions", []) if e in PHP_EXT],
@@ -295,11 +312,17 @@ def apply_package(pkg: str, base: str, copy: bool = True, publish: bool = True) 
             shutil.copytree(src, dst, dirs_exist_ok=True)
             continue
         user = next((s["php"]["user"] for s in ws["services"] if s["root"] == pp["target"] and s["php"]), f"sc-{pkg}")
-        if subprocess.run(["id", user], capture_output=True).returncode != 0:
-            user = "root"
+        ids = subprocess.run(["id", "-g", user], capture_output=True, text=True)
+        # the copy is made as the package's account (the source is in its own folders, which it can change -
+        # e.g. into a link to /etc - so root must not be the one reading it)
+        drop = (["setpriv", f"--reuid={user}", f"--regid={ids.stdout.strip()}", "--init-groups", "--"]
+                if ids.returncode == 0 and user != "root" else [])
+        os.makedirs(dst, mode=0o750, exist_ok=True)
+        if drop:
+            run(["chown", "-h", f"{user}:http", dst])
         # (no --delete: an upgrade must not wipe what the app wrote into its own folder)
-        run(["rsync", "-a", "--no-owner", "--no-group", src.rstrip("/") + "/", dst + "/"])
-        run(["chown", "-R", f"{user}:http", dst])
+        run(drop + ["rsync", "-a", "--no-owner", "--no-group", src.rstrip("/") + "/", dst + "/"])
+        run(["chown", "-R", "-h", f"{user if drop else 'root'}:http", dst])
         run(["chmod", "-R", "u+rwX,g+rX,o-rwx", dst])
         os.chmod(dst, 0o750)                     # (package account + web server group only)
     if not publish:

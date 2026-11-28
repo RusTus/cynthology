@@ -68,8 +68,9 @@ def check_pw(pw: str, stored: str) -> bool:
     return hmac.compare_digest(hash_pw(pw, bytes.fromhex(salt)), stored)
 
 
-def _unlock_token(lid: str, exp: int) -> str:
-    return f"{exp}.{hmac.new(_key(), f'{lid}|{exp}'.encode(), hashlib.sha256).hexdigest()}"
+def _unlock_token(link: dict, exp: int) -> str:
+    """(tied to the link's current password: changing it signs everybody out of the link)"""
+    return f"{exp}.{hmac.new(_key(), f'{link['id']}|{exp}|{link.get('password', '')}'.encode(), hashlib.sha256).hexdigest()}"
 
 
 def _unlocked(request: Request, link: dict) -> bool:
@@ -77,7 +78,7 @@ def _unlocked(request: Request, link: dict) -> bool:
         return True
     tok = request.cookies.get(f"cyn_s_{link['id']}", "")
     exp, _, _ = tok.partition(".")
-    return exp.isdigit() and int(exp) > time.time() and hmac.compare_digest(tok, _unlock_token(link["id"], int(exp)))
+    return exp.isdigit() and int(exp) > time.time() and hmac.compare_digest(tok, _unlock_token(link, int(exp)))
 
 
 def state(link: dict) -> str:
@@ -110,8 +111,9 @@ def _get(lid: str) -> dict:
     return link
 
 
-def _target(link: dict, rel: str = "") -> tuple[str, str]:
-    """(real path of the shared item, real path of rel inside it). Checks the owner's access now."""
+def _target(link: dict, rel: str = "") -> tuple[str, str, str]:
+    """(real path of the shared item, real path of rel inside it, real path of its shared folder).
+    Checks the owner's access now."""
     from .privileges import user_allowed
     owner = _owner(link)
     if not user_allowed("sharelinks", owner["user"], owner.get("admin")):
@@ -128,7 +130,7 @@ def _target(link: dict, rel: str = "") -> tuple[str, str]:
     full = os.path.realpath(os.path.join(root, *parts))
     if full != root and not full.startswith(root + os.sep):
         raise HTTPException(404, "not found")
-    return root, full
+    return root, full, os.path.realpath(share["path"])
 
 
 # ---------- owner API ----------
@@ -273,7 +275,7 @@ def info(lid: str, request: Request, p: str = ""):
            "used_up": state(link) == "used up"}
     if not out["unlocked"]:
         return out
-    root, full = _target(link, p)
+    root, full, sroot = _target(link, p)
     if os.path.isdir(full):
         items = []
         with os.scandir(full) as it:
@@ -318,7 +320,7 @@ def unlock(lid: str, body: Unlock, request: Request):
         _fails[ip] = [t for t in _fails.get(ip, []) if t != now]
     exp = int(now) + UNLOCK_TTL
     resp = JSONResponse({"ok": True})
-    resp.set_cookie(f"cyn_s_{lid}", _unlock_token(lid, exp), max_age=UNLOCK_TTL, path=f"/s/{lid}", httponly=True,
+    resp.set_cookie(f"cyn_s_{lid}", _unlock_token(link, exp), max_age=UNLOCK_TTL, path=f"/s/{lid}", httponly=True,
                     samesite="lax", secure=request.url.scheme == "https")
     return resp
 
@@ -331,12 +333,12 @@ def share_thumb(lid: str, request: Request, p: str = "", size: int = 256):
     link = _get(lid)
     if not _unlocked(request, link):
         raise HTTPException(403, "enter the password first")
-    root, full = _target(link, p)
+    root, full, sroot = _target(link, p)
     if not os.path.isfile(full):
         raise HTTPException(404, "not a file")
     if state(link) != "active":
         raise HTTPException(410, "this link has reached its download limit")
-    return Response(make_thumb(full, 1600 if size > 256 else 256), media_type="image/webp",
+    return Response(make_thumb(full, 1600 if size > 256 else 256, root=sroot), media_type="image/webp",
                     headers={"Cache-Control": "private, max-age=86400", **SANDBOX})
 
 
@@ -345,7 +347,7 @@ def download(lid: str, request: Request, p: str = "", inline: bool = False):
     link = _get(lid)
     if not _unlocked(request, link):
         raise HTTPException(403, "enter the password first")
-    root, full = _target(link, p)
+    root, full, sroot = _target(link, p)
     with _lock:                                # count (and enforce the limit) atomically
         items = load()
         cur = next((x for x in items if x["id"] == lid), None)
@@ -356,6 +358,6 @@ def download(lid: str, request: Request, p: str = "", inline: bool = False):
         save(items)
     name = os.path.basename(full) or link["name"]
     if os.path.isdir(full):
-        return StreamingResponse(files.zip_stream([(full, name)]), media_type="application/zip",
+        return StreamingResponse(files.zip_stream([(full, name)], root=sroot), media_type="application/zip",
                                  headers=files._disposition(name + ".zip"))
-    return FileResponse(full, headers=files._disposition(name, inline))
+    return files.file_response(sroot, full, headers=files._disposition(name, inline))

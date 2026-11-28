@@ -53,13 +53,20 @@ def check_full_name(name: str) -> str:
     return name
 
 
-def apply_password(name: str, pw: str) -> None:
-    """New password for a local account (Linux + Samba); signs the account out everywhere."""
+def apply_password(name: str, pw: str, revoke_apps: bool = False) -> None:
+    """New password for a local account (Linux + Samba); signs the account out everywhere (also WebDAV
+    sign-ins remembered for a few minutes). revoke_apps (an administrator's reset - the account may be in
+    the wrong hands): its app passwords stop working too."""
     check_password(pw)
     run(["chpasswd"], input=f"{name}:{pw}\n")
     run(["smbpasswd", "-s", name], input=f"{pw}\n{pw}\n")
     from .auth import end_sessions
     end_sessions(name)
+    from . import webdav
+    webdav.forget(name)
+    if revoke_apps:
+        from . import ncsync
+        ncsync.remove_user(name)
 
 
 def _refresh_privileges() -> None:
@@ -95,7 +102,7 @@ def create_user(body: UserCreate, _=Depends(require_admin)):
 @router.put("/{name}/password")
 def set_password(name: str, body: Password, _=Depends(require_admin)):
     valid_name(name, "username")
-    apply_password(name, body.password)
+    apply_password(name, body.password, revoke_apps=True)
     return {"ok": True}
 
 

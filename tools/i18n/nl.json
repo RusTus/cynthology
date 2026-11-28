@@ -1279,5 +1279,14 @@
 "Name of the shared folder (the same name as on the other NAS keeps paths working):": "Naam van de gedeelde map (dezelfde naam als op de andere NAS houdt paden werkend):",
 "Failed over": "Overgenomen",
 "The folder is live on this NAS. Point users at this NAS (or move its address/DNS name here).": "De map is actief op deze NAS. Verwijs gebruikers naar deze NAS (of verplaats het adres/de DNS-naam hierheen).",
-"Later, to fail back: create a replication task here that sends this folder to the original NAS, then on that NAS use 'Replace the live folder' on the copy it received.": "Later terugzetten: maak hier een replicatietaak die deze map naar de oorspronkelijke NAS stuurt, en gebruik daar 'Actieve map vervangen' op de ontvangen kopie."
+"Later, to fail back: create a replication task here that sends this folder to the original NAS, then on that NAS use 'Replace the live folder' on the copy it received.": "Later terugzetten: maak hier een replicatietaak die deze map naar de oorspronkelijke NAS stuurt, en gebruik daar 'Actieve map vervangen' op de ontvangen kopie.",
+"Copy": "Kopiëren",
+"Requested from": "Aangevraagd vanaf",
+"That isn't this device. Only allow it if you started the sign-in in your Nextcloud app yourself, just now - otherwise someone else would get access to your files.": "Dat is niet dit apparaat. Sta het alleen toe als u de aanmelding zojuist zelf in uw Nextcloud-app bent begonnen - anders krijgt iemand anders toegang tot uw bestanden.",
+"WebDAV and other apps that only ask for a user name and password: use an app password (required when you sign in with 2-step verification or a passkey).": "WebDAV en andere apps die alleen om gebruikersnaam en wachtwoord vragen: gebruik een app-wachtwoord (verplicht als u zich aanmeldt met 2-stapsverificatie of een passkey).",
+"Name of the app or device (e.g. Phone WebDAV)": "Naam van de app of het apparaat (bijv. Telefoon WebDAV)",
+"App password": "App-wachtwoord",
+"Use this as the password in the app. It is shown only now.": "Gebruik dit als wachtwoord in de app. Het wordt alleen nu getoond.",
+"Create app password": "App-wachtwoord maken",
+"This package runs with full system (root) rights - it can do anything on this NAS. Only install it if you trust where it comes from.": "Dit pakket draait met volledige systeemrechten (root) - het kan alles op deze NAS doen. Installeer het alleen als u de bron vertrouwt."
 }

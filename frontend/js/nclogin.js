@@ -4,11 +4,18 @@
   const card = document.getElementById("nc-card");
   const v2 = location.pathname.match(/\/login\/v2\/flow\/([^/]+)$/);
   const flow = v2 ? v2[1] : "";
-  let app = t("A Nextcloud app");
+  let app = t("A Nextcloud app"), info = null;
   if (flow) {
-    try { app = (await (await fetch(`/index.php/login/v2/info/${encodeURIComponent(flow)}`)).json()).app || app; }
-    catch { return card.replaceChildren(h("h2", {}, t("This sign-in link expired")), h("p", { class: "muted" }, t("Start again in the app."))); }
+    try {
+      const r = await fetch(`/index.php/login/v2/info/${encodeURIComponent(flow)}`);
+      if (!r.ok) throw new Error();
+      info = await r.json(); app = info.app || app;
+    } catch { return card.replaceChildren(h("h2", {}, t("This sign-in link expired")), h("p", { class: "muted" }, t("Start again in the app."))); }
   }
+  // where the request came from: anybody can start one and send you the link ("please reconnect your app")
+  const origin = () => !info ? null : h("div", { class: info.same_device ? "muted" : "err", style: "font-size:13px;margin:6px 0" },
+    `${t("Requested from")} ${info.from}` + (info.started ? `, ${new Date(info.started * 1000).toLocaleTimeString()}` : "") + ". ",
+    info.same_device ? "" : t("That isn't this device. Only allow it if you started the sign-in in your Nextcloud app yourself, just now - otherwise someone else would get access to your files."));
   const logo = h("div", { class: "logo" }, h("span", { class: "stones" }, h("i"), h("i"), h("i")), " Cynthology");
   const err = h("div", { class: "err" });
   const user = h("input", { placeholder: t("Username"), autocomplete: "username", required: true });
@@ -21,6 +28,7 @@
     card.replaceChildren(logo,
       h("h3", { style: "margin:4px 0" }, t("Connect this app?")),
       h("p", {}, h("b", { translate: "no" }, app), " ", t("wants to sync the files you can open on this NAS, as"), " ", h("b", { translate: "no" }, r.user), "."),
+      origin(),
       h("p", { class: "muted", style: "font-size:13px" }, t("It gets a password of its own; you can disconnect it any time in Personal > Security.")),
       err,
       h("button", { class: "btn primary", onclick: async (e) => {
@@ -50,7 +58,7 @@
       }
     } catch (x) { err.textContent = x.message; }
   } }, h("div", { style: "display:grid;gap:12px" }, user, pass), h("button", { type: "submit" }, t("Sign in")));
-  card.replaceChildren(logo, h("p", { class: "muted" }, t("Sign in to connect"), " ", h("b", { translate: "no" }, app), "."), form, err);
+  card.replaceChildren(logo, h("p", { class: "muted" }, t("Sign in to connect"), " ", h("b", { translate: "no" }, app), "."), origin(), form, err);
   if (window.PublicKeyCredential && window.isSecureContext && !/^[0-9.]+$|:/.test(location.hostname)) {
     card.append(h("button", { type: "button", class: "login-alt", onclick: async () => {
       err.textContent = "";
