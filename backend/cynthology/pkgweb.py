@@ -48,6 +48,7 @@ STANDINS = {
     "Perl": {"display": "Perl", "version": "5.40.0-0001", "apt": ["perl"], "links": {"usr/local/bin/perl": "/usr/bin/perl"}},
     "Node.js_v20": {"display": "Node.js v20", "version": "20.0.0-0001", "apt": ["nodejs"],
                     "links": {"usr/local/bin/node": "/usr/bin/node"}},
+    "MariaDB10": {"display": "MariaDB 10", "version": "10.11.0-0001", "apt": []},
     "ContainerManager": {"display": "Container Manager (Docker)", "version": "24.0.0-0001", "apt": []},
     "Docker": {"display": "Docker", "version": "24.0.0-0001", "apt": []},
 }
@@ -62,6 +63,7 @@ STANDIN_ICONS = {
     "Apache2.4": ("Ap", "#f87171", "#b91c1c"),
     "Perl": ("Pl", "#60a5fa", "#1e40af"),
     "Node.js_v20": ("JS", "#4ade80", "#15803d"),
+    "MariaDB10": ("Ma", "#60a5fa", "#1d4ed8"),
     "ContainerManager": ("CM", "#38bdf8", "#0369a1"),
     "Docker": ("D", "#38bdf8", "#0369a1"),
 }
@@ -104,6 +106,9 @@ def ensure_standin(name: str) -> None:
                 webstation.install_now()
         if name == "Apache2.4":
             setup_apache()
+        if name == "MariaDB10":
+            from . import mariadb10
+            mariadb10.setup()
         if name in ("ContainerManager", "Docker") and not shutil.which("docker"):
             raise HTTPException(500, "the container engine is not installed")
     for link, target in s.get("links", {}).items():
@@ -251,8 +256,10 @@ def _services_link() -> None:
         os.symlink(WEB_PACKAGES, link)
 
 
-def apply_package(pkg: str, base: str) -> dict | None:
-    """After a package is installed/upgraded: publish its web services."""
+def apply_package(pkg: str, base: str, copy: bool = True, publish: bool = True) -> dict | None:
+    """Web services of a package. Like DSM: the web folder is copied (copy) after the files are unpacked
+    and BEFORE postinst - packages finish setting themselves up there (ownCloud writes its config,
+    Adminer its .htaccess) - and published (nginx/PHP-FPM/Apache, publish) after postinst."""
     try:
         res = json.load(open(os.path.join(base, "conf", "resource")))
     except (OSError, ValueError):
@@ -263,7 +270,7 @@ def apply_package(pkg: str, base: str) -> dict | None:
     _ensure_http_group()
     os.makedirs(WEB_PACKAGES, mode=0o755, exist_ok=True)
     _services_link()
-    for pp in ws["prepare"]:
+    for pp in (ws["prepare"] if copy else []):
         src = os.path.join(ROOT, pp["source"].lstrip("/"))
         dst = os.path.join(WEB_PACKAGES, pp["target"])
         if not os.path.isdir(src):
@@ -279,6 +286,8 @@ def apply_package(pkg: str, base: str) -> dict | None:
         run(["chown", "-R", f"{user}:http", dst])
         run(["chmod", "-R", "u+rwX,g+rX,o-rwx", dst])
         os.chmod(dst, 0o750)                     # (package account + web server group only)
+    if not publish:
+        return ws
     st = load()
     st[pkg] = ws
     save(st)

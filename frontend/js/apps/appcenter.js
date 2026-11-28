@@ -80,6 +80,13 @@ WM.register("appcenter", {
             upd[p.package] ? h("div", { class: "muted", style: "font-size:12px" }, `Update available: ${upd[p.package].available}`) : null,
             h("div", { class: "toolbar", style: "margin:6px 0 0" },
               upd[p.package] ? h("button", { class: "btn primary", onclick: () => installFlow(() => API.post("/api/packages/prepare", { source: upd[p.package].source, package: p.package })) }, "Update") : null,
+              p.package === "MariaDB10" && p.standin ? h("button", { class: "btn", onclick: async () => {
+                const m = await API.get("/api/packages/standin/MariaDB10");
+                modal("MariaDB 10", h("div", { class: "form" },
+                  h("table", { class: "kv", translate: "no" }, [["Server", `127.0.0.1:${m.port}`], ["Socket", m.socket], ["User", m.user], ["Password", m.password]]
+                    .map(([k, v]) => h("tr", {}, h("th", {}, t(k)), h("td", { class: "mono" }, v)))),
+                  h("p", { class: "muted" }, t(m.note))));
+              } }, "Info") : null,
               p.url && p.running ? h("a", { class: "btn primary", target: "_blank", href: `${p.url.protocol}://${location.hostname}:${p.url.port}${p.url.path}` }, "Open") : null,
               p.startable ? h("button", { class: "btn", onclick: async () => { await act(() => API.post(`/api/packages/installed/${p.package}/${p.running ? "stop" : "start"}`)); renderInstalled(); } }, p.running ? "Stop" : "Run") : null,
               p.standin && p.used_by && p.used_by.length ? null : h("button", { class: "btn danger", onclick: async () => {

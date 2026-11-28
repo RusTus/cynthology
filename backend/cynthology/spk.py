@@ -194,7 +194,7 @@ def _pkg_path(name: str, *parts: str) -> str:
 def _read_json(path: str) -> dict:
     try:
         with open(path) as f:
-            return json.load(f)
+            return json.loads(f.read(), strict=False)
     except (OSError, ValueError):
         return {}
 
@@ -243,6 +243,15 @@ def _running(name: str) -> bool:
 @router.get("/installed")
 def installed(_=Depends(current_user)):
     return installed_list()
+
+
+@router.get("/standin/MariaDB10")
+def mariadb10_info(_=Depends(require_admin)):
+    """Port, socket and root password of Cynthology's MariaDB 10 (for Adminer, phpMyAdmin...)."""
+    if not os.path.exists(_pkg_path("MariaDB10", "cynthology-standin")):
+        raise HTTPException(404, "MariaDB 10 isn't installed")
+    from . import mariadb10
+    return mariadb10.info()
 
 
 @router.get("/installed/{name}/icon")
@@ -332,8 +341,16 @@ def _stage(spk_path: str) -> dict:
         wizard = _read_json(wf) or []
     elif os.path.exists(wf + ".sh"):
         wizard = _dynamic_wizard(wf + ".sh", info, "UPGRADE" if installed else "INSTALL")
+    if "MariaDB10" in _deps_list(info):              # (Cynthology's MariaDB 10 knows its own root password)
+        from . import mariadb10
+        wizard = mariadb10.prefill(wizard)
     return {"staging": sid, "info": info, "wizard": wizard, "problems": problems, "mode": kind,
             "installed_version": installed, "dependencies": auto_deps}
+
+
+def _deps_list(info: dict) -> list[str]:
+    return [x.split(">")[0].split("<")[0].split("=")[0].strip()
+            for x in re.split(r"[:,]", info.get("install_dep_packages", "")) if x.strip()]
 
 
 def _dynamic_wizard(script: str, info: dict, status: str = "INSTALL") -> list:
@@ -354,7 +371,8 @@ def _dynamic_wizard(script: str, info: dict, status: str = "INSTALL") -> list:
         subprocess.run(["setpriv", "--reuid=nobody", "--regid=nogroup", "--clear-groups", "--", "/bin/bash", script],
                        env=env, cwd="/tmp", capture_output=True, timeout=30)
         with open(out.name) as f:
-            return json.load(f)
+            # (DSM's parser accepts raw line breaks inside strings - many packages' wizards contain them)
+            return json.loads(f.read(), strict=False)
     except (OSError, ValueError, subprocess.SubprocessError):
         return []
     finally:
@@ -369,7 +387,14 @@ def _data_shares(base: str, wizard: dict) -> None:
         name = re.sub(r"\{\{(\w+)\}\}", lambda m: str(wizard.get(m.group(1), "")), sh.get("name", "")).strip("/")
         if not name:
             continue
-        ensure_share(name, sh.get("permission", {}).get("rw", []))
+        path = ensure_share(name, sh.get("permission", {}).get("rw", []))
+        # DSM 7 lists a package's shared folders as /var/packages/<pkg>/shares/<name> (scripts look there)
+        os.makedirs(os.path.join(base, "shares"), exist_ok=True)
+        link = os.path.join(base, "shares", name)
+        if os.path.islink(link):
+            os.remove(link)
+        if path and not os.path.lexists(link):
+            os.symlink(path, link)
 
 
 class Prepare(BaseModel):
@@ -518,6 +543,9 @@ def install_staged(d: str, wizard: dict, depth: int = 0) -> dict:
             info = parse_info(f.read())
         name = info.get("package")
         wizard = {**_static_wizard_defaults(d, os.path.exists(_pkg_path(name, "INFO"))), **(wizard or {})}
+        if "MariaDB10" in _deps_list(info):
+            from . import mariadb10
+            wizard = mariadb10.fill_wizard(wizard)
         _install_dependencies(info, depth)
         if os.path.exists(_pkg_path(name, "INFO")):
             return _upgrade(d, info, wizard)
@@ -635,9 +663,10 @@ def _fresh_install(d: str, info: dict, wizard: dict) -> dict:
         _safe_extract(os.path.join(d, "package.tgz"), os.path.realpath(os.path.join(base, "target")))
         _owner(name, user, group)
         _link_usr_local(name, create=True)
+        pkgweb.apply_package(name, base, publish=False)        # (web folder in place before postinst, as on DSM)
         _script(name, "postinst", env, run_user)
         _write_unit(name, info, run_user)
-        pkgweb.apply_package(name, base)
+        pkgweb.apply_package(name, base, copy=False)
     except Exception:
         pkgweb.remove_package(name)
         _remove(name, keep_data=False)
@@ -695,6 +724,7 @@ def _upgrade(d: str, new_info: dict, wizard: dict) -> dict:
         _safe_extract(os.path.join(d, "package.tgz"), target)
         _owner(name, user, group)
         _link_usr_local(name, create=True)
+        pkgweb.apply_package(name, base, publish=False)
         _script(name, "postinst", env_new, run_user)
         _script(name, "postupgrade", env_new, run_user)
         _write_unit(name, new_info, run_user)
@@ -725,7 +755,7 @@ def _upgrade(d: str, new_info: dict, wizard: dict) -> dict:
     shutil.rmtree(saved_target, ignore_errors=True)
     shutil.rmtree(upg, ignore_errors=True)
     try:
-        pkgweb.apply_package(name, base)
+        pkgweb.apply_package(name, base, copy=False)
     except Exception as e:
         print(f"{name}: web service:", e)
     if new_info.get("startable", "yes") != "no":
@@ -876,7 +906,11 @@ def uninstall(name: str, keep_data: bool = True, _=Depends(require_admin)):
     _service(name, "stop")
     user, group, as_root = _privilege(base, name)
     ru = None if as_root else f"{user}:{group}"
-    env = _env(name, info, "UNINSTALL", {"wizard_keep_data": keep_data, "wizard_delete_data": not keep_data})
+    answers = {"wizard_keep_data": keep_data, "wizard_delete_data": not keep_data}
+    if "MariaDB10" in _deps_list(info):              # (packages drop their database with the root password)
+        from . import mariadb10
+        answers = mariadb10.fill_wizard(answers)
+    env = _env(name, info, "UNINSTALL", answers)
     try:
         _script(name, "preuninst", env, ru)
         _script(name, "postuninst", env, ru)
