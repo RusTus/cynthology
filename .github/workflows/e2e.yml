@@ -113,7 +113,7 @@ jobs:
           cp /tmp/e2e-storage/serial.log storage-artifacts/ 2>/dev/null || true
           if [ -f /tmp/e2e-storage/env ]; then
             . /tmp/e2e-storage/env
-            $CYN_E2E_SSH -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null 'cat /proc/mdstat; sudo mdadm --detail --scan; sudo journalctl -u cynthology-ui --no-pager -n 300' > storage-artifacts/vm-logs.txt 2>&1 || true
+            $CYN_E2E_SSH -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null 'cat /proc/mdstat; sudo mdadm --detail --scan; grep ARRAY /etc/mdadm/mdadm.conf; sudo cat /var/lib/cynthology/assemble.log; sudo journalctl -b -u cynthology-unlock --no-pager; for d in /dev/sd?1 /dev/sd?2; do echo == $d; sudo mdadm --examine $d 2>&1 | grep -E "UUID|Events|Raid Devices|Device Role|Array State|Update Time"; done; sudo journalctl -b --no-pager | grep -iE "md[0-9]|mdadm" | tail -60; sudo journalctl -u cynthology-ui --no-pager -n 100' > storage-artifacts/vm-logs.txt 2>&1 || true
           fi
 
       - uses: actions/upload-artifact@v4

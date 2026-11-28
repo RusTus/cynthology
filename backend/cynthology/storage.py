@@ -870,6 +870,13 @@ def assemble_at_boot() -> list[str]:
     uuids = _conf_uuids()
     fixed = []
     pools_ = load_pools()
+    logf = open(os.path.join(STATE_DIR, "assemble.log"), "a")
+
+    def log(msg: str) -> None:
+        line = time.strftime("%Y-%m-%d %H:%M:%S ") + msg
+        print(line)
+        logf.write(line + "\n")
+        logf.flush()
     run(["udevadm", "settle", "--timeout=60"], check=False)
     want = [a["md"] for p in pools_ for a in p.get("arrays", [])]
     deadline = time.time() + 45                   # (drives can still be arriving: give normal assembly a chance)
@@ -882,22 +889,56 @@ def assemble_at_boot() -> list[str]:
                 continue
             uuid = uuids.get(md)
             if not uuid:
-                print(f"{md}: not in mdadm.conf, can't repair")
+                log(f"{md}: not in mdadm.conf, can't repair")
                 continue
-            for dev in glob.glob("/dev/md[0-9]*"):          # (whatever holds pieces of this array: stop it)
-                if not re.fullmatch(r"/dev/md\d+", dev):
-                    continue
-                if _md_uuid(dev).replace(".", ":") == uuid and not _array_ok(dev):
-                    run(["mdadm", "--stop", dev], check=False)
-            r = subprocess.run(["mdadm", "--assemble", md, "--uuid", uuid, "--run", "--scan"], capture_output=True, text=True)
-            print(f"{md}: assembled again ({(r.stderr or r.stdout).strip()[-300:]})")
-            fixed.append(md)
+            fixed.append(_reassemble(md, uuid, log))
         if p.get("vg"):
             run(["vgchange", "-ay", p["vg"]], check=False)
         if not os.path.ismount(p["mount"]):
             r = subprocess.run(["mount", p["mount"]], capture_output=True, text=True)
-            print(f"{p['mount']}: " + ("mounted" if r.returncode == 0 else f"couldn't mount: {r.stderr.strip()}"))
-    return fixed
+            log(f"{p['mount']}: " + ("mounted" if r.returncode == 0 else f"couldn't mount: {r.stderr.strip()}"))
+    logf.close()
+    return [f for f in fixed if f]
+
+
+def _examine_all() -> list[dict]:
+    """Every partition/disk with md metadata: {dev, uuid, events, devices, state}."""
+    out = []
+    for line in open("/proc/partitions").read().splitlines()[2:]:
+        name = line.split()[-1]
+        if name.startswith(("md", "loop", "ram", "dm-", "zram", "sr")):
+            continue
+        ex = read_only(["mdadm", "--examine", "--export", "/dev/" + name])
+        kv = dict(ln.split("=", 1) for ln in ex.splitlines() if "=" in ln)
+        if kv.get("MD_UUID"):
+            out.append({"dev": "/dev/" + name, "uuid": kv["MD_UUID"].replace(".", ":"),
+                        "events": int(kv.get("MD_EVENTS", "0") or 0), "devices": kv.get("MD_DEVICES", "")})
+    return out
+
+
+def _reassemble(md: str, uuid: str, log) -> str | None:
+    """Assemble one array from exactly its up-to-date members (the newest event count); never leave
+    things worse: if that fails, let mdadm put back what it can by itself."""
+    mine = [m for m in _examine_all() if m["uuid"] == uuid]
+    if not mine:
+        log(f"{md}: no drive with this array's metadata (UUID {uuid}) - drives missing?")
+        return None
+    newest = max(m["events"] for m in mine)
+    good = [m["dev"] for m in mine if m["events"] == newest]
+    stale = [f"{m['dev']}({m['events']})" for m in mine if m["events"] != newest]
+    log(f"{md}: not running; members up to date (events {newest}): {' '.join(good)}"
+        + (f"; left out as out of date: {' '.join(stale)}" if stale else ""))
+    for dev in glob.glob("/dev/md[0-9]*"):          # (whatever holds pieces of this array: stop it)
+        if re.fullmatch(r"/dev/md\d+", dev) and _md_uuid(dev).replace(".", ":") == uuid and not _array_ok(dev):
+            r = subprocess.run(["mdadm", "--stop", dev], capture_output=True, text=True)
+            log(f"{md}: stopped {dev}: {(r.stderr or r.stdout).strip()}")
+    r = subprocess.run(["mdadm", "--assemble", md, "--run", "--uuid", uuid, *good], capture_output=True, text=True)
+    log(f"{md}: assemble from {len(good)} member(s): rc {r.returncode} {(r.stderr or r.stdout).strip()[-400:]}")
+    if r.returncode == 0 and _array_ok(md):
+        return md
+    r = subprocess.run(["mdadm", "--assemble", "--scan"], capture_output=True, text=True)
+    log(f"{md}: didn't work - mdadm --assemble --scan: rc {r.returncode} {(r.stderr or r.stdout).strip()[-400:]}")
+    return None
 
 
 def foreign_pools() -> list[dict]:
