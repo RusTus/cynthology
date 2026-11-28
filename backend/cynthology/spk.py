@@ -215,6 +215,11 @@ def installed_list() -> list[dict]:
                     "startable": not standin and info.get("startable", "yes") != "no", "standin": standin})
     # built-in modules: which installed packages rely on them
     names = {p["package"]: p["dname"] for p in out}
+    from . import php83
+    for p in out:
+        if p["package"] == "PHP8.3" and p["standin"]:
+            p["php83"] = php83.installed()
+            p["dname"] = "PHP 8.3" if p["php83"] else "PHP 8.3 (provided by PHP 8.4)"
     for p in out:
         if p["standin"]:
             p["used_by"] = sorted(names[o] for o in names if o != p["package"] and p["package"] in _deps_of(o))
@@ -243,6 +248,30 @@ def _running(name: str) -> bool:
 @router.get("/installed")
 def installed(_=Depends(current_user)):
     return installed_list()
+
+
+@router.get("/php83")
+def php83_status(_=Depends(require_admin)):
+    from . import php83
+    return {"installed": php83.installed(), "users": [p["dname"] for p in installed_list()
+                                                       if not p["standin"] and "PHP8.3" in _deps_of(p["package"])]}
+
+
+@router.post("/php83")
+def php83_install(_=Depends(require_admin)):
+    """Install the real PHP 8.3 (packages.sury.org, pinned to php8.3 only) and move the packages that want it."""
+    from . import php83
+    php83.install()
+    pkgweb.refresh_php_versions()
+    return php83_status(None)
+
+
+@router.delete("/php83")
+def php83_remove(_=Depends(require_admin)):
+    from . import php83
+    php83.uninstall()
+    pkgweb.refresh_php_versions()
+    return php83_status(None)
 
 
 @router.get("/standin/MariaDB10")

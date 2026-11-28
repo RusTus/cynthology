@@ -44,8 +44,16 @@ def test_hostile_resource_is_ignored():
 def test_render():
     st = {"adminer": pkgweb.parse_webservice("adminer", ADMINER), "ariang": pkgweb.parse_webservice("ariang", ARIANG)}
     ng = "\n".join(pkgweb.render_nginx(st))
-    assert "location ^~ /ariang/ { alias" in ng and f"proxy_pass http://127.0.0.1:{pkgweb.APACHE_PORT}/adminer/;" in ng
+    assert "location ^~ /ariang/ { alias" in ng and "if ($scheme = https) { set $cyn_be https://127.0.0.1:8443; }" in ng and "proxy_pass $cyn_be;" in ng
     ap = pkgweb.render_apache(st)
     assert "Alias /adminer " in ap and "AllowOverride All" in ap and "ariang" not in ap and "Listen 127.0.0.1:" in ap
     pool = pkgweb.render_fpm_pool(st["adminer"]["services"][0])
     assert "user = sc-adminer" in pool and "listen = /run/php/cyn-pkg-adminer.sock" in pool and "open_basedir" in pool
+
+
+def test_apache_https_side():
+    st = {"oc": {"services": [{"service": "oc", "type": "apache_php", "root": "owncloud", "php": {"user": "sc-oc"}}],
+                 "portals": [{"service": "oc", "alias": "owncloud"}], "prepare": []}}
+    conf = pkgweb.render_apache(st, "/c.pem", "/k.pem")
+    assert conf.count("Alias /owncloud ") == 2 and "Listen 127.0.0.1:8443" in conf and "SSLCertificateFile /c.pem" in conf
+    assert "8443" not in pkgweb.render_apache(st)                   # (no certificate yet: HTTP only)

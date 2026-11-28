@@ -1258,5 +1258,11 @@
 "at",
 "Also install Debian's system updates (security fixes)",
 "Updates are checked against the release signature, and never installed while a backup, cloud sync, virus scan, RAID rebuild or open file transfer is running - it then tries again an hour later. You get a notification afterwards.",
-"Last check"
+"Last check",
+"Remove the real PHP 8.3? Packages that asked for it go back to PHP 8.4.",
+"Debian 13 only has PHP 8.4, which some packages (like ownCloud 11) don't work with. Install the real PHP 8.3 from packages.sury.org - the repository of Debian's own PHP maintainer? Only PHP 8.3 is taken from it; the signing key is checked.",
+"It will be used by",
+"Installing PHP 8.3 - this takes a few minutes…",
+"Remove real PHP 8.3",
+"Install real PHP 8.3"
 ]

@@ -80,6 +80,17 @@ WM.register("appcenter", {
             upd[p.package] ? h("div", { class: "muted", style: "font-size:12px" }, `Update available: ${upd[p.package].available}`) : null,
             h("div", { class: "toolbar", style: "margin:6px 0 0" },
               upd[p.package] ? h("button", { class: "btn primary", onclick: () => installFlow(() => API.post("/api/packages/prepare", { source: upd[p.package].source, package: p.package })) }, "Update") : null,
+              p.package === "PHP8.3" && p.standin ? h("button", { class: "btn", onclick: async () => {
+                const s = await API.get("/api/packages/php83");
+                if (s.installed) {
+                  if (!confirm(t("Remove the real PHP 8.3? Packages that asked for it go back to PHP 8.4."))) return;
+                  await act(() => API.del("/api/packages/php83"), "PHP 8.3 removed"); return renderInstalled();
+                }
+                if (!confirm(t("Debian 13 only has PHP 8.4, which some packages (like ownCloud 11) don't work with. Install the real PHP 8.3 from packages.sury.org - the repository of Debian's own PHP maintainer? Only PHP 8.3 is taken from it; the signing key is checked.")
+                  + (s.users.length ? `\n\n${t("It will be used by")}: ${s.users.join(", ")}` : ""))) return;
+                toast(t("Installing PHP 8.3 - this takes a few minutes…"));
+                await act(() => API.post("/api/packages/php83"), "PHP 8.3 installed"); renderInstalled();
+              } }, p.php83 ? t("Remove real PHP 8.3") : t("Install real PHP 8.3")) : null,
               p.package === "MariaDB10" && p.standin ? h("button", { class: "btn", onclick: async () => {
                 const m = await API.get("/api/packages/standin/MariaDB10");
                 modal("MariaDB 10", h("div", { class: "form" },

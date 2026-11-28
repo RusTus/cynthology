@@ -29,18 +29,21 @@ WEB_PACKAGES = os.path.join(STATE_DIR, "web_packages") if DEV else "/var/lib/cyn
 FPM_POOLS = os.path.join(STATE_DIR, "fpm") if DEV else "/etc/php/8.4/fpm/pool.d"
 APACHE_SITE = os.path.join(STATE_DIR, "apache-cyn-packages.conf") if DEV else "/etc/apache2/sites-available/cyn-packages.conf"
 APACHE_PORT = 8180                       # Apache listens on localhost only; nginx (Web Station) proxies to it
+APACHE_TLS_PORT = 8443                   # ... and here for https:// visitors (see render_apache)
 PHP_EXT = {"mysqli": "mysql", "pdo_mysql": "mysql", "mysqlnd": "mysql", "pgsql": "pgsql", "pdo_pgsql": "pgsql",
            "pdo_sqlite": "sqlite3", "sqlite3": "sqlite3", "pdo_dblib": "sybase", "curl": "curl", "gd": "gd",
            "mbstring": "mbstring", "xml": "xml", "dom": "xml", "simplexml": "xml", "zip": "zip", "intl": "intl",
            "bcmath": "bcmath", "imagick": "imagick", "ldap": "ldap", "soap": "soap", "redis": "redis", "apcu": "apcu",
            "bz2": "bz2", "gmp": "gmp", "opcache": "opcache", "memcached": "memcached", "xsl": "xsl"}
 NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}")
+# built into Synology's PHP (so packages don't list them), separate packages on Debian
+PHP_BUILTIN = ["xml", "mbstring", "curl", "zip", "gd", "intl", "mysql", "bcmath"]
 
 STANDINS = {
     "WebStation": {"display": "Web Station", "version": "4.0.0-0001", "apt": []},
     "PHP8.4": {"display": "PHP 8.4", "version": "8.4.0-0001", "apt": ["php8.4-fpm", "php8.4-cli"],
                "links": {"usr/local/bin/php84": "/usr/bin/php8.4"}},
-    "PHP8.3": {"display": "PHP 8.3 (provided by PHP 8.4)", "version": "8.3.0-0001", "apt": ["php8.4-fpm", "php8.4-cli"],
+    "PHP8.3": {"display": "PHP 8.3", "version": "8.3.0-0001", "apt": ["php8.4-fpm", "php8.4-cli"],
                "links": {"usr/local/bin/php83": "/usr/bin/php8.4"}},
     "PHP8.2": {"display": "PHP 8.2 (provided by PHP 8.4)", "version": "8.2.0-0001", "apt": ["php8.4-fpm", "php8.4-cli"],
                "links": {"usr/local/bin/php82": "/usr/bin/php8.4"}},
@@ -190,7 +193,11 @@ def render_nginx(st: dict) -> list[str]:
                            f"        location ~ \\.php$ {{ include fastcgi_params; fastcgi_param SCRIPT_FILENAME $request_filename;\n"
                            f"            fastcgi_pass unix:/run/php/cyn-pkg-{s['service']}.sock; }} }}")
             else:   # apache_php: Apache applies the package's .htaccess rules
-                out.append(f"    location ^~ /{a}/ {{ proxy_pass http://127.0.0.1:{APACHE_PORT}/{a}/; proxy_set_header Host $host;\n"
+                # https:// visitors go to Apache's HTTPS side, so the package sees HTTPS (its redirects don't loop).
+                # (a loopback hop to our own Apache with our own certificate - nothing leaves this machine)
+                out.append(f"    location ^~ /{a}/ {{ set $cyn_be http://127.0.0.1:{APACHE_PORT};\n"
+                           f"        if ($scheme = https) {{ set $cyn_be https://127.0.0.1:{APACHE_TLS_PORT}; }}\n"
+                           "        proxy_pass $cyn_be; proxy_ssl_verify off; proxy_set_header Host $host;\n"
                            "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto $scheme;\n"
                            "        client_max_body_size 512M; proxy_read_timeout 600s; }")
     return out
@@ -202,15 +209,16 @@ def render_fpm_pool(s: dict) -> str:
     lines = [f"[cyn-pkg-{s['service']}]", f"user = {php['user']}", "group = http",
              f"listen = /run/php/cyn-pkg-{s['service']}.sock", "listen.owner = www-data", "listen.group = www-data",
              "listen.mode = 0660", "pm = ondemand", "pm.max_children = 8", "pm.process_idle_timeout = 60s",
-             f"php_admin_value[open_basedir] = {root}:/tmp:/var/packages/:/usr/share/php"]
+             f"php_admin_value[open_basedir] = {':'.join([root, *php.get('dirs', []), '/tmp', '/var/packages/', '/usr/share/php', '/dev/urandom'])}"]
     lines += [f"php_value[{k}] = {v}" for k, v in sorted(php["settings"].items())]
     return "\n".join(lines) + "\n"
 
 
-def render_apache(st: dict) -> str:
-    out = [f"# Managed by Cynthology - package web services that need Apache (.htaccess)", f"Listen 127.0.0.1:{APACHE_PORT}",
-           f"<VirtualHost 127.0.0.1:{APACHE_PORT}>", "    ServerName localhost", "    RemoteIPHeader X-Forwarded-For",
-           "    RemoteIPInternalProxy 127.0.0.1 ::1"]
+def render_apache(st: dict, cert: str = "", key: str = "") -> str:
+    """Two local-only virtual hosts with the same packages: plain HTTP (8180) for http:// visitors and
+    HTTPS (8443, the NAS's certificate) for https:// ones - so a package's own "HTTPS only" rules in
+    .htaccess see the truth and don't loop (nginx picks the one matching the visitor's scheme)."""
+    body = []
     for pkg, ws in sorted(st.items()):
         svc = {s["service"]: s for s in ws["services"]}
         for pt in ws["portals"]:
@@ -218,12 +226,17 @@ def render_apache(st: dict) -> str:
             if s["type"] != "apache_php":
                 continue
             root = os.path.join(WEB_PACKAGES, s["root"])
-            out += [f"    Alias /{pt['alias']} {root}", f"    <Directory {root}>", "        Options -Indexes +FollowSymLinks",
-                    "        AllowOverride All", "        Require all granted", "        DirectoryIndex index.php index.html",
-                    "        <FilesMatch \\.php$>",
-                    f'            SetHandler "proxy:unix:/run/php/cyn-pkg-{s["service"]}.sock|fcgi://localhost"',
-                    "        </FilesMatch>", "    </Directory>"]
-    out.append("</VirtualHost>")
+            body += [f"    Alias /{pt['alias']} {root}", f"    <Directory {root}>", "        Options -Indexes +FollowSymLinks",
+                     "        AllowOverride All", "        Require all granted", "        DirectoryIndex index.php index.html",
+                     "        <FilesMatch \\.php$>",
+                     f'            SetHandler "proxy:unix:/run/php/cyn-pkg-{s["service"]}.sock|fcgi://localhost"',
+                     "        </FilesMatch>", "    </Directory>"]
+    common = ["    ServerName localhost", "    RemoteIPHeader X-Forwarded-For", "    RemoteIPInternalProxy 127.0.0.1 ::1"]
+    out = ["# Managed by Cynthology - package web services that need Apache (.htaccess)", f"Listen 127.0.0.1:{APACHE_PORT}",
+           f"<VirtualHost 127.0.0.1:{APACHE_PORT}>", *common, *body, "</VirtualHost>"]
+    if cert and key:
+        out += [f"Listen 127.0.0.1:{APACHE_TLS_PORT}", f"<VirtualHost 127.0.0.1:{APACHE_TLS_PORT}>", *common,
+                "    SSLEngine on", f"    SSLCertificateFile {cert}", f"    SSLCertificateKeyFile {key}", *body, "</VirtualHost>"]
     return "\n".join(out) + "\n"
 
 
@@ -235,7 +248,7 @@ def setup_apache() -> None:
     ports = "/etc/apache2/ports.conf"
     with open(ports, "w") as f:
         f.write("# Managed by Cynthology: Apache only serves package web services, on localhost (see cyn-packages.conf)\n")
-    run(["a2enmod", "-q", "proxy_fcgi", "setenvif", "rewrite", "headers", "remoteip", "alias"], check=False)
+    run(["a2enmod", "-q", "proxy_fcgi", "setenvif", "rewrite", "headers", "remoteip", "alias", "ssl"], check=False)
 
 
 def _ensure_http_group() -> None:
@@ -267,7 +280,10 @@ def apply_package(pkg: str, base: str, copy: bool = True, publish: bool = True) 
     ws = parse_webservice(pkg, res)
     if not ws["services"]:
         return None
+    _set_php_version(ws, base)
     _ensure_http_group()
+    if copy:
+        ensure_php(ws["services"])                 # (before postinst: package installers run PHP tools)
     os.makedirs(WEB_PACKAGES, mode=0o755, exist_ok=True)
     _services_link()
     for pp in (ws["prepare"] if copy else []):
@@ -302,31 +318,92 @@ def remove_package(pkg: str) -> None:
         return
     save(st)
     for s in ws["services"]:
-        p = os.path.join(FPM_POOLS, f"cyn-pkg-{s['service']}.conf")
-        if os.path.exists(p):
-            os.remove(p)
+        for v in ("8.4", "8.3"):
+            p = os.path.join(_pool_dir(v), f"cyn-pkg-{s['service']}.conf")
+            if os.path.exists(p):
+                os.remove(p)
     for pp in ws["prepare"]:
         shutil.rmtree(os.path.join(WEB_PACKAGES, pp["target"]), ignore_errors=True)
     reload_all(st)
 
 
+def php_version_for(base: str) -> str:
+    """8.3 for packages that ask for PHP 8.3 when the real PHP 8.3 is installed (php83.py), else 8.4."""
+    from . import php83
+    try:
+        info = open(os.path.join(base, "INFO")).read()
+    except OSError:
+        info = ""
+    return "8.3" if re.search(r"install_dep_packages=.*PHP8\.3", info) and php83.installed() else "8.4"
+
+
+def _set_php_version(ws: dict, base: str) -> None:
+    v = php_version_for(base)
+    # the package's own shared folders (DSM 7: /var/packages/<pkg>/shares/<name>) may be used by its PHP
+    dirs = []
+    sd = os.path.join(base, "shares")
+    if os.path.isdir(sd):
+        for n in sorted(os.listdir(sd)):
+            real = os.path.realpath(os.path.join(sd, n))
+            if os.path.isdir(real) and re.fullmatch(r"/[A-Za-z0-9._/@-]+", real) and real.count("/") >= 2:
+                dirs.append(real)
+    for s in ws["services"]:
+        if s["php"]:
+            s["php"]["version"] = v
+            s["php"]["dirs"] = dirs
+
+
+def ensure_php(services: list[dict]) -> None:
+    """The PHP extensions (and Synology's built-in ones) for these services, per PHP version."""
+    if DEV:
+        return
+    for v in ("8.4", "8.3"):
+        mine = [s for s in services if s.get("php") and s["php"].get("version", "8.4") == v]
+        if not mine:
+            continue
+        exts = sorted(set(PHP_BUILTIN) | {PHP_EXT[e] for s in mine for e in s["php"]["extensions"]})
+        subprocess.run(["apt-get", "install", "-y", "-q", f"php{v}-fpm", f"php{v}-cli", *[f"php{v}-{e}" for e in exts]],
+                       capture_output=True, env={**os.environ, "DEBIAN_FRONTEND": "noninteractive"}, timeout=1800)
+
+
+def refresh_php_versions() -> None:
+    """After PHP 8.3 was installed or removed: move the packages that want it."""
+    st = load()
+    for pkg, ws in st.items():
+        _set_php_version(ws, os.path.join(ROOT, "var/packages", pkg))
+    save(st)
+    reload_all(st)
+
+
+def _pool_dir(v: str) -> str:
+    return os.path.join(STATE_DIR, f"fpm{v}") if DEV else f"/etc/php/{v}/fpm/pool.d"
+
+
 def reload_all(st: dict | None = None) -> None:
     st = load() if st is None else st
     php = [s for ws in st.values() for s in ws["services"] if s["php"]]
-    if php:
-        os.makedirs(FPM_POOLS, exist_ok=True)
-        exts = sorted({PHP_EXT[e] for s in php for e in s["php"]["extensions"]})
-        if exts and not DEV:
-            subprocess.run(["apt-get", "install", "-y", "-q", *[f"php8.4-{e}" for e in exts]], capture_output=True,
-                           env={**os.environ, "DEBIAN_FRONTEND": "noninteractive"}, timeout=1800)
-        for s in php:
-            with open(os.path.join(FPM_POOLS, f"cyn-pkg-{s['service']}.conf"), "w") as f:
+    for v in ("8.4", "8.3"):
+        mine = [s for s in php if s["php"].get("version", "8.4") == v]
+        d = _pool_dir(v)
+        if os.path.isdir(d):                      # (pools that moved to the other version go)
+            for f in os.listdir(d):
+                if f.startswith("cyn-pkg-") and f[len("cyn-pkg-"):-len(".conf")] not in {s["service"] for s in mine}:
+                    os.remove(os.path.join(d, f))
+        if not mine:
+            if not DEV and os.path.isdir(d) and v == "8.3":
+                run(["systemctl", "reload-or-restart", "php8.3-fpm"], check=False)
+            continue
+        os.makedirs(d, exist_ok=True)
+        ensure_php(mine)
+        for s in mine:
+            with open(os.path.join(d, f"cyn-pkg-{s['service']}.conf"), "w") as f:
                 f.write(render_fpm_pool(s))
         if not DEV:
-            run(["systemctl", "reload-or-restart", "php8.4-fpm"], check=False)
+            run(["systemctl", "reload-or-restart", f"php{v}-fpm"], check=False)
     if any(s["type"] == "apache_php" for ws in st.values() for s in ws["services"]):
+        from . import tls
         with open(APACHE_SITE, "w") as f:
-            f.write(render_apache(st))
+            f.write(render_apache(st, *((tls.CERT, tls.KEY) if not DEV and os.path.exists(tls.CERT) else ("", ""))))
         if not DEV:
             run(["a2ensite", "-q", "cyn-packages"], check=False)
             run(["systemctl", "enable", "apache2"], check=False)

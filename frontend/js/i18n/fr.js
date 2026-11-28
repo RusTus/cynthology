@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 1206 entries.
+// Generated from the English UI strings (see i18n.js). 1212 entries.
 i18nAdd("fr", {
 "Error: ": "Erreur : ",
 "Settings and data are kept.": "Les réglages et les données sont conservés.",
@@ -1205,5 +1205,11 @@ i18nAdd("fr", {
 "at": "à",
 "Also install Debian's system updates (security fixes)": "Installer aussi les mises à jour système de Debian (correctifs de sécurité)",
 "Updates are checked against the release signature, and never installed while a backup, cloud sync, virus scan, RAID rebuild or open file transfer is running - it then tries again an hour later. You get a notification afterwards.": "Les mises à jour sont vérifiées avec la signature de la version et jamais installées pendant une sauvegarde, une synchronisation, une analyse antivirus, une reconstruction RAID ou un transfert de fichiers en cours - nouvel essai une heure plus tard. Vous êtes ensuite notifié.",
-"Last check": "Dernière vérification"
+"Last check": "Dernière vérification",
+"Remove the real PHP 8.3? Packages that asked for it go back to PHP 8.4.": "Retirer le vrai PHP 8.3 ? Les paquets qui le demandaient repassent à PHP 8.4.",
+"Debian 13 only has PHP 8.4, which some packages (like ownCloud 11) don't work with. Install the real PHP 8.3 from packages.sury.org - the repository of Debian's own PHP maintainer? Only PHP 8.3 is taken from it; the signing key is checked.": "Debian 13 n'a que PHP 8.4, avec lequel certains paquets (comme ownCloud 11) ne fonctionnent pas. Installer le vrai PHP 8.3 depuis packages.sury.org - le dépôt du mainteneur PHP de Debian ? Seul PHP 8.3 en provient ; la clé de signature est vérifiée.",
+"It will be used by": "Il sera utilisé par",
+"Installing PHP 8.3 - this takes a few minutes…": "Installation de PHP 8.3 - cela prend quelques minutes…",
+"Remove real PHP 8.3": "Retirer le vrai PHP 8.3",
+"Install real PHP 8.3": "Installer le vrai PHP 8.3"
 });
