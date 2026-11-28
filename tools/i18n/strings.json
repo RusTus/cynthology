@@ -1238,5 +1238,18 @@
 "Also send a one-line summary to the services above",
 "Send now",
 "Report sent",
-"Sent by"
+"Sent by",
+"Previous versions…",
+"Looking for earlier versions…",
+"Previous versions of",
+"Replace the current version with this one? The current one goes to the recycle bin (if it is on).",
+"Backup",
+"modified",
+"same as now",
+"Restore as copy",
+"Snapshots",
+"Backups",
+"No earlier versions in the snapshots.",
+"Searching the backups…",
+"Not found in any backup."
 ]

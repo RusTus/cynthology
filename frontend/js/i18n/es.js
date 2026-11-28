@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 1201 entries.
+// Generated from the English UI strings (see i18n.js). 1214 entries.
 i18nAdd("es", {
 "Settings and data are kept.": "Se conservan la configuración y los datos.",
 "Also installs required package(s): ": "También instala los paquetes necesarios: ",
@@ -1200,5 +1200,18 @@ i18nAdd("es", {
 "Also send a one-line summary to the services above": "Enviar también un resumen de una línea a los servicios de arriba",
 "Send now": "Enviar ahora",
 "Report sent": "Informe enviado",
-"Sent by": "Enviado por"
+"Sent by": "Enviado por",
+"Previous versions…": "Versiones anteriores…",
+"Looking for earlier versions…": "Buscando versiones anteriores…",
+"Previous versions of": "Versiones anteriores de",
+"Replace the current version with this one? The current one goes to the recycle bin (if it is on).": "¿Sustituir la versión actual por esta? La actual va a la papelera (si está activada).",
+"Backup": "Copia de seguridad",
+"modified": "modificado",
+"same as now": "igual que ahora",
+"Restore as copy": "Restaurar como copia",
+"Snapshots": "Instantáneas",
+"Backups": "Copias de seguridad",
+"No earlier versions in the snapshots.": "No hay versiones anteriores en las instantáneas.",
+"Searching the backups…": "Buscando en las copias de seguridad…",
+"Not found in any backup.": "No se encontró en ninguna copia de seguridad."
 });

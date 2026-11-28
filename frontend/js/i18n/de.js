@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 1184 entries.
+// Generated from the English UI strings (see i18n.js). 1196 entries.
 i18nAdd("de", {
 "Error: ": "Fehler: ",
 "Settings and data are kept.": "Einstellungen und Daten bleiben erhalten.",
@@ -1183,5 +1183,17 @@ i18nAdd("de", {
 "Also send a one-line summary to the services above": "Auch eine einzeilige Zusammenfassung an die Dienste oben senden",
 "Send now": "Jetzt senden",
 "Report sent": "Bericht gesendet",
-"Sent by": "Gesendet per"
+"Sent by": "Gesendet per",
+"Previous versions…": "Frühere Versionen…",
+"Looking for earlier versions…": "Frühere Versionen werden gesucht…",
+"Previous versions of": "Frühere Versionen von",
+"Replace the current version with this one? The current one goes to the recycle bin (if it is on).": "Die aktuelle Version durch diese ersetzen? Die aktuelle kommt in den Papierkorb (falls eingeschaltet).",
+"Backup": "Sicherung",
+"modified": "geändert",
+"same as now": "wie jetzt",
+"Restore as copy": "Als Kopie wiederherstellen",
+"Backups": "Sicherungen",
+"No earlier versions in the snapshots.": "Keine früheren Versionen in den Snapshots.",
+"Searching the backups…": "Sicherungen werden durchsucht…",
+"Not found in any backup.": "In keiner Sicherung gefunden."
 });

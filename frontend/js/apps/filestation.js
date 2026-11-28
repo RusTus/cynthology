@@ -228,6 +228,7 @@ WM.register("files", {
         ["Open", () => (one.dir ? go(itemPath(one)) : openFile(one)), !one],
         ["Download", downloadSel, !n],
         ["Share link…", () => shareLink(itemPath(one), one.name), !one || !!st.search && !one],
+        ["Previous versions…", () => previousVersions(itemPath(one), one), !one],
         null,
         ["Copy to…", () => transferTo(false), !n],
         ["Move to…", () => transferTo(true), !n || !canWrite],
@@ -250,6 +251,39 @@ WM.register("files", {
       m.style.left = Math.max(8, Math.min(r.left, innerWidth - m.offsetWidth - 8)) + "px";
       m.style.top = Math.max(8, Math.min(r.bottom + 4, innerHeight - m.offsetHeight - 8)) + "px";
       setTimeout(() => document.addEventListener("click", () => m.remove(), { once: true }), 0);
+    }
+
+    // ---------- previous versions (snapshots + backups; backend versions.py) ----------
+    async function previousVersions(path, item) {
+      const box = h("div", {}, h("p", { class: "muted" }, t("Looking for earlier versions…")));
+      const close = modal(`${t("Previous versions of")} ${item.name}`, box);
+      const when = (s) => (s ? new Date(s * 1000).toLocaleString() : "-");
+      const q = encodeURIComponent(path);
+      const restore = async (v, mode) => {
+        if (mode === "replace" && !confirm(t("Replace the current version with this one? The current one goes to the recycle bin (if it is on)."))) return;
+        const r = await act(() => API.post("/api/versions/restore", { path, source: v.source, id: v.id, task: v.task || "", mode }));
+        if (r) { toast(`${t("Restored")}: ${r.name}`); close(); go(st.path, true); }
+      };
+      const table = (list, can) => h("table", {}, list.map((v) => h("tr", {},
+        h("td", {}, h("b", {}, when(v.time)), h("div", { class: "muted", style: "font-size:12px" },
+          (v.source === "backup" ? `${t("Backup")}: ${v.task_name} · ` : `${t("Snapshot")} · `) + `${t("modified")} ${when(v.mtime)}` + (v.size != null ? ` · ${fmtBytes(v.size)}` : ""),
+          v.same_as_current ? h("span", { class: "pill", style: "margin-left:6px" }, t("same as now")) : null)),
+        h("td", { style: "text-align:right;white-space:nowrap" },
+          v.download ? h("button", { class: "btn", onclick: async () => {
+            const r = await API.post("/api/files/ticket", { path: v.download });
+            const a = h("a", { href: r.url, download: "" }); document.body.append(a); a.click(); a.remove();
+          } }, "Download") : null,
+          can ? h("button", { class: "btn", onclick: () => restore(v, "copy") }, "Restore as copy") : null,
+          can && !v.same_as_current ? h("button", { class: "btn primary", onclick: () => restore(v, "replace") }, "Restore") : null))));
+      const snaps = await API.get(`/api/versions/snapshots?path=${q}`).catch((e) => ({ versions: [], note: e.message }));
+      const snapBox = h("div", {}, h("h3", { class: "pc-group" }, "Snapshots"),
+        snaps.versions.length ? table(snaps.versions, snaps.can_restore) : h("p", { class: "muted" }, snaps.note || t("No earlier versions in the snapshots.")));
+      const backBox = h("div", {}, h("h3", { class: "pc-group", style: "margin-top:14px" }, "Backups"), h("p", { class: "muted" }, t("Searching the backups…")));
+      box.replaceChildren(snapBox, backBox);
+      const b = await API.get(`/api/versions/backups?path=${q}`).catch((e) => ({ versions: [], note: e.message }));
+      backBox.replaceChildren(h("h3", { class: "pc-group", style: "margin-top:14px" }, "Backups"),
+        b.versions.length ? table(b.versions, b.can_restore) : h("p", { class: "muted" }, b.note || t("Not found in any backup.")),
+        ...(b.errors || []).map((e) => h("div", { class: "err" }, e)));
     }
 
     // ---------- actions ----------

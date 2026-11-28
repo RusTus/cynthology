@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 1177 entries.
+// Generated from the English UI strings (see i18n.js). 1189 entries.
 i18nAdd("nl", {
 "Error: ": "Fout: ",
 "Settings and data are kept.": "Instellingen en gegevens blijven behouden.",
@@ -1176,5 +1176,17 @@ i18nAdd("nl", {
 "Also send a one-line summary to the services above": "Ook een samenvatting van één regel naar de diensten hierboven sturen",
 "Send now": "Nu versturen",
 "Report sent": "Rapport verstuurd",
-"Sent by": "Verstuurd via"
+"Sent by": "Verstuurd via",
+"Previous versions…": "Vorige versies…",
+"Looking for earlier versions…": "Eerdere versies zoeken…",
+"Previous versions of": "Vorige versies van",
+"Replace the current version with this one? The current one goes to the recycle bin (if it is on).": "De huidige versie door deze vervangen? De huidige gaat naar de prullenbak (als die aan staat).",
+"Backup": "Back-up",
+"modified": "gewijzigd",
+"same as now": "zelfde als nu",
+"Restore as copy": "Als kopie terugzetten",
+"Backups": "Back-ups",
+"No earlier versions in the snapshots.": "Geen eerdere versies in de snapshots.",
+"Searching the backups…": "Back-ups doorzoeken…",
+"Not found in any backup.": "In geen enkele back-up gevonden."
 });

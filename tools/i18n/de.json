@@ -1238,5 +1238,18 @@
 "Also send a one-line summary to the services above": "Auch eine einzeilige Zusammenfassung an die Dienste oben senden",
 "Send now": "Jetzt senden",
 "Report sent": "Bericht gesendet",
-"Sent by": "Gesendet per"
+"Sent by": "Gesendet per",
+"Previous versions…": "Frühere Versionen…",
+"Looking for earlier versions…": "Frühere Versionen werden gesucht…",
+"Previous versions of": "Frühere Versionen von",
+"Replace the current version with this one? The current one goes to the recycle bin (if it is on).": "Die aktuelle Version durch diese ersetzen? Die aktuelle kommt in den Papierkorb (falls eingeschaltet).",
+"Backup": "Sicherung",
+"modified": "geändert",
+"same as now": "wie jetzt",
+"Restore as copy": "Als Kopie wiederherstellen",
+"Snapshots": "Snapshots",
+"Backups": "Sicherungen",
+"No earlier versions in the snapshots.": "Keine früheren Versionen in den Snapshots.",
+"Searching the backups…": "Sicherungen werden durchsucht…",
+"Not found in any backup.": "In keiner Sicherung gefunden."
 }
