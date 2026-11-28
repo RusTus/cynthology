@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 1167 entries.
+// Generated from the English UI strings (see i18n.js). 1184 entries.
 i18nAdd("de", {
 "Error: ": "Fehler: ",
 "Settings and data are kept.": "Einstellungen und Daten bleiben erhalten.",
@@ -1166,5 +1166,22 @@ i18nAdd("de", {
 "Nextcloud apps (desktop & phone sync)": "Nextcloud-Apps (Synchronisierung für Computer & Telefon)",
 "Container apps": "Container-Apps",
 "Video transcoding": "Video-Transkodierung",
-"CPU only (no video hardware found)": "Nur CPU (keine Video-Hardware gefunden)"
+"CPU only (no video hardware found)": "Nur CPU (keine Video-Hardware gefunden)",
+"Your Gotify server → Apps → Create application, then copy its token.": "Ihr Gotify-Server → Apps → Anwendung erstellen, dann ihr Token kopieren.",
+"Any address that accepts a POST: a Home Assistant automation webhook, n8n, Node-RED, your own script - or Slack, Mattermost, Rocket.Chat and Google Chat incoming webhooks (format: Slack).": "Jede Adresse, die ein POST annimmt: ein Home-Assistant-Webhook, n8n, Node-RED, Ihr eigenes Skript - oder eingehende Webhooks von Slack, Mattermost, Rocket.Chat und Google Chat (Format: Slack).",
+"twilio.com → Console: Account SID and Auth Token; 'From' is your Twilio phone number. Texts cost money - send critical alerts only.": "twilio.com → Konsole: Account SID und Auth Token; 'Von' ist Ihre Twilio-Nummer. SMS kosten Geld - nur kritische Warnungen senden.",
+"Address (URL)": "Adresse (URL)",
+"JSON (Home Assistant, n8n, scripts)": "JSON (Home Assistant, n8n, Skripte)",
+"Slack-compatible (Slack, Mattermost, Rocket.Chat, Google Chat)": "Slack-kompatibel (Slack, Mattermost, Rocket.Chat, Google Chat)",
+"Signing secret (optional - sent as an HMAC-SHA256 signature header)": "Signaturgeheimnis (optional - als HMAC-SHA256-Signatur-Header gesendet)",
+"Auth token": "Auth Token",
+"From (your Twilio number)": "Von (Ihre Twilio-Nummer)",
+"To (your mobile)": "An (Ihr Mobiltelefon)",
+"Application token": "Anwendungstoken",
+"Status report": "Statusbericht",
+"A summary of how the NAS is doing - health, pools, drives, backups, Cloud Sync, antivirus, updates and the alerts since the last report - sent by email.": "Eine Zusammenfassung zum Zustand des NAS - Integrität, Pools, Laufwerke, Sicherungen, Cloud-Synchronisierung, Virenschutz, Updates und die Warnungen seit dem letzten Bericht - per E-Mail.",
+"Also send a one-line summary to the services above": "Auch eine einzeilige Zusammenfassung an die Dienste oben senden",
+"Send now": "Jetzt senden",
+"Report sent": "Bericht gesendet",
+"Sent by": "Gesendet per"
 });

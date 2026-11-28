@@ -558,12 +558,16 @@ const PUSH_HELP = {
   telegram: "In Telegram, create a bot with @BotFather (you get the token), send your bot a message, then get your chat ID from @userinfobot.",
   discord: "Discord channel → Edit channel → Integrations → Webhooks → New webhook → Copy webhook URL.",
   pushover: "pushover.net → Create an application (API token); your user key is on the dashboard.",
+  gotify: "Your Gotify server → Apps → Create application, then copy its token.",
+  webhook: "Any address that accepts a POST: a Home Assistant automation webhook, n8n, Node-RED, your own script - or Slack, Mattermost, Rocket.Chat and Google Chat incoming webhooks (format: Slack).",
+  sms: "twilio.com → Console: Account SID and Auth Token; 'From' is your Twilio phone number. Texts cost money - send critical alerts only.",
 };
 async function pushServices(reload) {
   const { types, channels } = await API.get("/api/notify");
   const levelName = { info: "Everything", warning: "Warnings and critical", critical: "Critical only" };
   const edit = (c) => {
     const f = c ? { ...c } : { type: "ntfy", name: "", enabled: true, min_level: "warning", server: "https://ntfy.sh", topic: "" };
+    if (f.type === "gotify" && f.server === "https://ntfy.sh") f.server = "";
     const body = h("div", { class: "form" });
     const inp = (label, key, attrs = {}) => h("label", {}, label, h("input", { value: f[key] ?? "", oninput: (e) => (f[key] = e.target.value.trim()), ...attrs }));
     const secret = (label, key) => inp(label, key, { type: "password", autocomplete: "new-password", value: "", placeholder: c && c["has_" + key] ? t("(unchanged)") : "" });
@@ -575,6 +579,13 @@ async function pushServices(reload) {
       ...(f.type === "ntfy" ? [inp("Server", "server"), inp("Topic", "topic", { placeholder: "nas-" + Math.random().toString(36).slice(2, 10) }), secret("Access token (only for protected topics)", "token")]
         : f.type === "telegram" ? [secret("Bot token", "bot_token"), inp("Chat ID", "chat_id")]
         : f.type === "discord" ? [secret("Webhook URL", "webhook_url")]
+        : f.type === "gotify" ? [inp("Server", "server", { placeholder: "https://gotify.example.com" }), secret("Application token", "app_token")]
+        : f.type === "webhook" ? [secret("Address (URL)", "url"),
+          h("label", {}, "Format", h("select", { onchange: (e) => (f.format = e.target.value) },
+            [["json", t("JSON (Home Assistant, n8n, scripts)")], ["slack", t("Slack-compatible (Slack, Mattermost, Rocket.Chat, Google Chat)")]].map(([k, l]) => h("option", { value: k, selected: (f.format || "json") === k }, l)))),
+          secret("Signing secret (optional - sent as an HMAC-SHA256 signature header)", "secret")]
+        : f.type === "sms" ? [inp("Account SID", "account_sid", { placeholder: "AC…" }), secret("Auth token", "auth_token"),
+          inp("From (your Twilio number)", "from_number", { placeholder: "+14155550123" }), inp("To (your mobile)", "to_number", { placeholder: "+14155550123" })]
         : [secret("Application API token", "app_token"), secret("User key", "user_key")]),
       h("label", {}, "Send", h("select", { onchange: (e) => (f.min_level = e.target.value) },
         Object.entries(levelName).map(([k, l]) => h("option", { value: k, selected: f.min_level === k }, l)))));
@@ -602,7 +613,36 @@ async function pushServices(reload) {
         h("button", { class: "btn", onclick: async () => { await act(() => API.post("/api/notify", { ...c, enabled: !c.enabled }), c.enabled ? "Paused" : "Resumed"); reload(); } }, c.enabled ? "Pause" : "Resume"),
         h("button", { class: "btn", onclick: async () => { if (confirm(t("Remove this service?"))) { await act(() => API.del(`/api/notify/${c.id}`), "Removed"); reload(); } } }, "Remove")))))
       : h("p", { class: "muted" }, "No phone notifications yet."),
-    h("button", { class: "btn", onclick: () => edit(null) }, "+ Add service"));
+    h("button", { class: "btn", onclick: () => edit(null) }, "+ Add service"),
+    await digestBox());
+}
+
+// Status report: a daily/weekly summary by email (backend digest.py)
+async function digestBox() {
+  const d = await API.get("/api/notify/digest");
+  const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  const box = h("div", { style: "margin-top:22px" });
+  const draw = () => box.replaceChildren(
+    h("h3", { class: "pc-group" }, "Status report"),
+    h("div", { class: "muted", style: "font-size:12px;margin-bottom:8px" }, "A summary of how the NAS is doing - health, pools, drives, backups, Cloud Sync, antivirus, updates and the alerts since the last report - sent by email."),
+    h("div", { class: "toolbar", style: "margin:0;flex-wrap:wrap" },
+      h("select", { onchange: (e) => { d.frequency = e.target.value; draw(); } }, [["off", "Off"], ["daily", "Every day"], ["weekly", "Every week"]].map(([k, l]) => h("option", { value: k, selected: d.frequency === k }, l))),
+      d.frequency === "weekly" ? h("select", { onchange: (e) => (d.day = +e.target.value) }, DAYS.map((x, i) => h("option", { value: i, selected: d.day === i }, x))) : null,
+      d.frequency !== "off" ? h("input", { type: "time", value: d.time, onchange: (e) => (d.time = e.target.value) }) : null),
+    h("label", { class: "check", style: "margin-top:8px" }, h("input", { type: "checkbox", checked: d.push, onchange: (e) => (d.push = e.target.checked) }),
+      t("Also send a one-line summary to the services above")),
+    h("div", { class: "toolbar" },
+      h("button", { class: "btn primary", onclick: () => act(() => API.put("/api/notify/digest", d), "Saved") }, "Save"),
+      h("button", { class: "btn", onclick: async () => {
+        const r = await API.get("/api/notify/digest/preview");
+        modal(r.subject, h("pre", { class: "mono", style: "max-height:60vh;overflow:auto;font-size:12px;white-space:pre-wrap" }, r.body));
+      } }, "Preview"),
+      h("button", { class: "btn", onclick: async () => {
+        const r = await act(() => API.post("/api/notify/digest/send"));
+        if (r) toast(r.errors?.length ? `${t("Sent by")} ${r.sent.join(", ")} - ${r.errors.join("; ")}` : t("Report sent"));
+      } }, "Send now")));
+  draw();
+  return box;
 }
 
 async function cpUps(p) {

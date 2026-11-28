@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 1184 entries.
+// Generated from the English UI strings (see i18n.js). 1201 entries.
 i18nAdd("es", {
 "Settings and data are kept.": "Se conservan la configuración y los datos.",
 "Also installs required package(s): ": "También instala los paquetes necesarios: ",
@@ -1183,5 +1183,22 @@ i18nAdd("es", {
 "Nextcloud apps (desktop & phone sync)": "Aplicaciones de Nextcloud (sincronización de ordenador y móvil)",
 "Container apps": "Aplicaciones en contenedor",
 "Video transcoding": "Transcodificación de vídeo",
-"CPU only (no video hardware found)": "Solo CPU (no se encontró hardware de vídeo)"
+"CPU only (no video hardware found)": "Solo CPU (no se encontró hardware de vídeo)",
+"Your Gotify server → Apps → Create application, then copy its token.": "Su servidor Gotify → Apps → Crear aplicación y copie su token.",
+"Any address that accepts a POST: a Home Assistant automation webhook, n8n, Node-RED, your own script - or Slack, Mattermost, Rocket.Chat and Google Chat incoming webhooks (format: Slack).": "Cualquier dirección que acepte un POST: un webhook de Home Assistant, n8n, Node-RED, su propio script, o los webhooks entrantes de Slack, Mattermost, Rocket.Chat y Google Chat (formato: Slack).",
+"twilio.com → Console: Account SID and Auth Token; 'From' is your Twilio phone number. Texts cost money - send critical alerts only.": "twilio.com → Consola: Account SID y Auth Token; 'De' es su número de Twilio. Los SMS cuestan dinero: envíe solo alertas críticas.",
+"Address (URL)": "Dirección (URL)",
+"Format": "Formato",
+"Slack-compatible (Slack, Mattermost, Rocket.Chat, Google Chat)": "Compatible con Slack (Slack, Mattermost, Rocket.Chat, Google Chat)",
+"Signing secret (optional - sent as an HMAC-SHA256 signature header)": "Secreto de firma (opcional; se envía como cabecera de firma HMAC-SHA256)",
+"Auth token": "Auth Token",
+"From (your Twilio number)": "De (su número de Twilio)",
+"To (your mobile)": "Para (su móvil)",
+"Application token": "Token de aplicación",
+"Status report": "Informe de estado",
+"A summary of how the NAS is doing - health, pools, drives, backups, Cloud Sync, antivirus, updates and the alerts since the last report - sent by email.": "Un resumen del estado del NAS (salud, grupos, discos, copias, sincronización, antivirus, actualizaciones y alertas desde el último informe), enviado por correo.",
+"Also send a one-line summary to the services above": "Enviar también un resumen de una línea a los servicios de arriba",
+"Send now": "Enviar ahora",
+"Report sent": "Informe enviado",
+"Sent by": "Enviado por"
 });

@@ -242,6 +242,11 @@ if __name__ == "__main__":
     for c in run_check():
         print(c["event"], c["title"])
     try:
+        from .digest import maybe_send
+        maybe_send()                       # (daily/weekly status report, Control Panel > Notifications)
+    except Exception as e:
+        print("digest:", e)
+    try:
         from .advisor import daily
         daily()
     except Exception as e:  # (never let the advisor break health monitoring)

@@ -26,8 +26,9 @@ from .util import DEV, STATE_DIR
 router = APIRouter(prefix="/api/notify", tags=["notify"])
 CFG = os.path.join(STATE_DIR, "notify.json")
 LEVELS = {"info": 0, "warning": 1, "critical": 2}
-TYPES = {"ntfy": "ntfy", "telegram": "Telegram", "discord": "Discord", "pushover": "Pushover"}
-SECRETS = ("token", "bot_token", "webhook_url", "app_token", "user_key")
+TYPES = {"ntfy": "ntfy", "telegram": "Telegram", "discord": "Discord", "pushover": "Pushover",
+         "gotify": "Gotify", "webhook": "Webhook (Home Assistant, n8n, Slack…)", "sms": "SMS (Twilio)"}
+SECRETS = ("token", "bot_token", "webhook_url", "app_token", "user_key", "url", "secret", "auth_token")
 UA = "Cynthology-Notify/1.0"
 _sent: list[dict] = []           # dev mode: what would have been sent (tests look at it)
 
@@ -90,6 +91,29 @@ def build(ch: dict, level: str, title: str, detail: str) -> tuple[str, bytes, di
         body = urllib.parse.urlencode({"token": ch["app_token"], "user": ch["user_key"], "title": full[:250],
                                        "message": (detail or title)[:1024], "priority": {"critical": 1}.get(level, 0)}).encode()
         return "https://api.pushover.net/1/messages.json", body, {"Content-Type": "application/x-www-form-urlencoded"}
+    if t == "gotify":
+        url = ch["server"].rstrip("/") + "/message"
+        body = {"title": full, "message": detail or title, "priority": {"critical": 8, "warning": 5}.get(level, 2)}
+        return url, json.dumps(body).encode(), {"Content-Type": "application/json", "X-Gotify-Key": ch["app_token"]}
+    if t == "webhook":
+        if ch.get("format") == "slack":           # Slack, Mattermost, Rocket.Chat, Google Chat ("text")
+            icon = {"critical": ":rotating_light:", "warning": ":warning:"}.get(level, ":information_source:")
+            body = json.dumps({"text": f"{icon} *{full}*\n{detail}".strip()}).encode()
+        else:                                      # plain JSON (Home Assistant, n8n, Node-RED, your own script)
+            body = json.dumps({"host": host, "level": level, "title": title, "detail": detail, "time": int(time.time())}).encode()
+        hdr = {"Content-Type": "application/json"}
+        if ch.get("secret"):                      # so the receiver can check it really came from this NAS
+            import hashlib
+            import hmac
+            hdr["X-Cynthology-Signature"] = "sha256=" + hmac.new(ch["secret"].encode(), body, hashlib.sha256).hexdigest()
+        return ch["url"], body, hdr
+    if t == "sms":
+        text = f"{full}: {detail}" if detail else full
+        body = urllib.parse.urlencode({"From": ch["from_number"], "To": ch["to_number"], "Body": text[:600]}).encode()
+        import base64
+        auth = base64.b64encode(f"{ch['account_sid']}:{ch['auth_token']}".encode()).decode()
+        return (f"https://api.twilio.com/2010-04-01/Accounts/{ch['account_sid']}/Messages.json", body,
+                {"Content-Type": "application/x-www-form-urlencoded", "Authorization": f"Basic {auth}"})
     raise ValueError(f"unknown service {t}")
 
 
@@ -122,6 +146,17 @@ def push(level: str, title: str, detail: str) -> None:
                       "detail": err, "event": "notify", "time": int(time.time())} for c, err in errors])
 
 
+def recipients(cfg: dict, extra: list[str] | None = None) -> str:
+    """The alert email's To: the address set under Notifications plus administrators who opted in."""
+    if extra is None:
+        try:
+            from .account import alert_recipients
+            extra = alert_recipients()
+        except Exception:
+            extra = []
+    return ", ".join(dict.fromkeys([x.strip() for x in (cfg.get("to") or "").split(",") if x.strip()] + extra))
+
+
 def notify(level: str, title: str, detail: str = "", event: str = "alert", log: bool = True) -> None:
     """Every alert: log it, email it, push it. Never raises."""
     from . import health
@@ -134,7 +169,7 @@ def notify(level: str, title: str, detail: str = "", event: str = "alert", log: 
             extra = alert_recipients()
         except Exception:
             extra = []
-        to = ", ".join(dict.fromkeys([x.strip() for x in (cfg.get("to") or "").split(",") if x.strip()] + extra))
+        to = recipients(cfg, extra)
         if cfg.get("enabled") and cfg.get("host") and to and LEVELS.get(level, 1) >= LEVELS.get(cfg.get("min_level", "info"), 0):
             try:
                 health.send_mail(title, detail, {**cfg, "to": to})
@@ -162,6 +197,13 @@ class Channel(BaseModel):
     webhook_url: str = ""             # discord (empty = keep)
     app_token: str = ""               # pushover (empty = keep)
     user_key: str = ""                # pushover (empty = keep)
+    url: str = ""                     # webhook (empty = keep)
+    format: str = "json"              # webhook: json | slack
+    secret: str = ""                  # webhook signing secret (optional; empty = keep)
+    account_sid: str = ""             # sms (Twilio)
+    auth_token: str = ""              # sms (empty = keep)
+    from_number: str = ""             # sms
+    to_number: str = ""               # sms
 
 
 def _public(c: dict) -> dict:
@@ -193,6 +235,24 @@ def validate(c: dict) -> None:
     elif t == "pushover":
         if not re.fullmatch(r"[A-Za-z0-9]{30}", c.get("app_token", "")) or not re.fullmatch(r"[A-Za-z0-9]{30}", c.get("user_key", "")):
             raise HTTPException(400, "Pushover: the application API token and your user key (30 letters and digits each)")
+    elif t == "gotify":
+        if not re.fullmatch(r"https?://[A-Za-z0-9.\-\[\]:]+(/[A-Za-z0-9._~/-]*)?", c.get("server", "")):
+            raise HTTPException(400, "Gotify server: e.g. https://gotify.example.com")
+        if not re.fullmatch(r"[A-Za-z0-9._-]{8,64}", c.get("app_token", "")):
+            raise HTTPException(400, "Gotify: the application token (Apps → create application)")
+    elif t == "webhook":
+        if not re.fullmatch(r"https?://[^\s\x00-\x1f]{3,2000}", c.get("url", "")):
+            raise HTTPException(400, "Webhook: the full address, starting with https:// (or http:// on your own network)")
+        if c.get("format", "json") not in ("json", "slack"):
+            raise HTTPException(400, "format: json or slack")
+        if c.get("secret") and len(c["secret"]) > 200:
+            raise HTTPException(400, "signing secret: up to 200 characters")
+    elif t == "sms":
+        if not re.fullmatch(r"AC[0-9a-fA-F]{32}", c.get("account_sid", "")) or not re.fullmatch(r"[0-9a-fA-F]{32}", c.get("auth_token", "")):
+            raise HTTPException(400, "Twilio: your Account SID (AC…) and Auth Token, from the Twilio console")
+        for k in ("from_number", "to_number"):
+            if not re.fullmatch(r"\+[1-9]\d{6,14}", c.get(k, "")):
+                raise HTTPException(400, "phone numbers in international format, e.g. +14155550123")
 
 
 @router.get("")
@@ -212,7 +272,8 @@ def put_channel(body: Channel, _=Depends(require_admin)):
         if not c[k] and old:
             c[k] = old.get(k, "")
     keep = {"ntfy": ("server", "topic", "token"), "telegram": ("bot_token", "chat_id"),
-            "discord": ("webhook_url",), "pushover": ("app_token", "user_key")}.get(c["type"], ())
+            "discord": ("webhook_url",), "pushover": ("app_token", "user_key"), "gotify": ("server", "app_token"),
+            "webhook": ("url", "format", "secret"), "sms": ("account_sid", "auth_token", "from_number", "to_number")}.get(c["type"], ())
     c = {k: v for k, v in c.items() if k in ("id", "type", "name", "enabled", "min_level") + keep}
     validate(c)
     items = [x for x in items if x["id"] != c["id"]] + [c]
