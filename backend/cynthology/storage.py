@@ -228,6 +228,9 @@ def pools(_=Depends(current_user)):
         for a in ([] if DEV else p.get("arrays", [])):
             md = read_only(["mdadm", "--detail", a["md"]])
             state = next((ln.split(":", 1)[1] for ln in md.splitlines() if ln.strip().startswith("State :")), "")
+            if not md.strip():
+                status = "not available"
+                break
             if any(w in state for w in ("recovering", "resyncing", "reshaping")):
                 # resync = first sync after creation (pool usable) | recovery = drive replaced | reshape = growing
                 word = "rebuilding" if "recovering" in state else "expanding" if "reshaping" in state else "optimizing"
@@ -239,6 +242,8 @@ def pools(_=Depends(current_user)):
             elif "degraded" in state or "FAILED" in state or "inactive" in state:
                 status = "degraded"
                 break
+        if not DEV and status == "healthy" and not os.path.ismount(p["mount"]):
+            status = "not available"          # (arrays didn't start, or the volume isn't mounted - never "healthy")
         if p.get("cache") and not DEV and status == "healthy":
             cstate = _md_info(p["cache"]["md"])["state"]
             if any(w in cstate for w in ("degraded", "FAILED", "inactive")):
@@ -748,12 +753,6 @@ def scrub(pool_id: int, _=Depends(require_admin)):
     return {"ok": True}
 
 
-if __name__ == "__main__":
-    import sys
-    if sys.argv[1:] == ["scrub-due"]:
-        print("scrubs started for pools:", scrub_due())
-
-
 # ---------- pools and drives from an earlier installation ----------
 # A reinstall (or moving the drives to a new box) leaves the md arrays, LVM and file system on the
 # drives intact; Linux even assembles the arrays at boot. Such a pool can be imported (DSM calls it
@@ -821,6 +820,84 @@ def _fstab_set(uuid: str, mount: str, line: str) -> None:
     with open("/etc/fstab.new", "w") as f:
         f.write("\n".join(keep + [line]) + "\n")
     os.replace("/etc/fstab.new", "/etc/fstab")
+
+
+def _conf_uuids() -> dict[str, str]:
+    """/dev/md/<name> -> array UUID, from mdadm.conf."""
+    out = {}
+    try:
+        for ln in open("/etc/mdadm/mdadm.conf"):
+            m = re.match(r"ARRAY (/dev/md/\S+) .*UUID=(\S+)", ln)
+            if m:
+                out[m.group(1)] = m.group(2)
+    except OSError:
+        pass
+    return out
+
+
+def _md_uuid(dev: str) -> str:
+    """UUID of an md device, also when it's inactive (then from a member's superblock)."""
+    out = read_only(["mdadm", "--detail", "--export", dev])
+    m = re.search(r"^MD_UUID=(\S+)", out, re.M)
+    if m:
+        return m.group(1)
+    for slave in glob.glob(f"/sys/block/{os.path.basename(dev)}/slaves/*"):
+        out = read_only(["mdadm", "--examine", "--export", "/dev/" + os.path.basename(slave)])
+        m = re.search(r"^MD_UUID=(\S+)", out, re.M)
+        if m:
+            return m.group(1)
+    return ""
+
+
+def _array_ok(md: str) -> bool:
+    real = os.path.realpath(md)
+    try:
+        state = open(f"/sys/block/{os.path.basename(real)}/md/array_state").read().strip()
+    except OSError:
+        return False
+    return state not in ("inactive", "clear", "")
+
+
+def assemble_at_boot() -> list[str]:
+    """Before the volumes are used at boot (cynthology-unlock.service): every array of every pool must be
+    running. At boot, arrays are put together from whatever drives show up - and a drive that was pulled
+    earlier and is back (or an old drive put in again) still carries the array's old metadata. It can grab
+    the array first, which then stays "inactive" and the volume isn't mounted. Such an array is stopped and
+    assembled again explicitly by its UUID: mdadm then only takes the members that are up to date (the stale
+    ones are left out - they show up as free drives) and starts it, degraded if a drive is really missing."""
+    if DEV:
+        return []
+    uuids = _conf_uuids()
+    fixed = []
+    pools_ = load_pools()
+    run(["udevadm", "settle", "--timeout=60"], check=False)
+    want = [a["md"] for p in pools_ for a in p.get("arrays", [])]
+    deadline = time.time() + 45                   # (drives can still be arriving: give normal assembly a chance)
+    while time.time() < deadline and not all(_array_ok(md) for md in want):
+        time.sleep(3)
+    for p in pools_:
+        arrays = [a["md"] for a in p.get("arrays", [])] + ([p["cache"]["md"]] if p.get("cache") else [])
+        for md in arrays:
+            if _array_ok(md):
+                continue
+            uuid = uuids.get(md)
+            if not uuid:
+                print(f"{md}: not in mdadm.conf, can't repair")
+                continue
+            for dev in glob.glob("/dev/md[0-9]*"):          # (whatever holds pieces of this array: stop it)
+                if not re.fullmatch(r"/dev/md\d+", dev):
+                    continue
+                if _md_uuid(dev).replace(".", ":") == uuid and not _array_ok(dev):
+                    run(["mdadm", "--stop", dev], check=False)
+            r = subprocess.run(["mdadm", "--assemble", md, "--uuid", uuid, "--run", "--scan"], capture_output=True, text=True)
+            print(f"{md}: assembled again ({(r.stderr or r.stdout).strip()[-300:]})")
+            fixed.append(md)
+        if p.get("vg"):
+            run(["vgchange", "-ay", p["vg"]], check=False)
+        if not os.path.ismount(p["mount"]):
+            r = subprocess.run(["mount", p["mount"]], capture_output=True, text=True)
+            print(f"{p['mount']}: " + ("mounted" if r.returncode == 0 else f"couldn't mount: {r.stderr.strip()}"))
+    return fixed
 
 
 def foreign_pools() -> list[dict]:
@@ -1524,3 +1601,11 @@ def remove_pool(pool_id: int, body: RemovePool, _=Depends(require_admin)):
         _save_mdadm_conf(initramfs=True)
     save_pools([x for x in pools_ if x["id"] != pool_id])
     return {"ok": True, "erased": disks}
+
+
+if __name__ == "__main__":
+    import sys
+    if sys.argv[1:] == ["scrub-due"]:
+        print("scrubs started for pools:", scrub_due())
+    elif sys.argv[1:2] == ["assemble-at-boot"]:
+        print("repaired:", ", ".join(assemble_at_boot()) or "nothing needed")

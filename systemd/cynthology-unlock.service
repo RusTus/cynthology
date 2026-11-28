@@ -5,10 +5,11 @@ Before=smbd.service nfs-server.service cynthology-ui.service
 
 [Service]
 Type=oneshot
-RemainAfterExit=yes
-ExecStartPre=/usr/lib/cynthology/wait-volumes
 WorkingDirectory=/opt/cynthology/backend
 Environment=CYN_STATE=/var/lib/cynthology
+RemainAfterExit=yes
+ExecStartPre=/usr/bin/python3 -m cynthology.storage assemble-at-boot
+ExecStartPre=/usr/lib/cynthology/wait-volumes
 ExecStart=/usr/bin/python3 -m cynthology.shares unlock-at-boot
 TimeoutStartSec=300
 
