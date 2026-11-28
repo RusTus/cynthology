@@ -74,3 +74,10 @@ def test_mdadm_conf_lines_clean_and_stable():
             "ARRAY /dev/md/other:data metadata=1.2 UUID=dd\n")
     assert mdadm_conf_lines(scan) == ["ARRAY /dev/md/cyn1t1 metadata=1.2 UUID=aa", "ARRAY /dev/md/cyn1t3 metadata=1.2 UUID=bb",
                                       "ARRAY /dev/md/cyn2c metadata=1.2 UUID=cc", "ARRAY /dev/md/other:data metadata=1.2 UUID=dd"]
+
+
+def test_mdadm_conf_lines_one_per_array_no_spare_count():
+    from cynthology.storage import mdadm_conf_lines
+    scan = ("ARRAY /dev/md/cyn1t1 metadata=1.2 spares=1 UUID=aa\n"
+            "ARRAY /dev/md/host:cyn1t1 metadata=1.2 spares=1 UUID=aa\n")
+    assert mdadm_conf_lines(scan) == ["ARRAY /dev/md/cyn1t1 metadata=1.2 UUID=aa"]

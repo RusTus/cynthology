@@ -267,12 +267,22 @@ def mdadm_conf_lines(scan: str) -> list[str]:
     """ARRAY lines for mdadm.conf from `mdadm --detail --scan` (pure; unit tested).
     Only ARRAY lines (mdadm prints warnings on stdout too), and our arrays always under their
     plain name - /dev/md/cyn1t2, never /dev/md/<hostname>:cyn1t2 - so device names stay the
-    same across reboots and after the NAS is renamed."""
-    out = []
+    same across reboots and after the NAS is renamed.
+    One line per array (the same array can be listed twice, under /dev/md/<name> and /dev/mdNNN), and
+    no spares=N: that count changes whenever a drive is added or comes back, and a stale count in the
+    file must never stand in the way of assembling the array at boot."""
+    out, seen = [], set()
     for ln in scan.splitlines():
         if not ln.startswith("ARRAY "):
             continue
-        out.append(re.sub(r"^ARRAY /dev/md/[^ /:]+:(cyn\d+[a-z]\d*)\b", r"ARRAY /dev/md/\1", ln))
+        ln = re.sub(r"^ARRAY /dev/md/[^ /:]+:(cyn\d+[a-z]\d*)\b", r"ARRAY /dev/md/\1", ln)
+        ln = re.sub(r" spares=\d+", "", ln)
+        uuid = re.search(r"UUID=(\S+)", ln)
+        key = uuid.group(1) if uuid else ln
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(ln)
     return out
 
 
