@@ -4,12 +4,13 @@
 #
 #   tests/e2e/vm.sh            (needs qemu-system-x86, qemu-utils, cloud-image-utils; KVM if available)
 #
-# The VM gets four empty 3 GB data drives, a random password and a fresh SSH key; nothing is kept.
+# The VM gets E2E_DISKS (default 4) empty 3 GB data drives, a random password and a fresh SSH key; nothing is kept.
 set -euo pipefail
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 W=${E2E_DIR:-/tmp/e2e}
 SSH_PORT=${E2E_SSH_PORT:-2222}
 WEB_PORT=${E2E_WEB_PORT:-5101}
+NDISKS=${E2E_DISKS:-4}
 mkdir -p "$W"
 cd "$W"
 BASE_URL=https://cloud.debian.org/images/cloud/trixie/latest/debian-13-generic-amd64.qcow2
@@ -17,7 +18,7 @@ BASE_URL=https://cloud.debian.org/images/cloud/trixie/latest/debian-13-generic-a
 
 rm -f boot.qcow2 d?.qcow2 seed.img key key.pub qemu.pid serial.log
 qemu-img create -q -f qcow2 -F qcow2 -b base.qcow2 boot.qcow2 16G
-for i in 1 2 3 4; do qemu-img create -q -f qcow2 "d$i.qcow2" 3G; done
+for i in $(seq 1 "$NDISKS"); do qemu-img create -q -f qcow2 "d$i.qcow2" 3G; done
 ssh-keygen -q -t ed25519 -N '' -f key
 PASS=$(head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 20)
 cat > user-data <<EOF
@@ -37,7 +38,12 @@ cloud-localds seed.img user-data
 
 if [ -w /dev/kvm ]; then ACCEL=(-accel kvm -cpu host); else echo "(no KVM - this will be slow)"; ACCEL=(-accel tcg,thread=multi -cpu max); fi
 DISKS=()
-for i in 1 2 3 4; do DISKS+=(-drive "file=d$i.qcow2,if=none,id=d$i" -device "ide-hd,drive=d$i,bus=ahci.$((i-1)),serial=E2EDISK$i"); done
+# (one AHCI controller has 6 ports: a second one for drives 7+)
+DISKS=(-device ahci,id=ahci2)
+for i in $(seq 1 "$NDISKS"); do
+  if [ "$i" -le 6 ]; then bus="ahci.$((i-1))"; else bus="ahci2.$((i-7))"; fi
+  DISKS+=(-drive "file=d$i.qcow2,if=none,id=d$i" -device "ide-hd,drive=d$i,bus=$bus,serial=E2EDISK$i")
+done
 qemu-system-x86_64 -machine q35 "${ACCEL[@]}" -smp 4 -m 6144 \
   -drive file=boot.qcow2,if=none,id=boot -device virtio-blk-pci,drive=boot,bootindex=0 \
   -drive file=seed.img,if=none,id=seed,format=raw -device virtio-blk-pci,drive=seed \
