@@ -26,3 +26,15 @@ def test_long_usernames_refused():
     from cynthology.main import app
     r = TestClient(app).post("/api/auth/login", json={"username": "x" * 5000, "password": "y"})
     assert r.status_code == 422
+
+
+def test_webdav_forgets_cached_password_after_change(tmp_path, monkeypatch):
+    from cynthology import webdav
+    monkeypatch.setattr(webdav, "CHANGED", str(tmp_path / "changed.json"))
+    webdav._cache.clear()
+    hit = {"user": "alice", "admin": False}
+    import time
+    webdav._cache["k"] = (time.time() + 300, hit, time.time() - 10)
+    assert webdav._changed_at("alice") == 0
+    webdav.forget("alice")
+    assert "k" not in webdav._cache and webdav._changed_at("ALICE") > 0

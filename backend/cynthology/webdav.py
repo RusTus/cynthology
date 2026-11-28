@@ -13,6 +13,7 @@ URLs: /<shared folder>/<path>  -  "/" lists your shared folders (and "home" with
 import asyncio
 import base64
 import hashlib
+import json
 import mimetypes
 import os
 import re
@@ -67,7 +68,7 @@ def authenticate(header: str, ip: str) -> dict | None:
     key = hashlib.sha256(f"{name}\0{pw}".encode()).hexdigest()
     now = time.time()
     hit = _cache.get(key)
-    if hit and hit[0] > now:
+    if hit and hit[0] > now and hit[2] >= _changed_at(hit[1]["user"]):
         return hit[1]
     from . import auth, ncsync, passkeys, twofa
     user = auth._canonical(name)
@@ -91,15 +92,38 @@ def authenticate(header: str, ip: str) -> dict | None:
         u = {"user": user, "admin": auth._is_admin(user)}
     if len(_cache) > 1000:
         _cache.clear()
-    _cache[key] = (now + 300, u)                   # re-check the password (and admin rights) every 5 minutes
+    _cache[key] = (now + 300, u, now)              # re-check the password (and admin rights) every 5 minutes
     _log("login", user, ip)
     return u
 
 
+CHANGED = os.path.join(STATE_DIR, "password-changed.json")      # user -> when (shared with the WebDAV server process)
+
+
+def _changed_at(user: str) -> float:
+    try:
+        with open(CHANGED) as f:
+            return float(json.load(f).get(user.lower(), 0))
+    except (OSError, ValueError, AttributeError):
+        return 0.0
+
+
 def forget(user: str) -> None:
-    """Drop cached sign-ins of a user (password changed or reset)."""
-    for k in [k for k, (_, u) in _cache.items() if u["user"].lower() == user.lower()]:
+    """Drop cached sign-ins of a user (password changed or reset) - here and, through the time noted in
+    password-changed.json, in the separate WebDAV server process (ports 5005/5006) too."""
+    for k in [k for k, v in _cache.items() if v[1]["user"].lower() == user.lower()]:
         _cache.pop(k, None)
+    with _lock:
+        try:
+            with open(CHANGED) as f:
+                d = json.load(f)
+        except (OSError, ValueError):
+            d = {}
+        d[user.lower()] = time.time()
+        tmp = CHANGED + ".tmp"
+        with open(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
+            json.dump(d, f)
+        os.replace(tmp, CHANGED)
 
 
 # ---------- helpers ----------
