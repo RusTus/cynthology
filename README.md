@@ -1,10 +1,17 @@
-# Cynthology (alpha)
+# Cynthology (beta)
 
 An open-source NAS operating system for any x86-64 box (BYOB), built around a desktop-style
 web UI with a Synology DSM-like workflow, but with original code and artwork and only open-source
 components. It runs on Debian 13.
 
-> **Alpha:** a proof of concept to check direction. Don't put the only copy of any data on it.
+> **Beta (1.0.0-beta):** feature-complete and being tested before 1.0. Every release is checked by
+> automated tests on real VMs (install, every app, drive failure and rebuild, reboot during a
+> rebuild, expansion, upgrade from the previous release with data), updates are signed and can be
+> undone, and the code had a security review. As with any NAS: keep a backup of anything important.
+>
+> Known limits in this beta: package web apps (Web Station) share one web server group, so a
+> compromised package web app could read another package's web folder; packages that ask for root
+> rights get them (the install dialog says so) - install those only from sources you trust.
 
 ## Install
 
@@ -31,7 +38,7 @@ server, or VM (VMware, Proxmox, Hyper-V, VirtualBox).
 
 <details><summary>Other options</summary>
 
-- A specific release: `curl -fsSL https://raw.githubusercontent.com/RusTus/cynthology/main/get.sh | sudo CYN_VERSION=v0.1.1-alpha bash`
+- A specific release: `curl -fsSL https://raw.githubusercontent.com/RusTus/cynthology/main/get.sh | sudo CYN_VERSION=v1.0.0-beta.1 bash`
 - The development code from `main`: `... | sudo CYN_CHANNEL=main bash`
 - Offline / manual: download `cynthology-install.tar.gz` from
   [Releases](https://github.com/RusTus/cynthology/releases), then
@@ -166,7 +173,7 @@ port forwarding, and sign-ins are rate-limited and logged. Found something? Plea
 Releases can be signed with minisign so that every NAS refuses tampered or unsigned updates -
 see [SIGNING.md](SIGNING.md) for the one-time setup.
 
-Push a tag like `v0.1.2-alpha` (or run **Actions → Release ISO** by hand). GitHub Actions
+Push a tag like `v1.0.0-beta.2` (or run **Actions → Release ISO** by hand). GitHub Actions
 builds the ISO by remastering the official Debian netinst (`image/build-iso.sh`) and publishes
 it, so the Download links above always point at the newest release.
 

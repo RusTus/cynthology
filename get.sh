@@ -15,6 +15,16 @@ REPO="RusTus/cynthology"
 # secret key are installed - a tampered or unsigned download is refused. See SIGNING.md.
 CYN_RELEASE_KEY="RWQHL7Rt9zntymIp3Nx7OIwucg8wXizgbOGZRXDiBW/c0pdLUgWRcCZA"
 die() { echo "Error: $*" >&2; exit 1; }
+# older A B: is version A older than B?  (1.0.0-beta.2 < 1.0.0-rc.1 < 1.0.0 - sort -V gets that wrong)
+vkey() {
+  local main=${1%%-*} pre= rank=3 n=0
+  [ "$main" != "$1" ] && pre=${1#*-}
+  case "$pre" in "") ;; alpha*) rank=0 ;; beta*) rank=1 ;; rc*) rank=2 ;; *) rank=0 ;; esac
+  n=$(printf '%s' "$pre" | tr -cs '0-9' ' ' | awk '{print $1+0}')
+  IFS=. read -r a b c <<<"$main"
+  printf '%06d%06d%06d%d%06d' "${a:-0}" "${b:-0}" "${c:-0}" "$rank" "${n:-0}"
+}
+older() { [ "$(vkey "$1")" \< "$(vkey "$2")" ]; }
 
 [ "$(id -u)" = 0 ] || die "run as root:  wget -qO- https://raw.githubusercontent.com/$REPO/main/get.sh | sudo bash"
 [ "$(uname -m)" = x86_64 ] || die "Cynthology needs an x86-64 (amd64) machine."
@@ -64,7 +74,7 @@ if [ -n "$CYN_RELEASE_KEY" ] && [ "${CYN_CHANNEL:-}" != main ]; then
   fi
   CUR=$(cat /etc/cynthology-release 2>/dev/null || true)
   case "$CUR" in [0-9]*) ;; *) CUR="" ;; esac           # (development installs have no version number)
-  if [ -n "$CUR" ] && [ "$CUR" != "$SIGNED" ] && [ "$(printf '%s\n%s\n' "$CUR" "$SIGNED" | sort -V | tail -1)" = "$CUR" ] \
+  if [ -n "$CUR" ] && [ "$CUR" != "$SIGNED" ] && older "$SIGNED" "$CUR" \
      && [ "${CYN_ALLOW_DOWNGRADE:-0}" != 1 ]; then
     die "$SIGNED is older than the installed $CUR (set CYN_ALLOW_DOWNGRADE=1 to go back on purpose)"
   fi

@@ -34,7 +34,14 @@ def current_version() -> str:
 
 
 def vkey(v: str) -> tuple:
-    return tuple(int(n) for n in re.findall(r"\d+", v.split("-")[0]))
+    """Sort key: 0.9.0 < 1.0.0-alpha < 1.0.0-beta.1 < 1.0.0-beta.2 < 1.0.0-rc.1 < 1.0.0 (old '-alpha' tags too)."""
+    main, _, pre = v.lstrip("v").partition("-")
+    nums = tuple(int(n) for n in re.findall(r"\d+", main))
+    if not pre:
+        return nums + (3, 0)
+    rank = 0 if pre.startswith("alpha") else 1 if pre.startswith("beta") else 2 if pre.startswith("rc") else 0
+    n = re.findall(r"\d+", pre)
+    return nums + (rank, int(n[0]) if n else 0)
 
 
 def latest(force: bool = False) -> dict:
