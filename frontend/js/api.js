@@ -87,6 +87,33 @@ function sectioned(sections, body) {
   return show;
 }
 
+// A value shown so it can be copied (passwords, keys): selectable, monospace, with a Copy button.
+function copyField(value) {
+  const inp = h("input", { class: "mono", readonly: true, value, style: "flex:1;min-width:0;font-size:14px;letter-spacing:.5px", translate: "no",
+    onfocus: (e) => e.target.select() });
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(value); } catch { inp.select(); document.execCommand("copy"); }
+    toast(t_("Copied"));
+  };
+  return h("div", { style: "display:flex;gap:6px;align-items:center" }, inp, h("button", { class: "btn", type: "button", onclick: copy }, t_("Copy")));
+}
+
+// Install notes ("root password: abc123. Connect to ...") with every password/key in a copyable field.
+function notesView(text) {
+  const re = /((?:password|passwort|token|key|secret)[^:\n]{0,30}:\s*)([A-Za-z0-9_\-+/=]{8,})/gi;
+  const out = h("div", { class: "form" });
+  let last = 0, m;
+  while ((m = re.exec(text))) {
+    const before = text.slice(last, m.index) + m[1];
+    if (before.trim()) out.append(h("p", { style: "margin:6px 0 4px" }, before.trim()));
+    out.append(copyField(m[2]));
+    last = m.index + m[0].length;
+  }
+  const rest = text.slice(last).replace(/^[.,;]\s*/, "").trim();
+  if (rest) out.append(h("p", { style: "margin:8px 0 0" }, rest));
+  return out;
+}
+
 // Small modal dialog; returns a function that closes it.
 function modal(title, content, buttons = [["Close", null, "primary"]]) {
   const wrap = h("div", { class: "wiz", onclick: (e) => { if (e.target === wrap) close(); } });

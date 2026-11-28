@@ -95,7 +95,7 @@ WM.register("appcenter", {
                 const m = await API.get("/api/packages/standin/MariaDB10");
                 modal("MariaDB 10", h("div", { class: "form" },
                   h("table", { class: "kv", translate: "no" }, [["Server", `127.0.0.1:${m.port}`], ["Socket", m.socket], ["User", m.user], ["Password", m.password]]
-                    .map(([k, v]) => h("tr", {}, h("th", {}, t(k)), h("td", { class: "mono" }, v)))),
+                    .map(([k, v]) => h("tr", {}, h("th", {}, t(k)), h("td", {}, copyField(v))))),
                   h("p", { class: "muted" }, t(m.note))));
               } }, "Info") : null,
               p.url && p.running ? h("a", { class: "btn primary", target: "_blank", href: `${p.url.protocol}://${location.hostname}:${p.url.port}${p.url.path}` }, "Open") : null,
@@ -209,7 +209,7 @@ WM.register("appcenter", {
       if (!a.installed) return [h("button", { class: "pc-install", onclick: () => containerInstall(a, back) }, "Install")];
       return [
         a.running && appUrl(a) ? h("a", { class: "btn primary", href: appUrl(a), target: "_blank" }, "Open") : h("span", { class: "pill" + (a.running ? " ok" : "") }, a.running ? "Running" : (a.status || "Stopped")),
-        a.notes ? h("button", { class: "btn", onclick: () => alert(`${a.name}\n\n${a.notes}`) }, "Info") : null,
+        a.notes ? h("button", { class: "btn", onclick: () => modal(a.name, notesView(a.notes)) }, "Info") : null,
         h("button", { class: "btn danger", onclick: async () => {
           if (a.holds_data) {
             if (!confirm(`Stop ${a.name}?\n\nIts data lives inside its container and is kept; start it again in Container Manager → Projects → ${a.project}.`)) return;
@@ -229,7 +229,7 @@ WM.register("appcenter", {
         let r;
         try { r = await API.post(`/api/apps/${a.id}/install`, { fields: ans }); } catch (e) { toast("Error: " + e.message); return back(); }
         pane.replaceChildren(h("div", { class: "form", style: "max-width:760px" }, h("h2", {}, `Installing ${a.name}`),
-          r.notes ? h("div", { class: "note" }, h("b", {}, "Keep this: "), r.notes) : null, box,
+          r.notes ? h("div", { class: "note" }, h("b", {}, "Keep this: "), notesView(r.notes)) : null, box,
           h("p", { class: "muted" }, `It runs as project “${"app-" + a.id}” in Container Manager, with its data in the “docker” shared folder.`),
           h("div", { class: "toolbar" }, h("button", { class: "btn", onclick: back }, "Done"))));
         if (r.job) { if (await ctJob(box, r.job)) toast(`${a.name} is installed`); }
