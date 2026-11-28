@@ -3,5 +3,5 @@
   "name": "Jellyfin",
   "description": "Media server for your movies, TV and music, with apps for TVs and phones.",
   "port": 8096,
-  "compose": "services:\n  jellyfin:\n    image: jellyfin/jellyfin:latest\n    restart: unless-stopped\n    network_mode: host\n    volumes:\n      - ./config:/config\n      - ./cache:/cache\n      - ${SHARE:video}:/media/video:ro\n      - ${SHARE:music}:/media/music:ro\n"
+  "compose": "services:\n  jellyfin:\n    image: jellyfin/jellyfin:latest\n    restart: unless-stopped\n    ${GPU}\n    network_mode: host\n    volumes:\n      - ./config:/config\n      - ./cache:/cache\n      - ${SHARE:video}:/media/video:ro\n      - ${SHARE:music}:/media/music:ro\n"
 }

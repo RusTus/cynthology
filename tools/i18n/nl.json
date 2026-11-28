@@ -1217,5 +1217,7 @@
 "Disconnected": "Ontkoppeld",
 "No apps connected.": "Geen apps verbonden.",
 "Nextcloud apps (desktop & phone sync)": "Nextcloud-apps (synchronisatie computer & telefoon)",
-"Container apps": "Container-apps"
+"Container apps": "Container-apps",
+"Video transcoding": "Videotranscodering",
+"CPU only (no video hardware found)": "Alleen CPU (geen videohardware gevonden)"
 }

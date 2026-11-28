@@ -580,6 +580,33 @@ def _owner(name: str, user: str, group: str) -> None:
                                                  for x in ("target", "var", "home", "tmp", "etc"))])
 
 
+# media servers from the package sources get the video hardware (hardware transcoding):
+# their package account joins the groups that may use /dev/dri (Synology does this with "SynoCli Video Drivers")
+MEDIA_PKGS = {"jellyfin", "emby", "embyserver", "plexmediaserver", "plex", "tvheadend", "ffmpeg", "ffmpeg6", "ffmpeg7", "ffmpeg8"}
+
+
+def media_access(name: str, user: str) -> None:
+    if DEV or name.lower() not in MEDIA_PKGS:
+        return
+    for g in ("render", "video"):
+        if subprocess.run(["getent", "group", g], capture_output=True).returncode == 0:
+            run(["usermod", "-aG", g, user], check=False)
+
+
+def ensure_media_access() -> None:
+    """At startup: also for media packages installed before this existed."""
+    if DEV or not os.path.isdir(PKG_DIR):
+        return
+    for name in os.listdir(PKG_DIR):
+        if name.lower() in MEDIA_PKGS:
+            try:
+                user = _privilege(_pkg_path(name), name)[0]
+            except Exception:
+                user = f"sc-{name}"
+            if subprocess.run(["id", user], capture_output=True).returncode == 0:
+                media_access(name, user)
+
+
 def _fresh_install(d: str, info: dict, wizard: dict) -> dict:
     name = info["package"]
     base = _pkg_path(name)
@@ -589,6 +616,7 @@ def _fresh_install(d: str, info: dict, wizard: dict) -> dict:
     # 1. package user/group (conf/privilege)
     run(["sh", "-c", f"getent group {group} >/dev/null || groupadd -r {group}"])
     run(["sh", "-c", f"id -u {user} >/dev/null 2>&1 || useradd -r -g {group} -d {base}/home -s /usr/sbin/nologin {user}"])
+    media_access(name, user)
 
     # 2. DSM 7 layout
     os.makedirs(base)

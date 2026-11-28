@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 1168 entries.
+// Generated from the English UI strings (see i18n.js). 1170 entries.
 i18nAdd("fr", {
 "Error: ": "Erreur : ",
 "Settings and data are kept.": "Les réglages et les données sont conservés.",
@@ -1167,5 +1167,7 @@ i18nAdd("fr", {
 "Disconnected": "Déconnectée",
 "No apps connected.": "Aucune application connectée.",
 "Nextcloud apps (desktop & phone sync)": "Applications Nextcloud (synchro ordinateur et téléphone)",
-"Container apps": "Applications conteneurs"
+"Container apps": "Applications conteneurs",
+"Video transcoding": "Transcodage vidéo",
+"CPU only (no video hardware found)": "Processeur seulement (aucun matériel vidéo trouvé)"
 });

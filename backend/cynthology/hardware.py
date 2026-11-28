@@ -11,6 +11,7 @@
 import datetime
 import json
 import os
+import shutil
 import re
 import socket
 import subprocess
@@ -198,6 +199,60 @@ def scheduled_shutdown() -> None:
 
 
 # ---------- Wake-on-LAN ----------
+
+# ---------- video acceleration (hardware transcoding for media servers) ----------
+
+VENDORS = {"0x8086": "intel", "0x1002": "amd", "0x10de": "nvidia"}
+JELLYFIN_SETTING = {"intel": "Intel QuickSync (QSV)", "amd": "Video Acceleration API (VAAPI)",
+                    "nvidia": "Nvidia NVENC", "other": "Video Acceleration API (VAAPI)"}
+
+
+def video_accel() -> dict:
+    """{"kind": intel|amd|nvidia|other|None, "name", "dri": [render nodes], "nvidia_runtime": bool}."""
+    dri = sorted(f"/dev/dri/{n}" for n in (os.listdir("/dev/dri") if os.path.isdir("/dev/dri") else []) if n.startswith("renderD"))
+    kind, name = None, ""
+    for node in dri:
+        base = f"/sys/class/drm/{os.path.basename(node)}/device"
+        try:
+            vendor = open(f"{base}/vendor").read().strip()
+        except OSError:
+            continue
+        kind = VENDORS.get(vendor, "other")
+        try:
+            name = subprocess.run(["lspci", "-s", os.path.basename(os.path.realpath(base)), "-mm"], capture_output=True,
+                                  text=True, timeout=5).stdout.split('"')[5]
+        except (OSError, IndexError, subprocess.SubprocessError):
+            name = kind
+        if kind in ("intel", "amd"):
+            break                                  # (prefer the integrated GPU for transcoding)
+    nvidia_rt = shutil.which("nvidia-container-runtime") is not None and os.path.exists("/dev/nvidia0")
+    if nvidia_rt and kind in (None, "nvidia", "other"):
+        kind = "nvidia"
+    if kind == "nvidia" and not nvidia_rt:
+        kind = None                                # (an NVIDIA card needs its driver + container toolkit first)
+    return {"kind": kind, "name": name, "dri": dri, "nvidia_runtime": nvidia_rt,
+            "jellyfin_setting": JELLYFIN_SETTING.get(kind or "", "")}
+
+
+def gpu_compose(indent: str) -> str:
+    """The compose lines that hand the GPU to a container (empty without one)."""
+    v = video_accel()
+    if v["kind"] == "nvidia":
+        lines = ["deploy:", "  resources:", "    reservations:", "      devices:", "        - driver: nvidia",
+                 "          count: all", "          capabilities: [gpu, video, compute, utility]"]
+    elif v["dri"]:
+        import grp
+        gids = []
+        for g in ("render", "video"):
+            try:
+                gids.append(str(grp.getgrnam(g).gr_gid))
+            except KeyError:
+                pass
+        lines = ["devices:", "  - /dev/dri:/dev/dri"] + (["group_add:"] + [f'  - "{x}"' for x in gids] if gids else [])
+    else:
+        return ""
+    return "".join(f"{indent}{ln}\n" for ln in lines)
+
 
 def nics() -> list[dict]:
     from .network import physical_nics

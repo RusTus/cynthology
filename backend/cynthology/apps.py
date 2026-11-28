@@ -7,6 +7,8 @@ and backed up like any other project. Placeholders in a catalog compose file:
   ${SHARE:name}    path of shared folder <name> (created if missing), e.g. video, music, photo
   ${HOST}          the NAS's first LAN address      ${HOSTNAME}  its host name     ${TZ}  its time zone
   ${F:key}         an answer to one of the app's install questions ("fields": key, label, default, pattern)
+  ${GPU}           (alone on a line) the video hardware for transcoding - /dev/dri (Intel/AMD) or the NVIDIA runtime -
+                   or nothing when the NAS has none (hardware.gpu_compose)
 An app with "holds_data": true keeps its data inside the container itself, so uninstalling only stops it
 unless the data is to be deleted (docker compose down would remove the container and everything in it).
 """
@@ -97,6 +99,9 @@ def fill(text: str, secret: str, share_path=None, fields: dict | None = None) ->
     """Substitute catalog placeholders. share_path(name) -> path is only called for ${SHARE:x}."""
     text = re.sub(r"\$\{F:([a-z0-9_]+)\}", lambda m: (fields or {}).get(m.group(1), ""), text)
     text = re.sub(r"\$\{SHARE:([a-z0-9_-]+)\}", lambda m: share_path(m.group(1)) if share_path else m.group(0), text)
+    if "${GPU}" in text:
+        from .hardware import gpu_compose
+        text = re.sub(r"^( *)\$\{GPU\}\n", lambda m: gpu_compose(m.group(1)), text, flags=re.M)
     for k, v in {"SECRET": secret, "HOST": _lan_ip(), "HOSTNAME": socket.gethostname(), "TZ": _timezone()}.items():
         text = text.replace("${" + k + "}", v)
     return text
@@ -240,6 +245,14 @@ def install(app_id: str, body: InstallBody | None = None, _=Depends(require_admi
         except (OSError, ValueError, KeyError, TypeError):
             pass
     notes = fill(meta.get("notes", ""), secret, fields=fields)
+    if "${GPU}" in meta["compose"]:
+        from .hardware import video_accel
+        v = video_accel()
+        notes = (notes + "\n\n" if notes else "") + (
+            f"Hardware transcoding: {v['name'] or v['kind']} is available to the app. "
+            + (f"In Jellyfin choose Dashboard > Playback > Transcoding > Hardware acceleration: {v['jellyfin_setting']}."
+               if meta["id"] == "jellyfin" else "Turn on hardware-accelerated transcoding in the app's settings.")
+            if v["kind"] else "No video hardware for transcoding was found: videos are converted by the CPU.")
     if DEV:
         _dev_installed[app_id] = {"notes": notes}
         print(f"[dev] would install {app_id}:\n{fill(meta['compose'], secret, lambda n: '/volume1/' + n, fields)}")

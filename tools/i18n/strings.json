@@ -1217,5 +1217,7 @@
 "Disconnected",
 "No apps connected.",
 "Nextcloud apps (desktop & phone sync)",
-"Container apps"
+"Container apps",
+"Video transcoding",
+"CPU only (no video hardware found)"
 ]

@@ -122,6 +122,12 @@ def details(_=Depends(require_admin)):
                 "threads": psutil.cpu_count(), "memory_total": vm.total, "memory_used": vm.total - vm.available,
                 "swap_total": sw.total, "swap_used": sw.used, "temp": max(temps) if temps else None,
                 "load": [round(x, 2) for x in os.getloadavg()]}
+    try:
+        from .hardware import video_accel
+        v = video_accel()
+        hardware["video"] = f"{v['name'] or v['kind']}" + (f" ({v['jellyfin_setting']})" if v["kind"] else "") if v["kind"] else ""
+    except Exception:
+        hardware["video"] = ""
     stor = stor_f.result()
     svc, versions = services.result(), versions_f.result()
     pool.shutdown(wait=False)
