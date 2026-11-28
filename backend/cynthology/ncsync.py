@@ -518,7 +518,7 @@ def _root_dir(path: str) -> str:
     """mkdir -p for a staging folder only root can enter; refuses anything else found there."""
     os.makedirs(path, mode=0o700, exist_ok=True)
     st = os.lstat(path)
-    if not stat.S_ISDIR(st.st_mode) or st.st_uid != 0:
+    if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.geteuid():      # (root's - the server's own - only)
         raise HTTPException(500, "upload staging folder isn't a root-owned folder")
     if stat.S_IMODE(st.st_mode) != 0o700:
         os.chmod(path, 0o700)
@@ -535,7 +535,7 @@ def _staging_base(user: dict, dest_path: str | None) -> str:
             share = os.path.realpath(files.resolve(user, dest_path.split("/")[0], write=True)[0]["path"])
             vol = os.path.dirname(share)
             st = os.lstat(vol)
-            if st.st_uid == 0 and not st.st_mode & 0o022 and vol != "/":
+            if st.st_uid == os.geteuid() and not st.st_mode & 0o022 and vol != "/":
                 root = vol
         except (HTTPException, OSError):
             root = None
