@@ -1251,5 +1251,12 @@
 "Backups",
 "No earlier versions in the snapshots.",
 "Searching the backups…",
-"Not found in any backup."
+"Not found in any backup.",
+"Install Cynthology updates automatically",
+"Every night",
+"Once a week",
+"at",
+"Also install Debian's system updates (security fixes)",
+"Updates are checked against the release signature, and never installed while a backup, cloud sync, virus scan, RAID rebuild or open file transfer is running - it then tries again an hour later. You get a notification afterwards.",
+"Last check"
 ]

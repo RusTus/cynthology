@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 1189 entries.
+// Generated from the English UI strings (see i18n.js). 1196 entries.
 i18nAdd("nl", {
 "Error: ": "Fout: ",
 "Settings and data are kept.": "Instellingen en gegevens blijven behouden.",
@@ -1188,5 +1188,12 @@ i18nAdd("nl", {
 "Backups": "Back-ups",
 "No earlier versions in the snapshots.": "Geen eerdere versies in de snapshots.",
 "Searching the backups…": "Back-ups doorzoeken…",
-"Not found in any backup.": "In geen enkele back-up gevonden."
+"Not found in any backup.": "In geen enkele back-up gevonden.",
+"Install Cynthology updates automatically": "Cynthology-updates automatisch installeren",
+"Every night": "Elke nacht",
+"Once a week": "Eén keer per week",
+"at": "om",
+"Also install Debian's system updates (security fixes)": "Ook Debians systeemupdates installeren (beveiligingsfixes)",
+"Updates are checked against the release signature, and never installed while a backup, cloud sync, virus scan, RAID rebuild or open file transfer is running - it then tries again an hour later. You get a notification afterwards.": "Updates worden gecontroleerd met de releasehandtekening en nooit geïnstalleerd tijdens een back-up, cloudsynchronisatie, virusscan, RAID-herbouw of open bestandsoverdracht - dan wordt het een uur later opnieuw geprobeerd. Daarna krijgt u een melding.",
+"Last check": "Laatste controle"
 });

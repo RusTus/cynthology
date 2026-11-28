@@ -12,6 +12,9 @@ import urllib.request
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from pydantic import BaseModel
+
+from . import settings
 from .auth import current_user, require_admin
 from .util import DEV, STATE_DIR, run
 
@@ -129,3 +132,143 @@ def debian_log(_=Depends(require_admin)):
         text = ""
     return {"log": text[-20000:], "running": unit_active("cynthology-apt-upgrade"),
             "reboot_required": os.path.exists("/var/run/reboot-required")}
+
+
+# ---------- automatic updates ----------
+# Checked every hour (cynthology-autoupdate.timer); acts once per day/week, in the hours after the
+# chosen time. Never while the NAS is busy (backup, cloud sync, scan, RAID rebuild/scrub, open SMB
+# files, another update): it simply tries again the next hour (for up to 6 hours).
+
+AUTO_STATE = os.path.join(STATE_DIR, "auto-update.json")
+BUSY_UNITS = ("cyn-backup-*", "cyn-backup-check-*", "cyn-cloudsync-*", "cyn-antivirus-scan", "cynthology-scrub",
+              "cyn-job-*", "cynthology-update", "cynthology-apt-upgrade", "cyn-repl-*")
+
+
+def auto_config() -> dict:
+    c = settings.get("auto_update") or {}
+    return {"enabled": bool(c.get("enabled")), "frequency": c.get("frequency", "daily"), "time": c.get("time", "03:30"),
+            "day": int(c.get("day", 6)), "debian": bool(c.get("debian"))}
+
+
+class AutoUpdate(BaseModel):
+    enabled: bool = False
+    frequency: str = "daily"        # daily | weekly
+    time: str = "03:30"
+    day: int = 6                    # weekly: 0 = Monday
+    debian: bool = False            # also Debian's package updates
+
+
+@router.get("/auto")
+def get_auto(_=Depends(require_admin)):
+    st = _auto_state()
+    return {**auto_config(), "last_check": st.get("last_check"), "last_result": st.get("last_result", "")}
+
+
+@router.put("/auto")
+def put_auto(body: AutoUpdate, _=Depends(require_admin)):
+    if body.frequency not in ("daily", "weekly") or not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", body.time) or not 0 <= body.day <= 6:
+        raise HTTPException(400, "invalid schedule")
+    settings.update(auto_update=body.model_dump())
+    return get_auto(None)
+
+
+def _auto_state() -> dict:
+    try:
+        return json.load(open(AUTO_STATE))
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_auto_state(**v) -> None:
+    st = {**_auto_state(), **v}
+    with open(AUTO_STATE, "w") as f:
+        json.dump(st, f)
+
+
+def busy() -> str:
+    """Why now is a bad moment to update ('' = fine)."""
+    if DEV:
+        return ""
+    r = subprocess.run(["systemctl", "list-units", "--state=active,activating", "--no-legend", "--plain", *BUSY_UNITS],
+                       capture_output=True, text=True)
+    if r.stdout.strip():
+        return "busy: " + r.stdout.split()[0]
+    try:
+        md = open("/proc/mdstat").read()
+        if re.search(r"(recovery|resync|reshape|check)\s*=", md):
+            return "a storage pool is being rebuilt or checked"
+    except OSError:
+        pass
+    r = subprocess.run(["smbstatus", "-L", "-n"], capture_output=True, text=True)
+    if r.returncode == 0 and re.search(r"^\d+\s+\d+\s+\S+\s+0x", r.stdout, re.M):
+        return "files are open over SMB"
+    return ""
+
+
+def auto_due(now=None) -> bool:
+    import datetime
+    c = auto_config()
+    if not c["enabled"]:
+        return False
+    now = now or datetime.datetime.now()
+    hh, mm = map(int, c["time"].split(":"))
+    slot = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+    if now < slot or now - slot > datetime.timedelta(hours=6) or (c["frequency"] == "weekly" and now.weekday() != c["day"]):
+        return False
+    return (_auto_state().get("done_for") or 0) < slot.timestamp()
+
+
+def auto_run() -> None:
+    """From the hourly timer."""
+    import datetime
+    if not auto_due():
+        return
+    why = busy()
+    now = int(time.time())
+    if why:
+        _save_auto_state(last_check=now, last_result=f"waiting ({why}) - trying again in an hour")
+        return
+    c = auto_config()
+    result = []
+    try:
+        cur, lat = current_version(), latest(force=True)
+        if cur != "dev" and vkey(lat["version"]) > vkey(cur):
+            _save_auto_state(pending=lat["version"], pending_since=now)
+            start(None)
+            result.append(f"updating Cynthology {cur} -> {lat['version']}")
+        else:
+            result.append(f"Cynthology {cur} is up to date")
+    except Exception as e:
+        result.append(f"couldn't check for Cynthology updates: {e}")
+    if c["debian"]:
+        try:
+            run(["apt-get", "update", "-q"], check=False)
+            if not unit_active("cynthology-apt-upgrade"):
+                debian_start(None)
+                result.append("installing Debian updates")
+        except Exception as e:
+            result.append(f"Debian updates failed to start: {e}")
+    _save_auto_state(last_check=now, last_result="; ".join(result), done_for=now)
+    del datetime
+
+
+def after_restart() -> None:
+    """At startup: tell the admin how an automatic update went."""
+    st = _auto_state()
+    want = st.get("pending")
+    if not want:
+        return
+    from .notify import notify
+    if current_version() == want:
+        notify("info", f"Cynthology was updated to {want}", "The automatic update finished.", event="update")
+        _save_auto_state(pending=None, last_result=f"updated to {want}")
+    elif time.time() - (st.get("pending_since") or 0) > 3600:
+        notify("warning", "An automatic update didn't finish", f"Updating to {want} didn't complete - see Control Panel > Update & Restore (log).", event="update")
+        _save_auto_state(pending=None, last_result=f"update to {want} failed")
+
+
+if __name__ == "__main__":
+    import sys
+    if sys.argv[1:2] == ["auto"]:
+        auto_run()
+

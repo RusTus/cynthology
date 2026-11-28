@@ -1,0 +1,9 @@
+[Unit]
+Description=Cynthology: automatic updates (when switched on)
+After=network-online.target
+
+[Service]
+Type=oneshot
+Environment=CYN_STATE=/var/lib/cynthology
+WorkingDirectory=/opt/cynthology/backend
+ExecStart=/usr/bin/python3 -m cynthology.update auto

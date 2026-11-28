@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 1196 entries.
+// Generated from the English UI strings (see i18n.js). 1203 entries.
 i18nAdd("de", {
 "Error: ": "Fehler: ",
 "Settings and data are kept.": "Einstellungen und Daten bleiben erhalten.",
@@ -1195,5 +1195,12 @@ i18nAdd("de", {
 "Backups": "Sicherungen",
 "No earlier versions in the snapshots.": "Keine früheren Versionen in den Snapshots.",
 "Searching the backups…": "Sicherungen werden durchsucht…",
-"Not found in any backup.": "In keiner Sicherung gefunden."
+"Not found in any backup.": "In keiner Sicherung gefunden.",
+"Install Cynthology updates automatically": "Cynthology-Updates automatisch installieren",
+"Every night": "Jede Nacht",
+"Once a week": "Einmal pro Woche",
+"at": "um",
+"Also install Debian's system updates (security fixes)": "Auch Debians Systemupdates installieren (Sicherheitskorrekturen)",
+"Updates are checked against the release signature, and never installed while a backup, cloud sync, virus scan, RAID rebuild or open file transfer is running - it then tries again an hour later. You get a notification afterwards.": "Updates werden anhand der Release-Signatur geprüft und nie während einer Sicherung, Cloud-Synchronisierung, eines Virenscans, RAID-Neuaufbaus oder offener Dateiübertragung installiert - dann wird es eine Stunde später erneut versucht. Danach erhalten Sie eine Benachrichtigung.",
+"Last check": "Letzte Prüfung"
 });

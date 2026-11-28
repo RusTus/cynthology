@@ -100,11 +100,11 @@ cat "$SRC/VERSION" 2>/dev/null > /etc/cynthology-release || echo "Cynthology dev
 
 udevadm control --reload-rules 2>/dev/null || true
 if [ "$CHROOT" = 1 ]; then
-  systemctl enable cynthology-ui cynthology-snapshots.timer cynthology-health.timer cynthology-backup.timer cynthology-pkgupdate.timer cynthology-repl.timer cynthology-scrub.timer cynthology-ddns.timer cynthology-cloudsync.timer cynthology-antivirus.timer cynthology-issue cynthology-firewall cynthology-unlock cynthology-power rtslib-fb-targetctl ssh smbd avahi-daemon docker
+  systemctl enable cynthology-ui cynthology-snapshots.timer cynthology-health.timer cynthology-backup.timer cynthology-pkgupdate.timer cynthology-repl.timer cynthology-scrub.timer cynthology-ddns.timer cynthology-cloudsync.timer cynthology-antivirus.timer cynthology-autoupdate.timer cynthology-issue cynthology-firewall cynthology-unlock cynthology-power rtslib-fb-targetctl ssh smbd avahi-daemon docker
   systemctl enable wsdd2 2>/dev/null || systemctl enable wsdd 2>/dev/null || true
 elif [ "$NOSYSTEMD" != 1 ]; then
   systemctl daemon-reload
-  systemctl enable --now cynthology-ui cynthology-snapshots.timer cynthology-health.timer cynthology-backup.timer cynthology-pkgupdate.timer cynthology-repl.timer cynthology-scrub.timer cynthology-ddns.timer cynthology-cloudsync.timer cynthology-antivirus.timer cynthology-issue cynthology-firewall cynthology-unlock cynthology-power rtslib-fb-targetctl ssh smbd avahi-daemon docker
+  systemctl enable --now cynthology-ui cynthology-snapshots.timer cynthology-health.timer cynthology-backup.timer cynthology-pkgupdate.timer cynthology-repl.timer cynthology-scrub.timer cynthology-ddns.timer cynthology-cloudsync.timer cynthology-antivirus.timer cynthology-autoupdate.timer cynthology-issue cynthology-firewall cynthology-unlock cynthology-power rtslib-fb-targetctl ssh smbd avahi-daemon docker
   systemctl restart cynthology-ui   # pick up new code when upgrading
   sshd -t 2>/dev/null && systemctl reload ssh 2>/dev/null || true   # (our sshd_config.d drop-in)
   systemctl try-restart cynthology-webdav 2>/dev/null || true       # (only if WebDAV is on)

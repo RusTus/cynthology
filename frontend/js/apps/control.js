@@ -962,6 +962,7 @@ async function cpUpdate(p) {
         h("button", { class: "btn", onclick: reload }, "Check again")),
       h("div", { class: "muted", style: "font-size:12px" }, "Command line on the NAS: ", h("span", { class: "mono" }, "sudo cynthology update"))),
     logBox,
+    await autoUpdateCard(),
     h("h3", { class: "section-title", style: "max-width:720px" }, "Debian system updates"),
     h("div", { id: "deb-box", class: "muted" }, "Checking Debian packages…"),
     configBackupCard());
@@ -985,6 +986,28 @@ async function cpUpdate(p) {
           }
         } }, "Install Debian updates"), debLog)
       : h("div", {}, "✓ All Debian packages are up to date."));
+}
+
+// Automatic updates (backend update.py: hourly timer, acts in the chosen window, never while busy)
+async function autoUpdateCard() {
+  const a = await API.get("/api/update/auto").catch(() => null);
+  if (!a) return null;
+  const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  const box = h("div", { class: "card", style: "max-width:720px;margin-top:12px" });
+  const draw = () => box.replaceChildren(
+    h("label", { class: "check" }, h("input", { type: "checkbox", checked: a.enabled, onchange: (e) => { a.enabled = e.target.checked; draw(); } }),
+      h("b", {}, t("Install Cynthology updates automatically"))),
+    a.enabled ? h("div", { class: "toolbar", style: "margin:6px 0 0;flex-wrap:wrap" },
+      h("select", { onchange: (e) => { a.frequency = e.target.value; draw(); } }, [["daily", "Every night"], ["weekly", "Once a week"]].map(([k, l]) => h("option", { value: k, selected: a.frequency === k }, l))),
+      a.frequency === "weekly" ? h("select", { onchange: (e) => (a.day = +e.target.value) }, DAYS.map((d, i) => h("option", { value: i, selected: a.day === i }, d))) : null,
+      h("span", { class: "muted" }, t("at")), h("input", { type: "time", value: a.time, onchange: (e) => (a.time = e.target.value) })) : null,
+    a.enabled ? h("label", { class: "check", style: "margin-top:6px" }, h("input", { type: "checkbox", checked: a.debian, onchange: (e) => (a.debian = e.target.checked) }),
+      t("Also install Debian's system updates (security fixes)")) : null,
+    h("div", { class: "muted", style: "font-size:12px" }, t("Updates are checked against the release signature, and never installed while a backup, cloud sync, virus scan, RAID rebuild or open file transfer is running - it then tries again an hour later. You get a notification afterwards.")),
+    a.last_check ? h("div", { class: "muted", style: "font-size:12px" }, `${t("Last check")}: ${new Date(a.last_check * 1000).toLocaleString()} - ${a.last_result}`) : null,
+    h("div", { class: "toolbar", style: "margin:6px 0 0" }, h("button", { class: "btn primary", onclick: () => act(() => API.put("/api/update/auto", a), "Saved") }, "Save")));
+  draw();
+  return box;
 }
 
 // Let's Encrypt: a trusted certificate for a public name (renews by itself).

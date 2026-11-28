@@ -77,6 +77,7 @@ def regenerate_share_configs():
         from . import containers
         containers.secure_projects_share()
         spk.ensure_media_access()        # (media server packages may use the video hardware)
+        update.after_restart()           # (report how an automatic update went)
         for sh in shares.load():   # older versions left every folder writable for all users on disk
             if not sh.get("homes") and not sh.get("usb") and not (sh.get("encrypted") and not shares.unlocked(sh)):
                 shares.sync_group_perms(sh["path"], sh, force=False)

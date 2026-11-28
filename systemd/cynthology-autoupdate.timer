@@ -1,0 +1,10 @@
+[Unit]
+Description=Hourly check whether an automatic Cynthology update is due
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
