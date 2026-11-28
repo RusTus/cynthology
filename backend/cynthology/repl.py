@@ -182,6 +182,7 @@ class Failover(BaseModel):
     share: str
     snapshot: str
     new_name: str       # name of the new, writable shared folder
+    replace: bool = False   # failback: put the replica in place of the existing shared folder of that name
 
 
 @router.post("/failover")
@@ -193,7 +194,10 @@ def failover(body: Failover, _=Depends(require_admin)):
         raise HTTPException(400, str(e))
     if not snapshots.NAME_RE.match(body.snapshot) or not os.path.isdir(os.path.join(d, body.snapshot)):
         raise HTTPException(404, "no such replica")
-    if not NAME_RE.match(body.new_name) or any(s["name"].lower() == body.new_name.lower() for s in shares_mod.load()):
+    existing = next((s for s in shares_mod.load() if s["name"].lower() == body.new_name.lower()), None)
+    if existing and body.replace:
+        return _replace_live(existing, os.path.join(d, body.snapshot), body)
+    if not NAME_RE.match(body.new_name) or existing:
         raise HTTPException(400, "choose a new, unused shared folder name")
     pool = load_pools()[0]
     target = os.path.join(pool["mount"], body.new_name)
@@ -211,6 +215,123 @@ def failover(body: Failover, _=Depends(require_admin)):
                   "description": f"Replica of {body.share} from {body.source} ({body.snapshot})"})
     shares_mod.write_configs(items)
     return {"ok": True, "share": body.new_name, "path": target}
+
+
+def _replace_live(share: dict, replica: str, body) -> dict:
+    """Failback: the replica (the data as it was on the other NAS) becomes this shared folder again. The
+    folder as it was here is kept beside it as '<name>.before-failback-<date>' (nothing is deleted)."""
+    if share.get("homes") or share.get("encrypted") or share.get("usb"):
+        raise HTTPException(400, "this kind of shared folder can't be replaced by a replica")
+    path = share["path"]
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    aside = f"{path}.before-failback-{stamp}"
+    if DEV:
+        import shutil
+        os.rename(path, aside)
+        shutil.copytree(replica, path)
+    else:
+        if not snapshots.supported(share):
+            raise HTTPException(400, "the shared folder isn't a Btrfs subvolume")
+        os.rename(path, aside)
+        try:
+            run(["btrfs", "subvolume", "snapshot", replica, path])
+        except Exception:
+            os.rename(aside, path)           # (put it back as it was)
+            raise
+        run(["chgrp", "users", path])
+        run(["chmod", "2775", path])
+        # (the old version's snapshots live inside it and moved along with it; new ones start here)
+        os.makedirs(os.path.join(path, snapshots.SNAPDIR), exist_ok=True)
+    shares_mod.write_configs(shares_mod.load())
+    from .notify import notify
+    notify("info", f"Shared folder '{share['name']}' was replaced by its replica from {body.source}",
+           f"The previous contents are kept in {aside}.", event="replication")
+    return {"ok": True, "share": share["name"], "path": path, "kept": aside}
+
+
+# ---------- watching the primary NAS (this NAS receives its replicas) ----------
+
+WATCH = os.path.join(DIR, "watch.json")
+
+
+def _watch() -> dict:
+    try:
+        return json.load(open(WATCH))
+    except (OSError, ValueError):
+        return {}
+
+
+class Watch(BaseModel):
+    max_age_h: int = 26          # alert when no new replica for this long (0 = don't)
+    address: str = ""            # the primary NAS's address: alert when it stops answering
+    port: int = 5001
+
+
+@router.get("/watch")
+def get_watch(_=Depends(require_admin)):
+    return _watch()
+
+
+@router.put("/watch/{source}")
+def put_watch(source: str, body: Watch, _=Depends(require_admin)):
+    if not SRC_RE.match(source):
+        raise HTTPException(400, "bad source")
+    if not 0 <= body.max_age_h <= 24 * 60 or not 1 <= body.port <= 65535:
+        raise HTTPException(400, "invalid value")
+    addr = body.address.strip()
+    if addr and not re.fullmatch(r"[A-Za-z0-9.:\[\]-]{1,253}", addr):
+        raise HTTPException(400, "address: a host name or IP address")
+    w = _watch()
+    w[source] = {"max_age_h": body.max_age_h, "address": addr, "port": body.port, "down_since": None}
+    with open(WATCH, "w") as f:
+        json.dump(w, f)
+    return w[source]
+
+
+def _reachable(host: str, port: int) -> bool:
+    try:
+        with socket.create_connection((host.strip("[]"), port), timeout=5):
+            return True
+    except OSError:
+        return False
+
+
+def health_issues(now: float | None = None) -> dict:
+    """For health.collect(): replicas that stopped arriving, primaries that stopped answering."""
+    now = now or time.time()
+    issues, w = {}, _watch()
+    try:
+        recv = received(None)
+    except Exception:
+        recv = []
+    changed = False
+    for src, cfg in w.items():
+        mine = [r for r in recv if r["source"] == src and r["latest"]]
+        if cfg.get("max_age_h") and mine:
+            newest = max(snapshots.snap_time(r["latest"]).timestamp() for r in mine)
+            age_h = (now - newest) / 3600
+            if age_h > cfg["max_age_h"]:
+                issues[f"repl-{src}-stale"] = {
+                    "level": "warning", "title": f"No new replica from {src} for {int(age_h)} hours",
+                    "detail": f"The newest copy of {src}'s shared folders here is from {int(age_h)} hours ago. "
+                              f"Check {src} and its replication task."}
+        if cfg.get("address"):
+            up = DEV or _reachable(cfg["address"], int(cfg.get("port") or 5001))
+            if up and cfg.get("down_since"):
+                cfg["down_since"], changed = None, True
+            elif not up:
+                if not cfg.get("down_since"):
+                    cfg["down_since"], changed = int(now), True
+                elif now - cfg["down_since"] >= 15 * 60:            # (2 checks in a row: not just a blip)
+                    issues[f"repl-{src}-down"] = {
+                        "level": "critical", "title": f"{src} isn't answering",
+                        "detail": f"{src} ({cfg['address']}) hasn't answered for {int((now - cfg['down_since']) / 60)} minutes. "
+                                  f"If it's down, its shared folders can be brought up here from the latest replica: "
+                                  f"Snapshots > Replication > Receive > Use as shared folder (same name)."}
+    if changed:
+        with open(WATCH, "w") as f:
+            json.dump(w, f)
+    return issues
 
 
 class DeleteReplicas(BaseModel):

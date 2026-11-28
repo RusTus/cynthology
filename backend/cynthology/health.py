@@ -84,6 +84,11 @@ def collect() -> dict[str, dict]:
         issues.update(ups.health_issues())
     except Exception:
         pass
+    try:
+        from . import repl                       # (this NAS keeps replicas of another one: is it still there?)
+        issues.update(repl.health_issues())
+    except Exception:
+        pass
     c = tls.cert_info()
     if c.get("present") and c.get("kind") == "uploaded" and c.get("days_left", 999) < 14:
         issues["cert-expiry"] = {"level": "warning", "title": "HTTPS certificate expires soon",

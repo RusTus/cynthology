@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 1202 entries.
+// Generated from the English UI strings (see i18n.js). 1217 entries.
 i18nAdd("nl", {
 "Error: ": "Fout: ",
 "Settings and data are kept.": "Instellingen en gegevens blijven behouden.",
@@ -1201,5 +1201,20 @@ i18nAdd("nl", {
 "It will be used by": "Het wordt gebruikt door",
 "Installing PHP 8.3 - this takes a few minutes…": "PHP 8.3 wordt geïnstalleerd - dit duurt een paar minuten…",
 "Remove real PHP 8.3": "Echt PHP 8.3 verwijderen",
-"Install real PHP 8.3": "Echt PHP 8.3 installeren"
+"Install real PHP 8.3": "Echt PHP 8.3 installeren",
+"Watch": "Bewaken",
+"Watch…": "Bewaken…",
+"watched": "bewaakt",
+"This NAS keeps copies of the other one's shared folders. Get an alert when the copies stop arriving, or when the other NAS stops answering - then you can bring its folders up here.": "Deze NAS bewaart kopieën van de gedeelde mappen van de andere. Krijg een melding als er geen kopieën meer binnenkomen of de andere NAS niet meer antwoordt - dan kunt u zijn mappen hier in gebruik nemen.",
+"Alert when no new copy arrives for (hours, 0 = never)": "Melden als er zo lang geen nieuwe kopie komt (uren, 0 = nooit)",
+"Its address (optional: checked every 10 minutes)": "Het adres (optioneel: elke 10 minuten gecontroleerd)",
+"Failback: this copy replaces the shared folder of the same name here (the current contents are kept beside it)": "Terugzetten: deze kopie vervangt hier de gedeelde map met dezelfde naam (de huidige inhoud blijft ernaast bewaard)",
+"Replace the live shared folder": "De actieve gedeelde map",
+"with this copy? Its current contents are kept as a separate folder, nothing is deleted. Disconnect users first.": "door deze kopie vervangen? De huidige inhoud blijft als aparte map bewaard, er wordt niets verwijderd. Koppel eerst de gebruikers los.",
+"Replace the live folder": "Actieve map vervangen",
+"Replaced": "Vervangen",
+"Name of the shared folder (the same name as on the other NAS keeps paths working):": "Naam van de gedeelde map (dezelfde naam als op de andere NAS houdt paden werkend):",
+"Failed over": "Overgenomen",
+"The folder is live on this NAS. Point users at this NAS (or move its address/DNS name here).": "De map is actief op deze NAS. Verwijs gebruikers naar deze NAS (of verplaats het adres/de DNS-naam hierheen).",
+"Later, to fail back: create a replication task here that sends this folder to the original NAS, then on that NAS use 'Replace the live folder' on the copy it received.": "Later terugzetten: maak hier een replicatietaak die deze map naar de oorspronkelijke NAS stuurt, en gebruik daar 'Actieve map vervangen' op de ontvangen kopie."
 });

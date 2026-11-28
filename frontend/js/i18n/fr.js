@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 1212 entries.
+// Generated from the English UI strings (see i18n.js). 1227 entries.
 i18nAdd("fr", {
 "Error: ": "Erreur : ",
 "Settings and data are kept.": "Les réglages et les données sont conservés.",
@@ -1211,5 +1211,20 @@ i18nAdd("fr", {
 "It will be used by": "Il sera utilisé par",
 "Installing PHP 8.3 - this takes a few minutes…": "Installation de PHP 8.3 - cela prend quelques minutes…",
 "Remove real PHP 8.3": "Retirer le vrai PHP 8.3",
-"Install real PHP 8.3": "Installer le vrai PHP 8.3"
+"Install real PHP 8.3": "Installer le vrai PHP 8.3",
+"Watch": "Surveiller",
+"Watch…": "Surveiller…",
+"watched": "surveillé",
+"This NAS keeps copies of the other one's shared folders. Get an alert when the copies stop arriving, or when the other NAS stops answering - then you can bring its folders up here.": "Ce NAS garde des copies des dossiers partagés de l'autre. Soyez alerté quand les copies n'arrivent plus ou quand l'autre NAS ne répond plus - vous pourrez alors remettre ses dossiers en service ici.",
+"Alert when no new copy arrives for (hours, 0 = never)": "Alerter si aucune nouvelle copie pendant (heures, 0 = jamais)",
+"Its address (optional: checked every 10 minutes)": "Son adresse (facultatif : vérifiée toutes les 10 minutes)",
+"Failback: this copy replaces the shared folder of the same name here (the current contents are kept beside it)": "Retour : cette copie remplace ici le dossier partagé du même nom (le contenu actuel est conservé à côté)",
+"Replace the live shared folder": "Remplacer le dossier partagé actif",
+"with this copy? Its current contents are kept as a separate folder, nothing is deleted. Disconnect users first.": "par cette copie ? Son contenu actuel est conservé dans un dossier séparé, rien n'est supprimé. Déconnectez d'abord les utilisateurs.",
+"Replace the live folder": "Remplacer le dossier actif",
+"Replaced": "Remplacé",
+"Name of the shared folder (the same name as on the other NAS keeps paths working):": "Nom du dossier partagé (le même nom que sur l'autre NAS garde les chemins valides) :",
+"Failed over": "Basculé",
+"The folder is live on this NAS. Point users at this NAS (or move its address/DNS name here).": "Le dossier est actif sur ce NAS. Dirigez les utilisateurs vers ce NAS (ou déplacez son adresse/nom DNS ici).",
+"Later, to fail back: create a replication task here that sends this folder to the original NAS, then on that NAS use 'Replace the live folder' on the copy it received.": "Plus tard, pour revenir : créez ici une tâche de réplication qui envoie ce dossier au NAS d'origine, puis sur celui-ci utilisez « Remplacer le dossier actif » sur la copie reçue."
 });

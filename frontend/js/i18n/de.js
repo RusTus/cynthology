@@ -1,4 +1,4 @@
-// Generated from the English UI strings (see i18n.js). 1209 entries.
+// Generated from the English UI strings (see i18n.js). 1224 entries.
 i18nAdd("de", {
 "Error: ": "Fehler: ",
 "Settings and data are kept.": "Einstellungen und Daten bleiben erhalten.",
@@ -1208,5 +1208,20 @@ i18nAdd("de", {
 "It will be used by": "Es wird verwendet von",
 "Installing PHP 8.3 - this takes a few minutes…": "PHP 8.3 wird installiert - das dauert einige Minuten…",
 "Remove real PHP 8.3": "Echtes PHP 8.3 entfernen",
-"Install real PHP 8.3": "Echtes PHP 8.3 installieren"
+"Install real PHP 8.3": "Echtes PHP 8.3 installieren",
+"Watch": "Überwachen",
+"Watch…": "Überwachen…",
+"watched": "überwacht",
+"This NAS keeps copies of the other one's shared folders. Get an alert when the copies stop arriving, or when the other NAS stops answering - then you can bring its folders up here.": "Dieses NAS hält Kopien der freigegebenen Ordner des anderen. Erhalten Sie eine Warnung, wenn keine Kopien mehr ankommen oder das andere NAS nicht mehr antwortet - dann können Sie seine Ordner hier bereitstellen.",
+"Alert when no new copy arrives for (hours, 0 = never)": "Warnen, wenn so lange keine neue Kopie kommt (Stunden, 0 = nie)",
+"Its address (optional: checked every 10 minutes)": "Seine Adresse (optional: alle 10 Minuten geprüft)",
+"Failback: this copy replaces the shared folder of the same name here (the current contents are kept beside it)": "Rückführung: Diese Kopie ersetzt den gleichnamigen freigegebenen Ordner hier (der aktuelle Inhalt bleibt daneben erhalten)",
+"Replace the live shared folder": "Den aktiven freigegebenen Ordner",
+"with this copy? Its current contents are kept as a separate folder, nothing is deleted. Disconnect users first.": "durch diese Kopie ersetzen? Der aktuelle Inhalt bleibt als eigener Ordner erhalten, nichts wird gelöscht. Trennen Sie vorher die Benutzer.",
+"Replace the live folder": "Aktiven Ordner ersetzen",
+"Replaced": "Ersetzt",
+"Name of the shared folder (the same name as on the other NAS keeps paths working):": "Name des freigegebenen Ordners (derselbe Name wie auf dem anderen NAS erhält die Pfade):",
+"Failed over": "Übernommen",
+"The folder is live on this NAS. Point users at this NAS (or move its address/DNS name here).": "Der Ordner ist auf diesem NAS aktiv. Leiten Sie die Benutzer auf dieses NAS (oder verlegen Sie Adresse/DNS-Namen hierher).",
+"Later, to fail back: create a replication task here that sends this folder to the original NAS, then on that NAS use 'Replace the live folder' on the copy it received.": "Später zurückführen: Legen Sie hier eine Replikationsaufgabe an, die diesen Ordner an das ursprüngliche NAS sendet, und verwenden Sie dort 'Aktiven Ordner ersetzen' auf der empfangenen Kopie."
 });

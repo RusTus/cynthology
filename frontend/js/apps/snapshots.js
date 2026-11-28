@@ -138,13 +138,26 @@ async function replicationEditor(pane, t, shares, done, luns = []) {
 
 // ---------- replication: this NAS receives ----------
 async function replicationReceive(pane) {
-  const [senders, received] = await Promise.all([API.get("/api/replication/senders"), API.get("/api/replication/received")]);
+  const [senders, received, watch, shares] = await Promise.all([API.get("/api/replication/senders"), API.get("/api/replication/received"),
+    API.get("/api/replication/watch").catch(() => ({})), API.get("/api/shares").catch(() => [])]);
+  const localNames = new Set(shares.map((x) => x.name.toLowerCase()));
+  const watchEdit = (src) => {
+    const w = { max_age_h: 26, address: "", port: 5001, ...(watch[src] || {}) };
+    const close = modal(`${t("Watch")} ${src}`, h("div", { class: "form" },
+      h("p", { class: "muted" }, t("This NAS keeps copies of the other one's shared folders. Get an alert when the copies stop arriving, or when the other NAS stops answering - then you can bring its folders up here.")),
+      h("label", {}, "Alert when no new copy arrives for (hours, 0 = never)", h("input", { type: "number", min: 0, value: w.max_age_h, oninput: (e) => (w.max_age_h = +e.target.value) })),
+      h("label", {}, "Its address (optional: checked every 10 minutes)", h("input", { value: w.address, placeholder: "192.168.1.20", oninput: (e) => (w.address = e.target.value.trim()) })),
+      h("label", {}, "Port", h("input", { type: "number", value: w.port, oninput: (e) => (w.port = +e.target.value) }))),
+      [["Cancel", null], ["Save", async () => { await act(() => API.put(`/api/replication/watch/${src}`, w), "Saved"); close(); redraw(); }, "primary"]]);
+  };
   const redraw = () => { pane.replaceChildren(); replicationReceive(pane); };
   const nf = { source: "", public_key: "" };
   pane.append(h("h2", {}, "Receive replicas"),
     h("h3", { class: "pc-group" }, "NAS devices allowed to send replicas here"),
-    senders.length ? h("table", {}, senders.map((s) => h("tr", {}, h("td", {}, h("b", {}, s.source)), h("td", { class: "muted mono" }, s.comment || "…" + s.fingerprint),
-      h("td", {}, h("button", { class: "btn danger", onclick: async () => {
+    senders.length ? h("table", {}, senders.map((s) => h("tr", {}, h("td", {}, h("b", {}, s.source),
+        watch[s.source] ? h("div", { class: "muted", style: "font-size:12px" }, `${t("watched")}` + (watch[s.source].address ? ` · ${watch[s.source].address}` : "")) : null),
+      h("td", { class: "muted mono" }, s.comment || "…" + s.fingerprint),
+      h("td", { style: "white-space:nowrap" }, h("button", { class: "btn", onclick: () => watchEdit(s.source) }, "Watch…"), h("button", { class: "btn danger", onclick: async () => {
         if (!confirm(`Stop accepting replicas from ${s.source}? Replicas already here are kept.`)) return;
         await act(() => API.del(`/api/replication/senders/${s.source}`), "Removed"); redraw();
       } }, "Remove")))))
@@ -166,10 +179,20 @@ async function replicationReceive(pane) {
               const name = prompt("Name of the new LUN (lowercase letters, digits, -):", `${r.lun}-${r.source}`.toLowerCase().replace(/[^a-z0-9-]/g, "-").slice(0, 31)); if (!name) return;
               await act(() => API.post("/api/san/luns/from-replica", { source: r.source, lun: r.lun, snapshot: pick.value, new_name: name }), `LUN ${name} created - map it to a target in SAN Manager`);
             } }, "Use as LUN")
-            : h("button", { class: "btn primary", title: "Make this version available as a normal, writable shared folder", onclick: async () => {
-              const name = prompt("Name of the new shared folder:", `${r.share}-${r.source}`); if (!name) return;
-              await act(() => API.post("/api/replication/failover", { source: r.source, share: r.share, snapshot: pick.value, new_name: name }), `Shared folder ${name} created`);
-            } }, "Use as shared folder"),
+            : localNames.has(r.share.toLowerCase())
+              ? h("button", { class: "btn", title: t("Failback: this copy replaces the shared folder of the same name here (the current contents are kept beside it)"), onclick: async () => {
+                  if (!confirm(t("Replace the live shared folder") + ` "${r.share}" ` + t("with this copy? Its current contents are kept as a separate folder, nothing is deleted. Disconnect users first."))) return;
+                  await act(() => API.post("/api/replication/failover", { source: r.source, share: r.share, snapshot: pick.value, new_name: r.share, replace: true }), "Replaced"); redraw();
+                } }, "Replace the live folder")
+              : h("button", { class: "btn primary", title: "Make this version available as a normal, writable shared folder", onclick: async () => {
+                  // (the same name as on the other NAS: \\nas\\docs keeps working once clients point here)
+                  const name = prompt(t("Name of the shared folder (the same name as on the other NAS keeps paths working):"), r.share); if (!name) return;
+                  const ok = await act(() => API.post("/api/replication/failover", { source: r.source, share: r.share, snapshot: pick.value, new_name: name }), `Shared folder ${name} created`);
+                  if (ok) modal(t("Failed over"), h("div", { class: "form" },
+                    h("p", {}, t("The folder is live on this NAS. Point users at this NAS (or move its address/DNS name here).")),
+                    h("p", { class: "muted" }, t("Later, to fail back: create a replication task here that sends this folder to the original NAS, then on that NAS use 'Replace the live folder' on the copy it received."))));
+                  redraw();
+                } }, "Use as shared folder"),
             h("button", { class: "btn danger", onclick: async () => {
               if (!confirm(`Delete all ${r.count} replica(s) of ${r.lun ? "LUN " + r.lun : r.share} from ${r.source}?`)) return;
               await act(() => API.post("/api/replication/received/delete", { source: r.source, share: r.share }), "Deleted"); redraw();

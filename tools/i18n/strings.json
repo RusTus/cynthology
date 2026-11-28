@@ -1264,5 +1264,20 @@
 "It will be used by",
 "Installing PHP 8.3 - this takes a few minutes…",
 "Remove real PHP 8.3",
-"Install real PHP 8.3"
+"Install real PHP 8.3",
+"Watch",
+"Watch…",
+"watched",
+"This NAS keeps copies of the other one's shared folders. Get an alert when the copies stop arriving, or when the other NAS stops answering - then you can bring its folders up here.",
+"Alert when no new copy arrives for (hours, 0 = never)",
+"Its address (optional: checked every 10 minutes)",
+"Failback: this copy replaces the shared folder of the same name here (the current contents are kept beside it)",
+"Replace the live shared folder",
+"with this copy? Its current contents are kept as a separate folder, nothing is deleted. Disconnect users first.",
+"Replace the live folder",
+"Replaced",
+"Name of the shared folder (the same name as on the other NAS keeps paths working):",
+"Failed over",
+"The folder is live on this NAS. Point users at this NAS (or move its address/DNS name here).",
+"Later, to fail back: create a replication task here that sends this folder to the original NAS, then on that NAS use 'Replace the live folder' on the copy it received."
 ]

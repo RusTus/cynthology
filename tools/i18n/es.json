@@ -1264,5 +1264,20 @@
 "It will be used by": "Lo usará",
 "Installing PHP 8.3 - this takes a few minutes…": "Instalando PHP 8.3; tarda unos minutos…",
 "Remove real PHP 8.3": "Quitar PHP 8.3 real",
-"Install real PHP 8.3": "Instalar PHP 8.3 real"
+"Install real PHP 8.3": "Instalar PHP 8.3 real",
+"Watch": "Vigilar",
+"Watch…": "Vigilar…",
+"watched": "vigilado",
+"This NAS keeps copies of the other one's shared folders. Get an alert when the copies stop arriving, or when the other NAS stops answering - then you can bring its folders up here.": "Este NAS guarda copias de las carpetas compartidas del otro. Reciba una alerta cuando dejen de llegar copias o el otro NAS deje de responder; entonces puede poner sus carpetas en marcha aquí.",
+"Alert when no new copy arrives for (hours, 0 = never)": "Avisar si no llega una copia nueva en (horas, 0 = nunca)",
+"Its address (optional: checked every 10 minutes)": "Su dirección (opcional: se comprueba cada 10 minutos)",
+"Failback: this copy replaces the shared folder of the same name here (the current contents are kept beside it)": "Retorno: esta copia sustituye aquí a la carpeta compartida del mismo nombre (el contenido actual se conserva al lado)",
+"Replace the live shared folder": "¿Sustituir la carpeta compartida activa",
+"with this copy? Its current contents are kept as a separate folder, nothing is deleted. Disconnect users first.": "por esta copia? Su contenido actual se conserva en una carpeta aparte; no se borra nada. Desconecte antes a los usuarios.",
+"Replace the live folder": "Sustituir la carpeta activa",
+"Replaced": "Sustituida",
+"Name of the shared folder (the same name as on the other NAS keeps paths working):": "Nombre de la carpeta compartida (el mismo nombre que en el otro NAS mantiene las rutas):",
+"Failed over": "Conmutado",
+"The folder is live on this NAS. Point users at this NAS (or move its address/DNS name here).": "La carpeta está activa en este NAS. Dirija a los usuarios a este NAS (o mueva aquí su dirección/nombre DNS).",
+"Later, to fail back: create a replication task here that sends this folder to the original NAS, then on that NAS use 'Replace the live folder' on the copy it received.": "Más tarde, para volver: cree aquí una tarea de replicación que envíe esta carpeta al NAS original y, en ese NAS, use 'Sustituir la carpeta activa' en la copia recibida."
 }
