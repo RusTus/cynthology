@@ -83,6 +83,11 @@ def regenerate_share_configs():
                 shares.sync_group_perms(sh["path"], sh, force=False)
     except Exception as e:
         print("could not regenerate share configs:", e)
+    try:
+        from . import pkgweb
+        pkgweb.isolate_existing()        # (package web folders: readable by the web server, not by other packages)
+    except Exception as e:
+        print("could not update package web folder permissions:", e)
 
 
 FRONTEND = os.path.abspath(os.environ.get("CYN_WEB", os.path.join(os.path.dirname(__file__), "..", "..", "frontend")))

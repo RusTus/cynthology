@@ -9,9 +9,10 @@ components. It runs on Debian 13.
 > rebuild, expansion, upgrade from the previous release with data), updates are signed and can be
 > undone, and the code had a security review. As with any NAS: keep a backup of anything important.
 >
-> Known limits in this beta: package web apps (Web Station) share one web server group, so a
-> compromised package web app could read another package's web folder; packages that ask for root
-> rights get them (the install dialog says so) - install those only from sources you trust.
+> Known limit in this beta: packages that ask for root rights get them (the install dialog says so) -
+> install those only from sources you trust. (SynoCommunity packages share the group
+> "synocommunity", as on a Synology, so they can read each other's data folders; their web folders
+> are kept apart.)
 
 ## Install
 

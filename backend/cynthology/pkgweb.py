@@ -72,6 +72,46 @@ STANDIN_ICONS = {
 }
 
 
+def _primary_group(user: str) -> str:
+    if DEV:
+        return "http"
+    import grp
+    import pwd
+    try:
+        return grp.getgrgid(pwd.getpwnam(user).pw_gid).gr_name
+    except KeyError:
+        return "http"
+
+
+def _web_perms(dst: str, user: str) -> None:
+    """A package's web folder: <package account>:http, 750/640, folders setgid (so what the app writes stays
+    readable by the web server, which is in the http group); nobody else can read it - not other packages."""
+    run(["chown", "-R", "-h", f"{user}:http", dst])
+    run(["chmod", "-R", "u+rwX,g+rX,g-w,o-rwx", dst])
+    run(["find", dst, "-type", "d", "-exec", "chmod", "g+s", "{}", "+"])
+
+
+def isolate_existing() -> None:
+    """At startup: web folders of packages installed by earlier versions get the same permissions."""
+    if DEV or not os.path.isdir(WEB_PACKAGES):
+        return
+    for ws in load().values():
+        for sv in ws.get("services", []):
+            dst = os.path.join(WEB_PACKAGES, sv.get("root", ""))
+            if not sv.get("php") or not sv.get("root") or not os.path.isdir(dst) or os.path.islink(dst):
+                continue
+            st = os.stat(dst)
+            if st.st_mode & 0o2000:
+                continue                       # (done before)
+            import pwd
+            try:
+                user = pwd.getpwuid(st.st_uid).pw_name
+            except KeyError:
+                continue
+            _web_perms(dst, user)
+    reload_all()
+
+
 def _own_account(pkg: str, user: str) -> bool:
     """Is user this package's own account: sc-<pkg>, or the account it was given (system range, home in the
     package's folder)? Any other account (another package's, a NAS user's, cynrepl, mysql...) is refused."""
@@ -223,7 +263,9 @@ def render_nginx(st: dict) -> list[str]:
 def render_fpm_pool(s: dict) -> str:
     php = s["php"]
     root = os.path.join(WEB_PACKAGES, s["root"])
-    lines = [f"[cyn-pkg-{s['service']}]", f"user = {php['user']}", "group = http",
+    # (the pool's group is the package account's own - not the web server's "http": one package's PHP must not
+    # be able to read another package's web folder, which belong to <package account>:http, mode 750)
+    lines = [f"[cyn-pkg-{s['service']}]", f"user = {php['user']}", f"group = {php.get('group') or 'http'}",
              f"listen = /run/php/cyn-pkg-{s['service']}.sock", "listen.owner = www-data", "listen.group = www-data",
              "listen.mode = 0660", "pm = ondemand", "pm.max_children = 8", "pm.process_idle_timeout = 60s",
              f"php_admin_value[open_basedir] = {':'.join([root, *php.get('dirs', []), '/tmp', '/var/packages/', '/usr/share/php', '/dev/urandom'])}"]
@@ -322,9 +364,7 @@ def apply_package(pkg: str, base: str, copy: bool = True, publish: bool = True) 
             run(["chown", "-h", f"{user}:http", dst])
         # (no --delete: an upgrade must not wipe what the app wrote into its own folder)
         run(drop + ["rsync", "-a", "--no-owner", "--no-group", src.rstrip("/") + "/", dst + "/"])
-        run(["chown", "-R", "-h", f"{user if drop else 'root'}:http", dst])
-        run(["chmod", "-R", "u+rwX,g+rX,o-rwx", dst])
-        os.chmod(dst, 0o750)                     # (package account + web server group only)
+        _web_perms(dst, user if drop else "root")
     if not publish:
         return ws
     st = load()
@@ -420,7 +460,7 @@ def reload_all(st: dict | None = None) -> None:
         ensure_php(mine)
         for s in mine:
             with open(os.path.join(d, f"cyn-pkg-{s['service']}.conf"), "w") as f:
-                f.write(render_fpm_pool(s))
+                f.write(render_fpm_pool({**s, "php": {**s["php"], "group": _primary_group(s["php"]["user"])}}))
         if not DEV:
             run(["systemctl", "reload-or-restart", f"php{v}-fpm"], check=False)
     if any(s["type"] == "apache_php" for ws in st.values() for s in ws["services"]):

@@ -389,29 +389,30 @@ def _deps_list(info: dict) -> list[str]:
 
 
 def _dynamic_wizard(script: str, info: dict, status: str = "INSTALL") -> list:
-    """DSM runs install_uifile.sh, which writes the wizard JSON to $SYNOPKG_TEMP_LOGFILE.
-    We run it unprivileged (nobody) since the package is not trusted yet."""
+    """DSM runs install_uifile.sh, which writes the wizard JSON to $SYNOPKG_TEMP_LOGFILE. The package isn't
+    trusted yet (nobody agreed to install it), so the script runs in a throw-away sandbox: a temporary
+    account of its own, no network, nothing writable but its own /tmp, at most 30 seconds - everything it
+    started is ended with it."""
     if DEV:
         return []
     import subprocess
-    out = tempfile.NamedTemporaryFile(prefix="cyn-wiz-", suffix=".json", delete=False)
-    out.close()
-    os.chmod(out.name, 0o666)
     os.chmod(script, 0o755)
-    env = {"PATH": f"{SHIM_PATH}:/usr/bin:/bin", "SYNOPKG_TEMP_LOGFILE": out.name,
+    env = {"PATH": f"{SHIM_PATH}:/usr/bin:/bin", "SYNOPKG_TEMP_LOGFILE": "/tmp/wizard.json",
            "SYNOPKG_PKGNAME": info.get("package", ""), "SYNOPKG_PKGVER": info.get("version", ""),
            "SYNOPKG_DSM_VERSION_MAJOR": str(DSM_MAJOR), "SYNOPKG_DSM_VERSION_MINOR": str(DSM_MINOR),
            "SYNOPKG_PKG_STATUS": status}
+    cmd = ["systemd-run", "--quiet", "--pipe", "--wait", "--collect", "--service-type=exec",
+           *[f"--property={p}" for p in ("DynamicUser=yes", "ProtectSystem=strict", "ProtectHome=yes", "PrivateTmp=yes",
+                                         "PrivateNetwork=yes", "NoNewPrivileges=yes", "RuntimeMaxSec=30", "MemoryMax=256M",
+                                         "TasksMax=64", "WorkingDirectory=/tmp")],
+           *[f"--setenv={k}={v}" for k, v in env.items()],
+           "--", "/bin/bash", "-c", 'bash "$0" >/dev/null 2>&1 </dev/null; cat "$SYNOPKG_TEMP_LOGFILE" 2>/dev/null', script]
     try:
-        subprocess.run(["setpriv", "--reuid=nobody", "--regid=nogroup", "--clear-groups", "--", "/bin/bash", script],
-                       env=env, cwd="/tmp", capture_output=True, timeout=30)
-        with open(out.name) as f:
-            # (DSM's parser accepts raw line breaks inside strings - many packages' wizards contain them)
-            return json.loads(f.read(), strict=False)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        # (DSM's parser accepts raw line breaks inside strings - many packages' wizards contain them)
+        return json.loads(r.stdout, strict=False) if r.stdout.strip() else []
     except (OSError, ValueError, subprocess.SubprocessError):
         return []
-    finally:
-        os.remove(out.name)
 
 
 def _data_shares(base: str, wizard: dict) -> None:
@@ -537,9 +538,10 @@ def _privilege(stage_or_pkg: str, name: str) -> tuple[str, str, bool]:
         pass
     try:
         g = grp.getgrnam(group)
-        # an existing group only when it's a package group (SynoCommunity's shared sc-download, ...): never
+        # an existing group only when it's a package group (SynoCommunity's shared synocommunity and sc-download,
+        # ...): never
         # mysql, http, users or a NAS user's group - the package would get their files
-        if g.gr_gid < 100 or g.gr_gid >= 1000 or not (group.startswith("sc-") or group == user):
+        if g.gr_gid < 100 or g.gr_gid >= 1000 or not (group.startswith("sc-") or group in (user, "synocommunity")):
             raise HTTPException(400, f"the package wants the existing group {group!r}, which is not allowed")
     except KeyError:
         pass

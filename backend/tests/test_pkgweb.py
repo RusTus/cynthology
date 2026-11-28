@@ -57,3 +57,9 @@ def test_apache_https_side():
     conf = pkgweb.render_apache(st, "/c.pem", "/k.pem")
     assert conf.count("Alias /owncloud ") == 2 and "Listen 127.0.0.1:8443" in conf and "SSLCertificateFile /c.pem" in conf
     assert "8443" not in pkgweb.render_apache(st)                   # (no certificate yet: HTTP only)
+
+
+def test_pool_runs_with_the_package_group_not_http():
+    sv = {"service": "a", "root": "a", "php": {"user": "sc-a", "group": "synocommunity", "settings": {}}}
+    pool = pkgweb.render_fpm_pool(sv)
+    assert "group = synocommunity" in pool and "group = http" not in pool
